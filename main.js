@@ -8,9 +8,9 @@ const resetCamera = document.getElementById("resetCamera");
 const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
 
-const defaultCameraTarget = "0m 10m 0m";
-const defaultCameraOrbit = "0deg 0deg auto";
-const defaultFieldOfView = "10deg";
+const defaultCameraTarget = "0m 6m 0m";
+const defaultCameraOrbit = "180deg 75deg auto";
+const defaultFieldOfView = "24deg";
 const clayColor = [0.86, 0.89, 0.92, 1];
 
 let clayEnabled = false;
