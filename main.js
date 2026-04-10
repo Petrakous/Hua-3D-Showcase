@@ -7,13 +7,35 @@ const fullscreenToggle = document.getElementById("fullscreenToggle");
 const resetCamera = document.getElementById("resetCamera");
 const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
+const nightModeToggle = document.getElementById("nightModeToggle");
 
+const dayModelSrc = "../HuaMainDraco.glb";
+const nightModelSrc = "../HuaMainNightDraco.glb";
 const defaultCameraOrbit = "0deg 0deg auto";
 const defaultFieldOfView = "10deg";
 const clayColor = [0.86, 0.89, 0.92, 1];
+const dayView = {
+  orientation: "180deg 90deg 0deg",
+  cameraTarget: "auto auto auto",
+  cameraOrbit: defaultCameraOrbit,
+  fieldOfView: defaultFieldOfView,
+  minCameraOrbit: "auto 55deg auto",
+  maxCameraOrbit: "auto 85deg auto",
+};
+const nightView = {
+  orientation: "0deg 0deg 0deg",
+  cameraTarget: "auto auto auto",
+  cameraOrbit: defaultCameraOrbit,
+  fieldOfView: defaultFieldOfView,
+  minCameraOrbit: "auto 55deg auto",
+  maxCameraOrbit: "auto 85deg auto",
+};
 
 let clayEnabled = false;
+let nightModeEnabled = false;
 let originalMaterials = [];
+const preloadedModelUrls = new Map();
+const preloadPromises = new Map();
 
 function setProgress(value) {
   progressBar.style.width = `${Math.max(0, Math.min(100, Math.round(value * 100)))}%`;
@@ -25,10 +47,25 @@ function setStatus(title, text) {
 }
 
 function frameDefaultView() {
-  modelViewer.cameraTarget = "auto auto auto";
-  modelViewer.cameraOrbit = defaultCameraOrbit;
-  modelViewer.fieldOfView = defaultFieldOfView;
+  const view = nightModeEnabled ? nightView : dayView;
+  modelViewer.orientation = view.orientation;
+  modelViewer.cameraTarget = view.cameraTarget;
+  modelViewer.cameraOrbit = view.cameraOrbit;
+  modelViewer.fieldOfView = view.fieldOfView;
+  modelViewer.minCameraOrbit = view.minCameraOrbit;
+  modelViewer.maxCameraOrbit = view.maxCameraOrbit;
   modelViewer.jumpCameraToGoal();
+}
+
+async function resetViewAfterLoad() {
+  frameDefaultView();
+  await modelViewer.updateComplete;
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      frameDefaultView();
+    });
+  });
 }
 
 function cacheMaterialState() {
@@ -62,6 +99,52 @@ function restoreMaterials() {
   }
 }
 
+function preloadModel(src) {
+  if (preloadedModelUrls.has(src)) {
+    return Promise.resolve(preloadedModelUrls.get(src));
+  }
+
+  if (preloadPromises.has(src)) {
+    return preloadPromises.get(src);
+  }
+
+  const link = document.createElement("link");
+  link.rel = "preload";
+  link.as = "fetch";
+  link.href = src;
+  link.crossOrigin = "anonymous";
+  document.head.appendChild(link);
+
+  const preloadPromise = fetch(src, { cache: "force-cache" })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to preload model: ${src}`);
+      }
+
+      return response.blob();
+    })
+    .then((blob) => {
+      const objectUrl = URL.createObjectURL(blob);
+      preloadedModelUrls.set(src, objectUrl);
+      return objectUrl;
+    })
+    .catch(() => src)
+    .finally(() => {
+      preloadPromises.delete(src);
+    });
+
+  preloadPromises.set(src, preloadPromise);
+  return preloadPromise;
+}
+
+async function getModelUrl(src) {
+  if (preloadedModelUrls.has(src)) {
+    return preloadedModelUrls.get(src);
+  }
+
+  return preloadModel(src);
+}
+
 modelViewer.addEventListener("progress", (event) => {
   setProgress(event.detail.totalProgress);
   setStatus(
@@ -70,12 +153,16 @@ modelViewer.addEventListener("progress", (event) => {
   );
 });
 
-modelViewer.addEventListener("load", () => {
+modelViewer.addEventListener("load", async () => {
   document.body.classList.add("is-loaded");
   setProgress(1);
   setStatus("3D hero ενεργό", "Το μοντέλο φορτώθηκε και η κάμερα κάνει drone-style orbit γύρω από το campus.");
   cacheMaterialState();
-  frameDefaultView();
+  await resetViewAfterLoad();
+
+  if (clayEnabled) {
+    applyClayMaterials();
+  }
 });
 
 modelViewer.addEventListener("error", (event) => {
@@ -84,7 +171,7 @@ modelViewer.addEventListener("error", (event) => {
 });
 
 resetCamera.addEventListener("click", () => {
-  frameDefaultView();
+  resetViewAfterLoad();
 });
 
 fullscreenToggle.addEventListener("click", async () => {
@@ -116,6 +203,26 @@ materialToggle.addEventListener("click", () => {
   }
 });
 
+nightModeToggle.addEventListener("click", async () => {
+  if (nightModeToggle.disabled) {
+    return;
+  }
+
+  nightModeEnabled = !nightModeEnabled;
+  nightModeToggle.disabled = true;
+  nightModeToggle.setAttribute("aria-pressed", String(nightModeEnabled));
+  nightModeToggle.textContent = nightModeEnabled ? "Day mode" : "Night mode";
+
+  try {
+    const nextSrc = nightModeEnabled ? nightModelSrc : dayModelSrc;
+    const resolvedSrc = await getModelUrl(nextSrc);
+    modelViewer.src = resolvedSrc;
+    await modelViewer.updateComplete;
+  } finally {
+    nightModeToggle.disabled = false;
+  }
+});
+
 document.addEventListener("scroll", () => {
   siteHeader.classList.toggle("is-solid", window.scrollY > 24);
 });
@@ -124,4 +231,6 @@ document.addEventListener("fullscreenchange", () => {
   fullscreenToggle.textContent = document.fullscreenElement ? "Έξοδος πλήρους" : "Πλήρης οθόνη";
 });
 
+preloadModel(nightModelSrc);
+preloadModel(dayModelSrc);
 setProgress(0.08);
