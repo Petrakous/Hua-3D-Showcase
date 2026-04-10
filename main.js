@@ -8,6 +8,7 @@ const resetCamera = document.getElementById("resetCamera");
 const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
 
+const defaultCameraTarget = "0m 6m 0m";
 const defaultCameraOrbit = "0deg 0deg auto";
 const defaultFieldOfView = "10deg";
 const clayColor = [0.86, 0.89, 0.92, 1];
@@ -25,7 +26,7 @@ function setStatus(title, text) {
 }
 
 function frameDefaultView() {
-  modelViewer.cameraTarget = "auto auto auto";
+  modelViewer.cameraTarget = defaultCameraTarget;
   modelViewer.cameraOrbit = defaultCameraOrbit;
   modelViewer.fieldOfView = defaultFieldOfView;
   modelViewer.jumpCameraToGoal();
