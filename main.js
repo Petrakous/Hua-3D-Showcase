@@ -9,8 +9,8 @@ const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
 const nightModeToggle = document.getElementById("nightModeToggle");
 
-const dayModelSrc = "../HuaMainDraco.glb";
-const nightModelSrc = "../HuaMainNightDraco.glb";
+const dayModelSrc = "./HuaMainDraco.glb";
+const nightModelSrc = "./HuaMainNightDraco.glb";
 const defaultCameraOrbit = "0deg 0deg auto";
 const defaultFieldOfView = "10deg";
 const clayColor = [0.86, 0.89, 0.92, 1];
