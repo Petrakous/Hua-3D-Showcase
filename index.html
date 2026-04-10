@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="el">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HUA 3D Campus Presentation</title>
+    <meta
+      name="description"
+      content="Landing page inspired by hua.gr with a full-screen interactive GLB campus hero."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Cormorant+Garamond:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script
+      type="module"
+      src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"
+    ></script>
+  </head>
+  <body>
+    <header class="site-header" id="siteHeader">
+      <a class="brand" href="#top">
+        <span class="brand-mark"></span>
+        <span class="brand-text">
+          <strong>Χαροκόπειο Πανεπιστήμιο</strong>
+          <small>3D Campus Presentation</small>
+        </span>
+      </a>
+    </header>
+
+    <div class="header-actions">
+      <button class="header-button" id="fullscreenToggle" type="button">Πλήρης οθόνη</button>
+    </div>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="heroTitle">
+        <div class="hero-media">
+          <model-viewer
+            id="siteModel"
+            src="./HuaMainDraco.glb"
+            alt="Τρισδιάστατο μοντέλο του campus"
+            camera-controls
+            auto-rotate
+            auto-rotate-delay="0"
+            rotation-per-second="-10deg"
+            touch-action="none"
+            orientation="180deg 90deg 0deg"
+            camera-target="0m 6m 0m"
+            camera-orbit="180deg 75deg auto"
+            min-camera-orbit="auto 55deg auto"
+            max-camera-orbit="auto 85deg auto"
+            field-of-view="24deg"
+            min-field-of-view="5deg"
+            max-field-of-view="40deg"
+            interpolation-decay="140"
+            interaction-prompt="none"
+            environment-image="neutral"
+            exposure="1.35"
+            shadow-intensity="0.9"
+            tone-mapping="commerce"
+            loading="eager"
+          ></model-viewer>
+
+          <div class="hero-gradient"></div>
+          <div class="hero-noise"></div>
+        </div>
+
+        <div class="hero-overlay">
+          <div class="hero-button-row">
+            <button class="secondary-link" id="resetCamera" type="button">Επαναφορά θέας</button>
+            <button class="chip" id="turntableToggle" type="button" aria-pressed="true">
+              Παύση drone orbit
+            </button>
+            <button class="chip" id="materialToggle" type="button" aria-pressed="false">
+              Clay view
+            </button>
+          </div>
+
+          <div class="hero-status" id="viewerStatus">
+            <span class="status-label" id="statusPill">Φόρτωση μοντέλου</span>
+            <div class="progress-track" aria-hidden="true">
+              <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <p id="statusCopy">
+              Προετοιμασία του 3D viewer και σύνδεση με το Draco-compressed GLB.
+            </p>
+          </div>
+        </div>
+
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
