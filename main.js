@@ -243,9 +243,11 @@ function updateQualityToggle() {
   }
 
   qualityToggle.hidden = !hdAvailable;
+  qualityToggle.style.display = hdAvailable ? "inline-flex" : "none";
   qualityToggle.setAttribute("aria-pressed", String(hdEnabled));
-  qualityToggle.textContent = "HD";
-  qualityToggle.disabled = false;
+  qualityToggle.setAttribute("aria-label", "HD");
+  qualityToggle.title = "HD";
+  qualityToggle.disabled = !hdAvailable;
 }
 
 function setDialRotation(rotation) {
@@ -299,15 +301,15 @@ async function applyActiveModelSelection() {
   if (nextSource === currentModelSource) {
     setStatusOverlayState(false);
     setStatus(
-      "Το μοντέλο είναι έτοιμο",
-      `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""} είναι ήδη ενεργό.`
+      "Model ready",
+      `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""} is already active.`
     );
     return;
   }
 
   setControlsBusy(true);
   setStatusOverlayState(false);
-  setStatus("Αλλαγή μοντέλου", `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""} φορτώνει...`);
+  setStatus("Switching model", `Loading ${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}...`);
 
   try {
     const resolvedSource = await getModelUrl(nextSource);
@@ -332,6 +334,7 @@ async function setActiveTimeStage(stage, direction = 0) {
   }
 
   activeTimeStage = stage;
+  updateQualityToggle();
   updateTimeUi(direction);
   await applyActiveModelSelection();
 }
@@ -368,15 +371,15 @@ modelViewer.addEventListener("progress", (event) => {
   setStatusOverlayState(false);
   setProgress(event.detail.totalProgress);
   setStatus(
-    event.detail.totalProgress >= 1 ? "Το μοντέλο είναι έτοιμο" : "Φόρτωση μοντέλου",
-    `${Math.round(event.detail.totalProgress * 100)}% ολοκληρώθηκε`
+    event.detail.totalProgress >= 1 ? "Model ready" : "Loading model",
+    `${Math.round(event.detail.totalProgress * 100)}% complete`
   );
 });
 
 modelViewer.addEventListener("load", async () => {
   document.body.classList.add("is-loaded");
   setProgress(1);
-  setStatus("3D hero ενεργό", "Το μοντέλο φορτώθηκε και η κάμερα κάνει drone-style orbit γύρω από το campus.");
+  setStatus("3D hero active", "The model has loaded and the camera is orbiting around the campus.");
   cacheMaterialState();
   await resetViewAfterLoad();
 
@@ -392,7 +395,7 @@ modelViewer.addEventListener("load", async () => {
 modelViewer.addEventListener("error", (event) => {
   document.body.classList.add("is-error");
   setStatusOverlayState(false);
-  setStatus("Πρόβλημα asset", event.detail?.type || "Το μοντέλο δεν έγινε render σωστά.");
+  setStatus("Asset issue", event.detail?.type || "The model did not render correctly.");
   setControlsBusy(false);
 });
 
@@ -424,13 +427,15 @@ turntableToggle.addEventListener("click", () => {
   const shouldRotate = !modelViewer.autoRotate;
   modelViewer.autoRotate = shouldRotate;
   turntableToggle.setAttribute("aria-pressed", String(shouldRotate));
-  turntableToggle.textContent = "Drone Orbit";
+  turntableToggle.setAttribute("aria-label", shouldRotate ? "Rotate on" : "Rotate off");
+  turntableToggle.title = shouldRotate ? "Rotate on" : "Rotate off";
 });
 
 materialToggle.addEventListener("click", () => {
   clayEnabled = !clayEnabled;
   materialToggle.setAttribute("aria-pressed", String(clayEnabled));
-  materialToggle.textContent = clayEnabled ? "Textured view" : "Clay view";
+  materialToggle.setAttribute("aria-label", clayEnabled ? "Textured View" : "Clay View");
+  materialToggle.title = clayEnabled ? "Textured View" : "Clay View";
 
   if (clayEnabled) {
     applyClayMaterials();
@@ -525,7 +530,9 @@ document.addEventListener("scroll", () => {
 });
 
 document.addEventListener("fullscreenchange", () => {
-  fullscreenToggle.textContent = document.fullscreenElement ? "Έξοδος πλήρους" : "Πλήρης οθόνη";
+  const fullscreenLabel = document.fullscreenElement ? "Exit Fullscreen" : "Fullscreen";
+  fullscreenToggle.setAttribute("aria-label", fullscreenLabel);
+  fullscreenToggle.title = fullscreenLabel;
 });
 
 updateQualityToggle();

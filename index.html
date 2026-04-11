@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="el">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>HUA 3D Campus Presentation</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta
       name="description"
       content="Landing page inspired by hua.gr with a full-screen interactive GLB campus hero."
@@ -25,15 +26,26 @@
       <div class="brand">
         <span class="brand-mark"></span>
         <span class="brand-text">
-          <strong>Χαροκόπειο Πανεπιστήμιο</strong>
+          <strong>Harokopio University</strong>
           <small>3D Campus Presentation</small>
         </span>
       </div>
     </header>
 
     <div class="header-actions">
-      <button class="header-button" id="qualityToggle" type="button" aria-pressed="false">HD</button>
-      <button class="header-button" id="fullscreenToggle" type="button">Πλήρης οθόνη</button>
+      <button class="header-button icon-button" id="qualityToggle" type="button" aria-pressed="false" aria-label="HD" title="HD">
+        <span class="control-icon control-icon--hd" aria-hidden="true">HD</span>
+      </button>
+      <button class="header-button icon-button" id="fullscreenToggle" type="button" aria-label="Fullscreen" title="Fullscreen">
+        <span class="control-icon control-icon--fullscreen" aria-hidden="true">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 3.5H3.5V7"></path>
+            <path d="M13 3.5h3.5V7"></path>
+            <path d="M7 16.5H3.5V13"></path>
+            <path d="M13 16.5h3.5V13"></path>
+          </svg>
+        </span>
+      </button>
     </div>
 
     <main id="top">
@@ -42,7 +54,7 @@
           <model-viewer
             id="siteModel"
             src="./HuaDayBest1_web.glb"
-            alt="Τρισδιάστατο μοντέλο του campus"
+            alt="3D model of the campus"
             camera-controls
             auto-rotate
             auto-rotate-delay="0"
@@ -98,22 +110,42 @@
 
         <div class="hero-overlay">
           <div class="hero-button-row">
-            <button class="secondary-link" id="resetCamera" type="button">Επαναφορά θέσης</button>
-            <button class="chip" id="turntableToggle" type="button" aria-pressed="true">
-              Drone Orbit
+            <button class="secondary-link icon-button" id="resetCamera" type="button" aria-label="Reset" title="Reset">
+              <span class="control-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17.2 16.9A7.8 7.8 0 1 1 15.4 4.9" />
+                  <path d="M15.4 7L18.9 5.35" />
+                  <path d="M15.4 4.9L16.95 2.25" />
+                </svg>
+              </span>
             </button>
-            <button class="chip" id="materialToggle" type="button" aria-pressed="false">
-              Clay view
+            <button class="chip icon-button" id="turntableToggle" type="button" aria-pressed="true" aria-label="Rotate" title="Rotate">
+              <span class="control-icon control-icon--rotate360" aria-hidden="true">
+                <svg viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <text x="10.5" y="8.2" text-anchor="middle" font-size="9" font-weight="700" fill="currentColor" stroke="none">360</text>
+                  <path d="M5.2 13.6a8.9 8.9 0 0 0 8.3 4.1c3.8 0 7.2-1.8 9.4-4.8"></path>
+                  <path d="M23 8h5v4"></path>
+                </svg>
+              </span>
+            </button>
+            <button class="chip icon-button" id="materialToggle" type="button" aria-pressed="false" aria-label="Clay View" title="Clay View">
+              <span class="control-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                  <ellipse cx="10" cy="6" rx="4.5" ry="2.3"></ellipse>
+                  <path d="M5.5 6v4c0 1.3 2 2.3 4.5 2.3s4.5-1 4.5-2.3V6"></path>
+                  <path d="M5.5 10v4c0 1.3 2 2.3 4.5 2.3s4.5-1 4.5-2.3v-4"></path>
+                </svg>
+              </span>
             </button>
           </div>
 
           <div class="hero-status" id="viewerStatus">
-            <span class="status-label" id="statusPill">Φόρτωση μοντέλου</span>
+            <span class="status-label" id="statusPill">Loading model</span>
             <div class="progress-track" aria-hidden="true">
               <div class="progress-bar" id="progressBar"></div>
             </div>
             <p id="statusCopy">
-              Προετοιμασία του 3D viewer και σύνδεση με το Draco-compressed GLB.
+              Preparing the 3D viewer and connecting the Draco-compressed GLB.
             </p>
           </div>
         </div>
