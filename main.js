@@ -3,37 +3,114 @@ const siteHeader = document.getElementById("siteHeader");
 const progressBar = document.getElementById("progressBar");
 const statusPill = document.getElementById("statusPill");
 const statusCopy = document.getElementById("statusCopy");
+const viewerStatus = document.getElementById("viewerStatus");
 const fullscreenToggle = document.getElementById("fullscreenToggle");
+const qualityToggle = document.getElementById("qualityToggle");
+const timeDial = document.getElementById("timeDial");
+const timeStageMarkers = [...document.querySelectorAll(".time-stage-marker")];
 const resetCamera = document.getElementById("resetCamera");
 const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
-const nightModeToggle = document.getElementById("nightModeToggle");
 
-const dayModelSrc = "./HuaMainDraco.glb";
-const nightModelSrc = "./HuaMainNightDraco.glb";
-const defaultCameraOrbit = "0deg 0deg auto";
-const defaultFieldOfView = "10deg";
+const timeStages = ["day", "dusk", "night"];
+const timeLabels = {
+  day: "Day",
+  dusk: "Dusk",
+  night: "Night",
+};
+const timeStageAngles = {
+  day: 0,
+  dusk: 90,
+  night: 180,
+};
+const modelSources = {
+  day: {
+    web: "./HuaDayBest1_web.glb",
+    hd: "./HuaDayBest1.glb",
+  },
+  dusk: {
+    web: "./HuaMainDraco.glb",
+    hd: "./HuaMainDraco.glb",
+  },
+  night: {
+    web: "./HuaMainNightDraco.glb",
+    hd: "./HuaMainNightDraco.glb",
+  },
+};
+const hdAvailability = {
+  day: true,
+  dusk: false,
+  night: false,
+};
 const clayColor = [0.86, 0.89, 0.92, 1];
-const dayView = {
-  orientation: "180deg 90deg 0deg",
-  cameraTarget: "auto auto auto",
-  cameraOrbit: defaultCameraOrbit,
-  fieldOfView: defaultFieldOfView,
-  minCameraOrbit: "auto 55deg auto",
-  maxCameraOrbit: "auto 85deg auto",
-};
-const nightView = {
-  orientation: "0deg 0deg 0deg",
-  cameraTarget: "auto auto auto",
-  cameraOrbit: defaultCameraOrbit,
-  fieldOfView: defaultFieldOfView,
-  minCameraOrbit: "auto 55deg auto",
-  maxCameraOrbit: "auto 85deg auto",
+const stageViews = {
+  day: {
+    web: {
+      orientation: "0deg 0deg 0deg",
+      cameraTarget: "auto auto auto",
+      cameraOrbit: "180deg 75deg auto",
+      fieldOfView: "24deg",
+      minCameraOrbit: "auto 55deg auto",
+      maxCameraOrbit: "auto 85deg auto",
+    },
+    hd: {
+      orientation: "0deg 0deg 0deg",
+      cameraTarget: "auto auto auto",
+      cameraOrbit: "180deg 75deg auto",
+      fieldOfView: "24deg",
+      minCameraOrbit: "auto 55deg auto",
+      maxCameraOrbit: "auto 85deg auto",
+    },
+  },
+  dusk: {
+    web: {
+      orientation: "180deg 90deg 0deg",
+      cameraTarget: "auto auto auto",
+      cameraOrbit: "0deg 0deg auto",
+      fieldOfView: "10deg",
+      minCameraOrbit: "auto 55deg auto",
+      maxCameraOrbit: "auto 85deg auto",
+    },
+    hd: {
+      orientation: "180deg 90deg 0deg",
+      cameraTarget: "auto auto auto",
+      cameraOrbit: "0deg 0deg auto",
+      fieldOfView: "10deg",
+      minCameraOrbit: "auto 55deg auto",
+      maxCameraOrbit: "auto 85deg auto",
+    },
+  },
+  night: {
+    web: {
+      orientation: "0deg 0deg 0deg",
+      cameraTarget: "auto auto auto",
+      cameraOrbit: "0deg 0deg auto",
+      fieldOfView: "10deg",
+      minCameraOrbit: "auto 55deg auto",
+      maxCameraOrbit: "auto 85deg auto",
+    },
+    hd: {
+      orientation: "0deg 0deg 0deg",
+      cameraTarget: "auto auto auto",
+      cameraOrbit: "0deg 0deg auto",
+      fieldOfView: "10deg",
+      minCameraOrbit: "auto 55deg auto",
+      maxCameraOrbit: "auto 85deg auto",
+    },
+  },
 };
 
+let activeTimeStage = "day";
+let hdEnabled = false;
 let clayEnabled = false;
-let nightModeEnabled = false;
 let originalMaterials = [];
+let currentStageRotation = timeStageAngles[activeTimeStage];
+let currentModelSource = modelSources[activeTimeStage].web;
+let activeModelSwapId = 0;
+let dialPointerId = null;
+let dialStartAngle = 0;
+let dialDragged = false;
+let skipNextDialClick = false;
 const preloadedModelUrls = new Map();
 const preloadPromises = new Map();
 
@@ -46,8 +123,16 @@ function setStatus(title, text) {
   statusCopy.textContent = text;
 }
 
+function setStatusOverlayState(isIdle) {
+  viewerStatus.classList.toggle("is-idle", isIdle);
+}
+
+function getActiveView() {
+  return stageViews[activeTimeStage][hdEnabled ? "hd" : "web"];
+}
+
 function frameDefaultView() {
-  const view = nightModeEnabled ? nightView : dayView;
+  const view = getActiveView();
   modelViewer.orientation = view.orientation;
   modelViewer.cameraTarget = view.cameraTarget;
   modelViewer.cameraOrbit = view.cameraOrbit;
@@ -69,16 +154,17 @@ async function resetViewAfterLoad() {
 }
 
 function cacheMaterialState() {
-  originalMaterials = modelViewer.model?.materials?.map((material) => {
-    const pbr = material.pbrMetallicRoughness;
-    return {
-      material,
-      baseColorFactor: pbr.baseColorFactor.slice(),
-      metallicFactor: pbr.metallicFactor,
-      roughnessFactor: pbr.roughnessFactor,
-      emissiveFactor: material.emissiveFactor.slice(),
-    };
-  }) ?? [];
+  originalMaterials =
+    modelViewer.model?.materials?.map((material) => {
+      const pbr = material.pbrMetallicRoughness;
+      return {
+        material,
+        baseColorFactor: pbr.baseColorFactor.slice(),
+        metallicFactor: pbr.metallicFactor,
+        roughnessFactor: pbr.roughnessFactor,
+        emissiveFactor: material.emissiveFactor.slice(),
+      };
+    }) ?? [];
 }
 
 function applyClayMaterials() {
@@ -145,7 +231,141 @@ async function getModelUrl(src) {
   return preloadModel(src);
 }
 
+function getActiveModelSource() {
+  const qualityKey = hdEnabled ? "hd" : "web";
+  return modelSources[activeTimeStage][qualityKey];
+}
+
+function updateQualityToggle() {
+  const hdAvailable = hdAvailability[activeTimeStage];
+  if (!hdAvailable) {
+    hdEnabled = false;
+  }
+
+  qualityToggle.hidden = !hdAvailable;
+  qualityToggle.setAttribute("aria-pressed", String(hdEnabled));
+  qualityToggle.textContent = "HD";
+  qualityToggle.disabled = false;
+}
+
+function setDialRotation(rotation) {
+  currentStageRotation = rotation;
+  timeDial.style.setProperty("--orbit-rotation", `${rotation}deg`);
+}
+
+function updateTimeUi(direction = 0) {
+  const stageAngle = timeStageAngles[activeTimeStage];
+  let targetRotation = stageAngle;
+
+  if (direction > 0) {
+    while (targetRotation <= currentStageRotation) {
+      targetRotation += 360;
+    }
+  } else if (direction < 0) {
+    while (targetRotation >= currentStageRotation) {
+      targetRotation -= 360;
+    }
+  } else {
+    const cycleBase = Math.round(currentStageRotation / 360) * 360;
+    const candidates = [stageAngle + cycleBase - 360, stageAngle + cycleBase, stageAngle + cycleBase + 360];
+    targetRotation = candidates.reduce((closest, candidate) => {
+      return Math.abs(candidate - currentStageRotation) < Math.abs(closest - currentStageRotation)
+        ? candidate
+        : closest;
+    }, candidates[1]);
+  }
+
+  setDialRotation(targetRotation);
+  timeDial.dataset.stage = activeTimeStage;
+
+  for (const marker of timeStageMarkers) {
+    marker.dataset.active = String(marker.dataset.stage === activeTimeStage);
+  }
+}
+
+function setControlsBusy(isBusy) {
+  timeDial.disabled = isBusy;
+  if (isBusy) {
+    qualityToggle.disabled = true;
+  } else {
+    updateQualityToggle();
+  }
+}
+
+async function applyActiveModelSelection() {
+  const nextSource = getActiveModelSource();
+  const swapId = ++activeModelSwapId;
+
+  if (nextSource === currentModelSource) {
+    setStatusOverlayState(false);
+    setStatus(
+      "Το μοντέλο είναι έτοιμο",
+      `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""} είναι ήδη ενεργό.`
+    );
+    return;
+  }
+
+  setControlsBusy(true);
+  setStatusOverlayState(false);
+  setStatus("Αλλαγή μοντέλου", `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""} φορτώνει...`);
+
+  try {
+    const resolvedSource = await getModelUrl(nextSource);
+
+    if (swapId !== activeModelSwapId) {
+      return;
+    }
+
+    currentModelSource = nextSource;
+    modelViewer.src = resolvedSource;
+    await modelViewer.updateComplete;
+  } finally {
+    if (swapId === activeModelSwapId) {
+      setControlsBusy(false);
+    }
+  }
+}
+
+async function setActiveTimeStage(stage, direction = 0) {
+  if (!timeStages.includes(stage)) {
+    return;
+  }
+
+  activeTimeStage = stage;
+  updateTimeUi(direction);
+  await applyActiveModelSelection();
+}
+
+function changeStageBy(step) {
+  const currentIndex = timeStages.indexOf(activeTimeStage);
+  const nextIndex = (currentIndex + step + timeStages.length) % timeStages.length;
+  setActiveTimeStage(timeStages[nextIndex], step);
+}
+
+function getPointerAngle(event) {
+  const rect = timeDial.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const angle = Math.atan2(event.clientY - centerY, event.clientX - centerX) * (180 / Math.PI) + 90;
+  return angle < 0 ? angle + 360 : angle;
+}
+
+function normalizeAngleDelta(start, end) {
+  let delta = end - start;
+
+  if (delta > 180) {
+    delta -= 360;
+  }
+
+  if (delta < -180) {
+    delta += 360;
+  }
+
+  return delta;
+}
+
 modelViewer.addEventListener("progress", (event) => {
+  setStatusOverlayState(false);
   setProgress(event.detail.totalProgress);
   setStatus(
     event.detail.totalProgress >= 1 ? "Το μοντέλο είναι έτοιμο" : "Φόρτωση μοντέλου",
@@ -163,11 +383,17 @@ modelViewer.addEventListener("load", async () => {
   if (clayEnabled) {
     applyClayMaterials();
   }
+
+  requestAnimationFrame(() => {
+    setStatusOverlayState(true);
+  });
 });
 
 modelViewer.addEventListener("error", (event) => {
   document.body.classList.add("is-error");
+  setStatusOverlayState(false);
   setStatus("Πρόβλημα asset", event.detail?.type || "Το μοντέλο δεν έγινε render σωστά.");
+  setControlsBusy(false);
 });
 
 resetCamera.addEventListener("click", () => {
@@ -184,11 +410,21 @@ fullscreenToggle.addEventListener("click", async () => {
   await hero.requestFullscreen();
 });
 
+qualityToggle.addEventListener("click", async () => {
+  if (!hdAvailability[activeTimeStage]) {
+    return;
+  }
+
+  hdEnabled = !hdEnabled;
+  updateQualityToggle();
+  await applyActiveModelSelection();
+});
+
 turntableToggle.addEventListener("click", () => {
   const shouldRotate = !modelViewer.autoRotate;
   modelViewer.autoRotate = shouldRotate;
   turntableToggle.setAttribute("aria-pressed", String(shouldRotate));
-  turntableToggle.textContent = shouldRotate ? "Παύση drone orbit" : "Έναρξη drone orbit";
+  turntableToggle.textContent = "Drone Orbit";
 });
 
 materialToggle.addEventListener("click", () => {
@@ -203,25 +439,86 @@ materialToggle.addEventListener("click", () => {
   }
 });
 
-nightModeToggle.addEventListener("click", async () => {
-  if (nightModeToggle.disabled) {
+timeDial.addEventListener("click", (event) => {
+  if (skipNextDialClick) {
+    skipNextDialClick = false;
     return;
   }
 
-  nightModeEnabled = !nightModeEnabled;
-  nightModeToggle.disabled = true;
-  nightModeToggle.setAttribute("aria-pressed", String(nightModeEnabled));
-  nightModeToggle.textContent = nightModeEnabled ? "Day mode" : "Night mode";
+  event.preventDefault();
+  changeStageBy(1);
+});
 
-  try {
-    const nextSrc = nightModeEnabled ? nightModelSrc : dayModelSrc;
-    const resolvedSrc = await getModelUrl(nextSrc);
-    modelViewer.src = resolvedSrc;
-    await modelViewer.updateComplete;
-  } finally {
-    nightModeToggle.disabled = false;
+timeDial.addEventListener("pointerdown", (event) => {
+  dialPointerId = event.pointerId;
+  dialStartAngle = getPointerAngle(event);
+  dialDragged = false;
+  timeDial.setPointerCapture(event.pointerId);
+});
+
+timeDial.addEventListener("pointermove", (event) => {
+  if (event.pointerId !== dialPointerId) {
+    return;
+  }
+
+  const currentAngle = getPointerAngle(event);
+  const delta = normalizeAngleDelta(dialStartAngle, currentAngle);
+
+  if (Math.abs(delta) > 10) {
+    dialDragged = true;
+  }
+
+  if (dialDragged) {
+    timeDial.style.setProperty("--orbit-rotation", `${currentStageRotation + delta}deg`);
   }
 });
+
+timeDial.addEventListener("pointerup", (event) => {
+  if (event.pointerId !== dialPointerId) {
+    return;
+  }
+
+  timeDial.releasePointerCapture(event.pointerId);
+  const endAngle = getPointerAngle(event);
+  const delta = normalizeAngleDelta(dialStartAngle, endAngle);
+
+  if (dialDragged && Math.abs(delta) > 18) {
+    skipNextDialClick = true;
+    changeStageBy(delta > 0 ? 1 : -1);
+  } else {
+    updateTimeUi();
+  }
+
+  dialPointerId = null;
+  dialStartAngle = 0;
+  dialDragged = false;
+});
+
+timeDial.addEventListener("pointercancel", (event) => {
+  if (event.pointerId !== dialPointerId) {
+    return;
+  }
+
+  timeDial.releasePointerCapture(event.pointerId);
+  dialPointerId = null;
+  dialStartAngle = 0;
+  dialDragged = false;
+  updateTimeUi();
+});
+
+for (const marker of timeStageMarkers) {
+  marker.addEventListener("click", () => {
+    const stage = marker.dataset.stage;
+    if (!stage || stage === activeTimeStage) {
+      return;
+    }
+
+    const currentIndex = timeStages.indexOf(activeTimeStage);
+    const targetIndex = timeStages.indexOf(stage);
+    const direction = targetIndex > currentIndex ? 1 : -1;
+    setActiveTimeStage(stage, direction);
+  });
+}
 
 document.addEventListener("scroll", () => {
   siteHeader.classList.toggle("is-solid", window.scrollY > 24);
@@ -231,6 +528,19 @@ document.addEventListener("fullscreenchange", () => {
   fullscreenToggle.textContent = document.fullscreenElement ? "Έξοδος πλήρους" : "Πλήρης οθόνη";
 });
 
-preloadModel(nightModelSrc);
-preloadModel(dayModelSrc);
+updateQualityToggle();
+updateTimeUi();
+setStatusOverlayState(false);
+
+for (const src of new Set([
+  modelSources.day.web,
+  modelSources.day.hd,
+  modelSources.dusk.web,
+  modelSources.dusk.hd,
+  modelSources.night.web,
+  modelSources.night.hd,
+])) {
+  preloadModel(src);
+}
+
 setProgress(0.08);

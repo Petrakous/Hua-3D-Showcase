@@ -22,16 +22,17 @@
   </head>
   <body>
     <header class="site-header" id="siteHeader">
-      <a class="brand" href="#top">
+      <div class="brand">
         <span class="brand-mark"></span>
         <span class="brand-text">
           <strong>Χαροκόπειο Πανεπιστήμιο</strong>
           <small>3D Campus Presentation</small>
         </span>
-      </a>
+      </div>
     </header>
 
     <div class="header-actions">
+      <button class="header-button" id="qualityToggle" type="button" aria-pressed="false">HD</button>
       <button class="header-button" id="fullscreenToggle" type="button">Πλήρης οθόνη</button>
     </div>
 
@@ -40,7 +41,7 @@
         <div class="hero-media">
           <model-viewer
             id="siteModel"
-            src="./HuaMainDraco.glb"
+            src="./HuaDayBest1_web.glb"
             alt="Τρισδιάστατο μοντέλο του campus"
             camera-controls
             auto-rotate
@@ -48,11 +49,11 @@
             rotation-per-second="-10deg"
             touch-action="none"
             orientation="180deg 90deg 0deg"
-            camera-target="auto auto auto"
-            camera-orbit="0deg 0deg auto"
+            camera-target="0m 6m 0m"
+            camera-orbit="180deg 75deg auto"
             min-camera-orbit="auto 55deg auto"
             max-camera-orbit="auto 85deg auto"
-            field-of-view="10deg"
+            field-of-view="24deg"
             min-field-of-view="5deg"
             max-field-of-view="40deg"
             interpolation-decay="140"
@@ -68,17 +69,41 @@
           <div class="hero-noise"></div>
         </div>
 
+        <div class="hero-time-control">
+          <button
+            class="time-dial"
+            id="timeDial"
+            type="button"
+            aria-label="Change time of day"
+            data-stage="day"
+          >
+            <span class="time-dial-shell"></span>
+            <span class="time-dial-track"></span>
+            <span class="time-dial-core"></span>
+            <span class="time-orbit">
+              <span class="time-body time-sun"></span>
+              <span class="time-body time-moon"></span>
+            </span>
+          </button>
+
+          <div class="time-readout">
+            <span class="time-label">Time</span>
+            <div class="time-stage-markers">
+              <button class="time-stage-marker" data-stage="day" type="button">Day</button>
+              <button class="time-stage-marker" data-stage="dusk" type="button">Dusk</button>
+              <button class="time-stage-marker" data-stage="night" type="button">Night</button>
+            </div>
+          </div>
+        </div>
+
         <div class="hero-overlay">
           <div class="hero-button-row">
             <button class="secondary-link" id="resetCamera" type="button">Επαναφορά θέσης</button>
             <button class="chip" id="turntableToggle" type="button" aria-pressed="true">
-              Παύση drone orbit
+              Drone Orbit
             </button>
             <button class="chip" id="materialToggle" type="button" aria-pressed="false">
               Clay view
-            </button>
-            <button class="chip" id="nightModeToggle" type="button" aria-pressed="false">
-              Night mode
             </button>
           </div>
 
