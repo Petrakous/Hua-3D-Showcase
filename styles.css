@@ -20,6 +20,10 @@
   --radius-lg: 24px;
   --radius-md: 18px;
   --content: min(1280px, calc(100vw - 48px));
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 * {
@@ -762,15 +766,15 @@ model-viewer:active {
   }
 
   .site-header {
-    top: 8px;
-    max-width: calc(100vw - 120px);
-    padding: 12px 14px;
+    top: calc(var(--safe-top) + 8px);
+    max-width: calc(100vw - 132px - var(--safe-left) - var(--safe-right));
+    padding: 11px 13px;
   }
 
   .header-actions {
-    top: 8px;
-    right: 8px;
-    gap: 8px;
+    top: calc(var(--safe-top) + 8px);
+    right: calc(var(--safe-right) + 8px);
+    gap: 6px;
   }
 
   .brand-text small,
@@ -778,9 +782,22 @@ model-viewer:active {
     display: none;
   }
 
+  .brand {
+    gap: 10px;
+  }
+
+  .brand-mark {
+    width: 14px;
+    height: 14px;
+  }
+
+  .brand-text strong {
+    font-size: 0.84rem;
+  }
+
   .hero-time-control {
-    top: 8px;
-    left: 12px;
+    top: calc(var(--safe-top) + 72px);
+    left: calc(var(--safe-left) + 12px);
     right: auto;
   }
 
@@ -793,14 +810,49 @@ model-viewer:active {
   .time-stage-markers {
     gap: 6px;
     font-size: 0.68rem;
+    flex-wrap: wrap;
+    max-width: 96px;
   }
 
   .hero-overlay {
-    left: 12px;
-    right: 12px;
-    bottom: 22px;
-    align-items: flex-end;
+    left: calc(var(--safe-left) + 12px);
+    right: calc(var(--safe-right) + 12px);
+    bottom: calc(var(--safe-bottom) + 12px);
+    flex-direction: column-reverse;
+    align-items: stretch;
     gap: 12px;
+  }
+
+  .hero-button-row {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+
+  .hero-status {
+    width: min(100%, 340px);
+    padding: 14px 16px;
+  }
+
+  .hero-status p {
+    font-size: 0.84rem;
+  }
+
+  .icon-button {
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    min-height: 42px;
+  }
+
+  .control-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .control-icon--rotate360 {
+    width: 24px;
+    height: 18px;
   }
 
   .hero h1 {
@@ -826,5 +878,49 @@ model-viewer:active {
   .footer-meta {
     justify-items: start;
     text-align: left;
+  }
+}
+
+@media (max-width: 460px) {
+  .site-header {
+    left: calc(var(--safe-left) + 10px);
+    right: calc(var(--safe-right) + 106px);
+    width: auto;
+    max-width: none;
+    transform: none;
+  }
+
+  .site-header.is-solid {
+    transform: translateY(-2px);
+  }
+
+  .hero-time-control {
+    top: calc(var(--safe-top) + 66px);
+  }
+
+  .time-dial {
+    width: 76px;
+    height: 76px;
+    --orbit-radius: 25px;
+  }
+
+  .time-readout {
+    gap: 3px;
+  }
+
+  .time-stage-marker {
+    font-size: 0.7rem;
+  }
+
+  .hero-overlay {
+    gap: 10px;
+  }
+
+  .hero-button-row {
+    gap: 10px;
+  }
+
+  .hero-status {
+    width: 100%;
   }
 }
