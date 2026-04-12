@@ -37,6 +37,12 @@ const modelSources = {
     hd: "./HuaMainNightDraco.glb",
   },
 };
+const mobileModelSources = {
+  night: {
+    web: "./HuaMainNightDraco_mobile.glb",
+    hd: "./HuaMainNightDraco_mobile.glb",
+  },
+};
 const hdAvailability = {
   day: true,
   dusk: false,
@@ -245,6 +251,9 @@ async function getModelUrl(src) {
 
 function getActiveModelSource() {
   const qualityKey = hdEnabled ? "hd" : "web";
+  if (isMobileDevice && mobileModelSources[activeTimeStage]?.[qualityKey]) {
+    return mobileModelSources[activeTimeStage][qualityKey];
+  }
   return modelSources[activeTimeStage][qualityKey];
 }
 
