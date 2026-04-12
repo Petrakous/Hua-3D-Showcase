@@ -113,6 +113,10 @@ let dialDragged = false;
 let skipNextDialClick = false;
 const preloadedModelUrls = new Map();
 const preloadPromises = new Map();
+const isMobileDevice =
+  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const useBlobPreloading = !isMobileDevice;
 
 function setProgress(value) {
   progressBar.style.width = `${Math.max(0, Math.min(100, Math.round(value * 100)))}%`;
@@ -186,6 +190,10 @@ function restoreMaterials() {
 }
 
 function preloadModel(src) {
+  if (!useBlobPreloading) {
+    return Promise.resolve(src);
+  }
+
   if (preloadedModelUrls.has(src)) {
     return Promise.resolve(preloadedModelUrls.get(src));
   }
@@ -224,6 +232,10 @@ function preloadModel(src) {
 }
 
 async function getModelUrl(src) {
+  if (!useBlobPreloading) {
+    return src;
+  }
+
   if (preloadedModelUrls.has(src)) {
     return preloadedModelUrls.get(src);
   }
@@ -539,15 +551,17 @@ updateQualityToggle();
 updateTimeUi();
 setStatusOverlayState(false);
 
-for (const src of new Set([
-  modelSources.day.web,
-  modelSources.day.hd,
-  modelSources.dusk.web,
-  modelSources.dusk.hd,
-  modelSources.night.web,
-  modelSources.night.hd,
-])) {
-  preloadModel(src);
+if (useBlobPreloading) {
+  for (const src of new Set([
+    modelSources.day.web,
+    modelSources.day.hd,
+    modelSources.dusk.web,
+    modelSources.dusk.hd,
+    modelSources.night.web,
+    modelSources.night.hd,
+  ])) {
+    preloadModel(src);
+  }
 }
 
 setProgress(0.08);
