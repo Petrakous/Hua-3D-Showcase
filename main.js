@@ -30,23 +30,26 @@ const modelSources = {
   },
   dusk: {
     web: "./HuaMainDraco.glb",
-    hd: "./HuaMainDraco.glb",
+    hd: "./NoonHDDraco.glb",
   },
   night: {
     web: "./HuaMainNightDraco.glb",
-    hd: "./HuaMainNightDraco.glb",
+    hd: "./NightHD.glb",
   },
 };
 const mobileModelSources = {
+  dusk: {
+    hd: "./NoonHDDraco_mobile.glb",
+  },
   night: {
     web: "./HuaMainNightDraco_mobile.glb",
-    hd: "./HuaMainNightDraco_mobile.glb",
+    hd: "./NightHD_mobile.glb",
   },
 };
 const hdAvailability = {
   day: true,
-  dusk: false,
-  night: false,
+  dusk: true,
+  night: true,
 };
 const clayColor = [0.86, 0.89, 0.92, 1];
 const stageViews = {
@@ -78,7 +81,7 @@ const stageViews = {
       maxCameraOrbit: "auto 85deg auto",
     },
     hd: {
-      orientation: "180deg 90deg 0deg",
+      orientation: "0deg 0deg 0deg",
       cameraTarget: "auto auto auto",
       cameraOrbit: "0deg 0deg auto",
       fieldOfView: "10deg",
@@ -565,9 +568,7 @@ if (useBlobPreloading) {
     modelSources.day.web,
     modelSources.day.hd,
     modelSources.dusk.web,
-    modelSources.dusk.hd,
     modelSources.night.web,
-    modelSources.night.hd,
   ])) {
     preloadModel(src);
   }
