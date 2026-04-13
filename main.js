@@ -70,7 +70,7 @@ const stageViews = {
   },
   dusk: {
     web: {
-      orientation: "180deg 90deg 0deg",
+      orientation: "0deg 0deg 0deg",
       cameraTarget: "auto auto auto",
       cameraOrbit: "0deg 0deg auto",
       fieldOfView: "10deg",
