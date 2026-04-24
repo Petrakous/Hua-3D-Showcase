@@ -57,23 +57,23 @@ const stageViews = {
     web: {
       orientation: "0deg 0deg 0deg",
       cameraTarget: "auto auto auto",
-      cameraOrbit: "0deg 0deg auto",
-      fieldOfView: "10deg",
+      cameraOrbit: "180deg 75deg auto",
+      fieldOfView: "24deg",
       minCameraOrbit: "auto 55deg auto",
       maxCameraOrbit: "auto 85deg auto",
     },
     hd: {
       orientation: "0deg 0deg 0deg",
       cameraTarget: "auto auto auto",
-      cameraOrbit: "0deg 0deg auto",
-      fieldOfView: "10deg",
+      cameraOrbit: "180deg 75deg auto",
+      fieldOfView: "24deg",
       minCameraOrbit: "auto 55deg auto",
       maxCameraOrbit: "auto 85deg auto",
     },
   },
   dusk: {
     web: {
-      orientation: "0deg 0deg 0deg",
+      orientation: "180deg 90deg 0deg",
       cameraTarget: "auto auto auto",
       cameraOrbit: "0deg 0deg auto",
       fieldOfView: "10deg",
@@ -110,11 +110,11 @@ const stageViews = {
 };
 
 let activeTimeStage = "day";
-let hdEnabled = false;
+let hdEnabled = true;
 let clayEnabled = false;
 let originalMaterials = [];
 let currentStageRotation = timeStageAngles[activeTimeStage];
-let currentModelSource = modelSources[activeTimeStage].web;
+let currentModelSource = modelSources[activeTimeStage].hd;
 let activeModelSwapId = 0;
 let dialPointerId = null;
 let dialStartAngle = 0;
