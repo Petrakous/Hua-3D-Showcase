@@ -5,6 +5,7 @@ const statusPill = document.getElementById("statusPill");
 const statusCopy = document.getElementById("statusCopy");
 const viewerStatus = document.getElementById("viewerStatus");
 const fullscreenToggle = document.getElementById("fullscreenToggle");
+const warmCacheToggle = document.getElementById("warmCacheToggle");
 const qualityToggle = document.getElementById("qualityToggle");
 const timeDial = document.getElementById("timeDial");
 const timeStageMarkers = [...document.querySelectorAll(".time-stage-marker")];
@@ -57,16 +58,16 @@ const stageViews = {
     web: {
       orientation: "0deg 0deg 0deg",
       cameraTarget: "auto auto auto",
-      cameraOrbit: "0deg 0deg auto",
-      fieldOfView: "10deg",
+      cameraOrbit: "180deg 75deg auto",
+      fieldOfView: "24deg",
       minCameraOrbit: "auto 55deg auto",
       maxCameraOrbit: "auto 85deg auto",
     },
     hd: {
       orientation: "0deg 0deg 0deg",
       cameraTarget: "auto auto auto",
-      cameraOrbit: "0deg 0deg auto",
-      fieldOfView: "10deg",
+      cameraOrbit: "180deg 75deg auto",
+      fieldOfView: "24deg",
       minCameraOrbit: "auto 55deg auto",
       maxCameraOrbit: "auto 85deg auto",
     },
@@ -111,6 +112,7 @@ const stageViews = {
 
 let activeTimeStage = "day";
 let hdEnabled = true;
+let warmCacheEnabled = true;
 let clayEnabled = false;
 let originalMaterials = [];
 let currentStageRotation = timeStageAngles[activeTimeStage];
@@ -199,10 +201,6 @@ function restoreMaterials() {
 }
 
 function preloadModel(src) {
-  if (!useBlobPreloading) {
-    return Promise.resolve(src);
-  }
-
   if (preloadedModelUrls.has(src)) {
     return Promise.resolve(preloadedModelUrls.get(src));
   }
@@ -217,6 +215,25 @@ function preloadModel(src) {
   link.href = src;
   link.crossOrigin = "anonymous";
   document.head.appendChild(link);
+
+  if (!useBlobPreloading) {
+    const preloadPromise = fetch(src, { cache: "force-cache" })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to warm model cache: ${src}`);
+        }
+
+        preloadedModelUrls.set(src, src);
+        return src;
+      })
+      .catch(() => src)
+      .finally(() => {
+        preloadPromises.delete(src);
+      });
+
+    preloadPromises.set(src, preloadPromise);
+    return preloadPromise;
+  }
 
   const preloadPromise = fetch(src, { cache: "force-cache" })
     .then((response) => {
@@ -241,10 +258,6 @@ function preloadModel(src) {
 }
 
 async function getModelUrl(src) {
-  if (!useBlobPreloading) {
-    return src;
-  }
-
   if (preloadedModelUrls.has(src)) {
     return preloadedModelUrls.get(src);
   }
@@ -252,12 +265,43 @@ async function getModelUrl(src) {
   return preloadModel(src);
 }
 
+function getModelSourceFor(stage, qualityKey) {
+  if (isMobileDevice && mobileModelSources[stage]?.[qualityKey]) {
+    return mobileModelSources[stage][qualityKey];
+  }
+  return modelSources[stage][qualityKey];
+}
+
 function getActiveModelSource() {
   const qualityKey = hdEnabled ? "hd" : "web";
-  if (isMobileDevice && mobileModelSources[activeTimeStage]?.[qualityKey]) {
-    return mobileModelSources[activeTimeStage][qualityKey];
+  return getModelSourceFor(activeTimeStage, qualityKey);
+}
+
+function getWarmModelSources() {
+  const sources = new Set();
+  for (const stage of timeStages) {
+    sources.add(getModelSourceFor(stage, "web"));
+    if (hdAvailability[stage]) {
+      sources.add(getModelSourceFor(stage, "hd"));
+    }
   }
-  return modelSources[activeTimeStage][qualityKey];
+  return [...sources];
+}
+
+function warmModelCache() {
+  if (!warmCacheEnabled) {
+    return;
+  }
+
+  for (const src of getWarmModelSources()) {
+    preloadModel(src);
+  }
+}
+
+function updateWarmCacheToggle() {
+  warmCacheToggle.setAttribute("aria-pressed", String(warmCacheEnabled));
+  warmCacheToggle.setAttribute("aria-label", warmCacheEnabled ? "Warm Model Cache On" : "Warm Model Cache Off");
+  warmCacheToggle.title = warmCacheEnabled ? "Warm Model Cache On" : "Warm Model Cache Off";
 }
 
 function updateQualityToggle() {
@@ -437,6 +481,14 @@ fullscreenToggle.addEventListener("click", async () => {
   await hero.requestFullscreen();
 });
 
+warmCacheToggle.addEventListener("click", () => {
+  warmCacheEnabled = !warmCacheEnabled;
+  updateWarmCacheToggle();
+  if (warmCacheEnabled) {
+    warmModelCache();
+  }
+});
+
 qualityToggle.addEventListener("click", async () => {
   if (!hdAvailability[activeTimeStage]) {
     return;
@@ -559,19 +611,10 @@ document.addEventListener("fullscreenchange", () => {
   fullscreenToggle.title = fullscreenLabel;
 });
 
+updateWarmCacheToggle();
 updateQualityToggle();
 updateTimeUi();
 setStatusOverlayState(false);
-
-if (useBlobPreloading) {
-  for (const src of new Set([
-    modelSources.day.web,
-    modelSources.day.hd,
-    modelSources.dusk.web,
-    modelSources.night.web,
-  ])) {
-    preloadModel(src);
-  }
-}
+warmModelCache();
 
 setProgress(0.08);

@@ -36,6 +36,16 @@
     </header>
 
     <div class="header-actions">
+      <button class="header-button icon-button" id="warmCacheToggle" type="button" aria-pressed="true" aria-label="Warm Model Cache" title="Warm Model Cache">
+        <span class="control-icon" aria-hidden="true">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 6.5h7"></path>
+            <path d="M8 10h7"></path>
+            <path d="M5 13.5h7"></path>
+            <path d="M12.5 4.5l2.8 2.8-2.8 2.8"></path>
+          </svg>
+        </span>
+      </button>
       <button class="header-button icon-button" id="qualityToggle" type="button" aria-pressed="true" aria-label="HD" title="HD">
         <span class="control-icon control-icon--hd" aria-hidden="true">HD</span>
       </button>
@@ -63,12 +73,12 @@
             auto-rotate-delay="0"
             rotation-per-second="-10deg"
             touch-action="none"
-            orientation="180deg 90deg 0deg"
-            camera-target="0m 6m 0m"
-            camera-orbit="0deg 0deg auto"
+            orientation="0deg 0deg 0deg"
+            camera-target="auto auto auto"
+            camera-orbit="180deg 75deg auto"
             min-camera-orbit="auto 55deg auto"
             max-camera-orbit="auto 85deg auto"
-            field-of-view="10deg"
+            field-of-view="24deg"
             min-field-of-view="5deg"
             max-field-of-view="40deg"
             interpolation-decay="140"
