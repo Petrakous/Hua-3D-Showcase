@@ -267,6 +267,12 @@ model-viewer:active {
   pointer-events: auto;
 }
 
+.time-control-group {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
 .time-dial {
   --orbit-rotation: 0deg;
   --orbit-radius: 32px;
@@ -394,7 +400,8 @@ model-viewer:active {
   align-items: center;
 }
 
-.time-stage-marker {
+.time-stage-marker,
+.location-stage-marker {
   appearance: none;
   padding: 0;
   border: 0;
@@ -405,13 +412,34 @@ model-viewer:active {
   transition: color 160ms ease, transform 160ms ease;
 }
 
-.time-stage-marker:hover {
+.time-stage-marker:hover,
+.location-stage-marker:hover {
   color: rgba(255, 255, 255, 0.82);
   transform: translateY(-1px);
 }
 
-.time-stage-marker[data-active="true"] {
+.time-stage-marker[data-active="true"],
+.location-stage-marker[data-active="true"] {
   color: rgba(255, 255, 255, 0.92);
+}
+
+.time-stage-marker:disabled,
+.location-stage-marker:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.location-control {
+  display: grid;
+  gap: 5px;
+  justify-items: start;
+  padding-left: 4px;
+}
+
+.location-stage-markers {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 .hero-noise {
@@ -814,6 +842,16 @@ model-viewer:active {
     max-width: 96px;
   }
 
+  .location-control {
+    padding-left: 4px;
+  }
+
+  .location-stage-markers {
+    gap: 8px;
+    flex-wrap: wrap;
+    max-width: 112px;
+  }
+
   .hero-overlay {
     left: calc(var(--safe-left) + 12px);
     right: calc(var(--safe-right) + 12px);
@@ -909,6 +947,10 @@ model-viewer:active {
   }
 
   .time-stage-marker {
+    font-size: 0.7rem;
+  }
+
+  .location-stage-marker {
     font-size: 0.7rem;
   }
 

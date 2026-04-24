@@ -36,8 +36,8 @@
     </header>
 
     <div class="header-actions">
-      <button class="header-button icon-button" id="warmCacheToggle" type="button" aria-pressed="true" aria-label="Warm Model Cache" title="Warm Model Cache">
-        <span class="control-icon" aria-hidden="true">
+      <button class="header-button icon-button" id="warmCacheToggle" type="button" aria-pressed="false" aria-label="Warm Model Cache" title="Warm Model Cache">
+        <span class="control-icon" aria-hidden="false">
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
             <path d="M5 6.5h7"></path>
             <path d="M8 10h7"></path>
@@ -46,7 +46,7 @@
           </svg>
         </span>
       </button>
-      <button class="header-button icon-button" id="qualityToggle" type="button" aria-pressed="true" aria-label="HD" title="HD">
+      <button class="header-button icon-button" id="qualityToggle" type="button" aria-pressed="false" aria-label="HD" title="HD">
         <span class="control-icon control-icon--hd" aria-hidden="true">HD</span>
       </button>
       <button class="header-button icon-button" id="fullscreenToggle" type="button" aria-label="Fullscreen" title="Fullscreen">
@@ -95,28 +95,38 @@
         </div>
 
         <div class="hero-time-control">
-          <button
-            class="time-dial"
-            id="timeDial"
-            type="button"
-            aria-label="Change time of day"
-            data-stage="day"
-          >
-            <span class="time-dial-shell"></span>
-            <span class="time-dial-track"></span>
-            <span class="time-dial-core"></span>
-            <span class="time-orbit">
-              <span class="time-body time-sun"></span>
-              <span class="time-body time-moon"></span>
-            </span>
-          </button>
+          <div class="time-control-group">
+            <button
+              class="time-dial"
+              id="timeDial"
+              type="button"
+              aria-label="Change time of day"
+              data-stage="day"
+            >
+              <span class="time-dial-shell"></span>
+              <span class="time-dial-track"></span>
+              <span class="time-dial-core"></span>
+              <span class="time-orbit">
+                <span class="time-body time-sun"></span>
+                <span class="time-body time-moon"></span>
+              </span>
+            </button>
 
-          <div class="time-readout">
-            <span class="time-label">Time</span>
-            <div class="time-stage-markers">
-              <button class="time-stage-marker" data-stage="day" type="button">Day</button>
-              <button class="time-stage-marker" data-stage="dusk" type="button">Dusk</button>
-              <button class="time-stage-marker" data-stage="night" type="button">Night</button>
+            <div class="time-readout">
+              <span class="time-label">Time</span>
+              <div class="time-stage-markers">
+                <button class="time-stage-marker" data-stage="day" type="button">Day</button>
+                <button class="time-stage-marker" data-stage="dusk" type="button">Dusk</button>
+                <button class="time-stage-marker" data-stage="night" type="button">Night</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="location-control">
+            <span class="time-label">Location</span>
+            <div class="location-stage-markers" role="group" aria-label="Choose indoor or outdoor scene">
+              <button class="location-stage-marker" data-location="outdoors" type="button">Outdoors</button>
+              <button class="location-stage-marker" data-location="indoors" type="button">Main</button>
             </div>
           </div>
         </div>

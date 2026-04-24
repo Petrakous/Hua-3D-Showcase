@@ -9,15 +9,21 @@ const warmCacheToggle = document.getElementById("warmCacheToggle");
 const qualityToggle = document.getElementById("qualityToggle");
 const timeDial = document.getElementById("timeDial");
 const timeStageMarkers = [...document.querySelectorAll(".time-stage-marker")];
+const locationStageMarkers = [...document.querySelectorAll(".location-stage-marker")];
 const resetCamera = document.getElementById("resetCamera");
 const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
 
 const timeStages = ["day", "dusk", "night"];
+const locationStages = ["outdoors", "indoors"];
 const timeLabels = {
   day: "Day",
   dusk: "Dusk",
   night: "Night",
+};
+const locationLabels = {
+  outdoors: "Outdoors",
+  indoors: "Main",
 };
 const timeStageAngles = {
   day: 0,
@@ -47,6 +53,7 @@ const mobileModelSources = {
     hd: "./NightHD_mobile.glb",
   },
 };
+const indoorModelSource = "./Indoors.glb";
 const hdAvailability = {
   day: true,
   dusk: true,
@@ -109,10 +116,19 @@ const stageViews = {
     },
   },
 };
+const indoorView = {
+  orientation: "0deg 0deg 0deg",
+  cameraTarget: "auto auto auto",
+  cameraOrbit: "0deg 72deg auto",
+  fieldOfView: "30deg",
+  minCameraOrbit: "auto 35deg auto",
+  maxCameraOrbit: "auto 88deg auto",
+};
 
 let activeTimeStage = "day";
-let hdEnabled = true;
-let warmCacheEnabled = true;
+let activeLocationStage = "outdoors";
+let hdEnabled = false;
+let warmCacheEnabled = false;
 let clayEnabled = false;
 let originalMaterials = [];
 let currentStageRotation = timeStageAngles[activeTimeStage];
@@ -143,6 +159,10 @@ function setStatusOverlayState(isIdle) {
 }
 
 function getActiveView() {
+  if (activeLocationStage === "indoors") {
+    return indoorView;
+  }
+
   return stageViews[activeTimeStage][hdEnabled ? "hd" : "web"];
 }
 
@@ -273,12 +293,16 @@ function getModelSourceFor(stage, qualityKey) {
 }
 
 function getActiveModelSource() {
+  if (activeLocationStage === "indoors") {
+    return indoorModelSource;
+  }
+
   const qualityKey = hdEnabled ? "hd" : "web";
   return getModelSourceFor(activeTimeStage, qualityKey);
 }
 
 function getWarmModelSources() {
-  const sources = new Set();
+  const sources = new Set([indoorModelSource]);
   for (const stage of timeStages) {
     sources.add(getModelSourceFor(stage, "web"));
     if (hdAvailability[stage]) {
@@ -305,7 +329,7 @@ function updateWarmCacheToggle() {
 }
 
 function updateQualityToggle() {
-  const hdAvailable = hdAvailability[activeTimeStage];
+  const hdAvailable = activeLocationStage === "outdoors" && hdAvailability[activeTimeStage];
   if (!hdAvailable) {
     hdEnabled = false;
   }
@@ -316,6 +340,14 @@ function updateQualityToggle() {
   qualityToggle.setAttribute("aria-label", "HD");
   qualityToggle.title = "HD";
   qualityToggle.disabled = !hdAvailable;
+}
+
+function updateLocationUi() {
+  document.body.dataset.location = activeLocationStage;
+
+  for (const marker of locationStageMarkers) {
+    marker.dataset.active = String(marker.dataset.location === activeLocationStage);
+  }
 }
 
 function setDialRotation(rotation) {
@@ -355,6 +387,13 @@ function updateTimeUi(direction = 0) {
 
 function setControlsBusy(isBusy) {
   timeDial.disabled = isBusy;
+  for (const marker of timeStageMarkers) {
+    marker.disabled = isBusy;
+  }
+  for (const marker of locationStageMarkers) {
+    marker.disabled = isBusy;
+  }
+
   if (isBusy) {
     qualityToggle.disabled = true;
   } else {
@@ -367,17 +406,25 @@ async function applyActiveModelSelection() {
   const swapId = ++activeModelSwapId;
 
   if (nextSource === currentModelSource) {
+    const modelLabel =
+      activeLocationStage === "indoors"
+        ? locationLabels.indoors
+        : `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`;
     setStatusOverlayState(false);
     setStatus(
       "Model ready",
-      `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""} is already active.`
+      `${modelLabel} is already active.`
     );
     return;
   }
 
   setControlsBusy(true);
   setStatusOverlayState(false);
-  setStatus("Switching model", `Loading ${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}...`);
+  const modelLabel =
+    activeLocationStage === "indoors"
+      ? locationLabels.indoors
+      : `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`;
+  setStatus("Switching model", `Loading ${modelLabel}...`);
 
   try {
     const resolvedSource = await getModelUrl(nextSource);
@@ -401,9 +448,22 @@ async function setActiveTimeStage(stage, direction = 0) {
     return;
   }
 
+  activeLocationStage = "outdoors";
   activeTimeStage = stage;
+  updateLocationUi();
   updateQualityToggle();
   updateTimeUi(direction);
+  await applyActiveModelSelection();
+}
+
+async function setActiveLocationStage(stage) {
+  if (!locationStages.includes(stage) || stage === activeLocationStage) {
+    return;
+  }
+
+  activeLocationStage = stage;
+  updateLocationUi();
+  updateQualityToggle();
   await applyActiveModelSelection();
 }
 
@@ -490,7 +550,7 @@ warmCacheToggle.addEventListener("click", () => {
 });
 
 qualityToggle.addEventListener("click", async () => {
-  if (!hdAvailability[activeTimeStage]) {
+  if (activeLocationStage !== "outdoors" || !hdAvailability[activeTimeStage]) {
     return;
   }
 
@@ -601,6 +661,17 @@ for (const marker of timeStageMarkers) {
   });
 }
 
+for (const marker of locationStageMarkers) {
+  marker.addEventListener("click", () => {
+    const stage = marker.dataset.location;
+    if (!stage) {
+      return;
+    }
+
+    setActiveLocationStage(stage);
+  });
+}
+
 document.addEventListener("scroll", () => {
   siteHeader.classList.toggle("is-solid", window.scrollY > 24);
 });
@@ -612,6 +683,7 @@ document.addEventListener("fullscreenchange", () => {
 });
 
 updateWarmCacheToggle();
+updateLocationUi();
 updateQualityToggle();
 updateTimeUi();
 setStatusOverlayState(false);
