@@ -15,15 +15,16 @@ const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
 
 const timeStages = ["day", "dusk", "night"];
-const locationStages = ["outdoors", "indoors"];
+const locationStages = ["outdoors", "indoors", "dit"];
 const timeLabels = {
   day: "Day",
   dusk: "Dusk",
   night: "Night",
 };
 const locationLabels = {
-  outdoors: "Outdoors",
-  indoors: "Main",
+  outdoors: "OutdoorsM",
+  indoors: "IndoorsM",
+  dit: "DIT",
 };
 const timeStageAngles = {
   day: 0,
@@ -54,6 +55,7 @@ const mobileModelSources = {
   },
 };
 const indoorModelSource = "./Indoors.glb";
+const ditModelSource = "./HuaDITDusk.glb";
 const hdAvailability = {
   day: true,
   dusk: true,
@@ -124,6 +126,14 @@ const indoorView = {
   minCameraOrbit: "auto 10deg auto",
   maxCameraOrbit: "auto 88deg auto",
 };
+const ditView = {
+  orientation: "0deg 0deg 0deg",
+  cameraTarget: "auto auto auto",
+  cameraOrbit: "0deg 72deg auto",
+  fieldOfView: "30deg",
+  minCameraOrbit: "auto 35deg auto",
+  maxCameraOrbit: "auto 88deg auto",
+};
 
 let activeTimeStage = "day";
 let activeLocationStage = "outdoors";
@@ -161,6 +171,10 @@ function setStatusOverlayState(isIdle) {
 function getActiveView() {
   if (activeLocationStage === "indoors") {
     return indoorView;
+  }
+
+  if (activeLocationStage === "dit") {
+    return ditView;
   }
 
   return stageViews[activeTimeStage][hdEnabled ? "hd" : "web"];
@@ -297,12 +311,16 @@ function getActiveModelSource() {
     return indoorModelSource;
   }
 
+  if (activeLocationStage === "dit") {
+    return ditModelSource;
+  }
+
   const qualityKey = hdEnabled ? "hd" : "web";
   return getModelSourceFor(activeTimeStage, qualityKey);
 }
 
 function getWarmModelSources() {
-  const sources = new Set([indoorModelSource]);
+  const sources = new Set([indoorModelSource, ditModelSource]);
   for (const stage of timeStages) {
     sources.add(getModelSourceFor(stage, "web"));
     if (hdAvailability[stage]) {
@@ -344,9 +362,17 @@ function updateQualityToggle() {
 
 function updateLocationUi() {
   document.body.dataset.location = activeLocationStage;
+  const timeControlsDisabled = activeLocationStage !== "outdoors";
+  timeDial.disabled = timeControlsDisabled;
+  timeDial.setAttribute("aria-disabled", String(timeControlsDisabled));
 
   for (const marker of locationStageMarkers) {
     marker.dataset.active = String(marker.dataset.location === activeLocationStage);
+  }
+
+  for (const marker of timeStageMarkers) {
+    marker.disabled = timeControlsDisabled;
+    marker.setAttribute("aria-disabled", String(timeControlsDisabled));
   }
 }
 
@@ -386,9 +412,12 @@ function updateTimeUi(direction = 0) {
 }
 
 function setControlsBusy(isBusy) {
-  timeDial.disabled = isBusy;
+  const timeControlsDisabled = isBusy || activeLocationStage !== "outdoors";
+  timeDial.disabled = timeControlsDisabled;
+  timeDial.setAttribute("aria-disabled", String(timeControlsDisabled));
   for (const marker of timeStageMarkers) {
-    marker.disabled = isBusy;
+    marker.disabled = timeControlsDisabled;
+    marker.setAttribute("aria-disabled", String(timeControlsDisabled));
   }
   for (const marker of locationStageMarkers) {
     marker.disabled = isBusy;
@@ -407,9 +436,9 @@ async function applyActiveModelSelection() {
 
   if (nextSource === currentModelSource) {
     const modelLabel =
-      activeLocationStage === "indoors"
-        ? locationLabels.indoors
-        : `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`;
+      activeLocationStage === "outdoors"
+        ? `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`
+        : locationLabels[activeLocationStage];
     setStatusOverlayState(false);
     setStatus(
       "Model ready",
@@ -421,9 +450,9 @@ async function applyActiveModelSelection() {
   setControlsBusy(true);
   setStatusOverlayState(false);
   const modelLabel =
-    activeLocationStage === "indoors"
-      ? locationLabels.indoors
-      : `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`;
+    activeLocationStage === "outdoors"
+      ? `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`
+      : locationLabels[activeLocationStage];
   setStatus("Switching model", `Loading ${modelLabel}...`);
 
   try {

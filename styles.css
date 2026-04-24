@@ -271,6 +271,12 @@ model-viewer:active {
   display: grid;
   gap: 10px;
   justify-items: start;
+  transition: opacity 180ms ease, filter 180ms ease;
+}
+
+body:not([data-location="outdoors"]) .time-control-group {
+  opacity: 0.36;
+  filter: grayscale(0.8);
 }
 
 .time-dial {
@@ -294,6 +300,10 @@ model-viewer:active {
 
 .time-dial:active {
   cursor: grabbing;
+}
+
+.time-dial:disabled {
+  cursor: not-allowed;
 }
 
 .time-dial-shell,
@@ -427,6 +437,11 @@ model-viewer:active {
 .location-stage-marker:disabled {
   cursor: wait;
   opacity: 0.72;
+}
+
+body:not([data-location="outdoors"]) .time-stage-marker:disabled {
+  cursor: not-allowed;
+  opacity: 1;
 }
 
 .location-control {
@@ -849,7 +864,7 @@ model-viewer:active {
   .location-stage-markers {
     gap: 8px;
     flex-wrap: wrap;
-    max-width: 112px;
+    max-width: 176px;
   }
 
   .hero-overlay {
