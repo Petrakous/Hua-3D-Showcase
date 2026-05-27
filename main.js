@@ -1,4 +1,9 @@
+import { LOCATION_CATALOG, LOCATION_LABELS } from "./viewer/sceneCatalog.js";
+import { SiteSplatViewer } from "./viewer/splatViewer.js";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js";
+
 const modelViewer = document.getElementById("siteModel");
+const splatViewerMount = document.getElementById("splatViewerMount");
 const siteHeader = document.getElementById("siteHeader");
 const progressBar = document.getElementById("progressBar");
 const statusPill = document.getElementById("statusPill");
@@ -10,150 +15,62 @@ const qualityToggle = document.getElementById("qualityToggle");
 const timeDial = document.getElementById("timeDial");
 const timeStageMarkers = [...document.querySelectorAll(".time-stage-marker")];
 const locationStageMarkers = [...document.querySelectorAll(".location-stage-marker")];
+const sceneControl = document.getElementById("sceneControl");
+const sceneStageMarkers = document.getElementById("sceneStageMarkers");
+const formatControl = document.getElementById("formatControl");
+const formatStageMarkers = document.getElementById("formatStageMarkers");
 const resetCamera = document.getElementById("resetCamera");
 const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
 
 const timeStages = ["day", "dusk", "night"];
-const locationStages = ["outdoors", "indoors", "dit"];
 const timeLabels = {
   day: "Day",
   dusk: "Dusk",
   night: "Night",
-};
-const locationLabels = {
-  outdoors: "OutdoorsM",
-  indoors: "IndoorsM",
-  dit: "DIT",
 };
 const timeStageAngles = {
   day: 0,
   dusk: 90,
   night: 180,
 };
-const modelSources = {
-  day: {
-    web: "./HuaDayBest1_web.glb",
-    hd: "./HuaDayBest1.glb",
-  },
-  dusk: {
-    web: "./HuaMainDraco.glb",
-    hd: "./NoonHDDraco.glb",
-  },
-  night: {
-    web: "./HuaMainNightDraco.glb",
-    hd: "./NightHD.glb",
-  },
-};
-const mobileModelSources = {
-  dusk: {
-    hd: "./NoonHDDraco_mobile.glb",
-  },
-  night: {
-    web: "./HuaMainNightDraco_mobile.glb",
-    hd: "./NightHD_mobile.glb",
-  },
-};
-const indoorModelSource = "./Indoors.glb";
-const ditModelSource = "./HuaDITDusk.glb";
-const hdAvailability = {
-  day: true,
-  dusk: true,
-  night: true,
-};
 const clayColor = [0.86, 0.89, 0.92, 1];
-const stageViews = {
-  day: {
-    web: {
-      orientation: "0deg 0deg 0deg",
-      cameraTarget: "auto auto auto",
-      cameraOrbit: "0deg 0deg auto",
-      fieldOfView: "10deg",
-      minCameraOrbit: "auto 55deg auto",
-      maxCameraOrbit: "auto 85deg auto",
-    },
-    hd: {
-      orientation: "0deg 0deg 0deg",
-      cameraTarget: "auto auto auto",
-      cameraOrbit: "0deg 0deg auto",
-      fieldOfView: "10deg",
-      minCameraOrbit: "auto 55deg auto",
-      maxCameraOrbit: "auto 85deg auto",
-    },
-  },
-  dusk: {
-    web: {
-      orientation: "0deg 0deg 0deg",
-      cameraTarget: "auto auto auto",
-      cameraOrbit: "0deg 0deg auto",
-      fieldOfView: "10deg",
-      minCameraOrbit: "auto 55deg auto",
-      maxCameraOrbit: "auto 85deg auto",
-    },
-    hd: {
-      orientation: "0deg 0deg 0deg",
-      cameraTarget: "auto auto auto",
-      cameraOrbit: "0deg 0deg auto",
-      fieldOfView: "10deg",
-      minCameraOrbit: "auto 55deg auto",
-      maxCameraOrbit: "auto 85deg auto",
-    },
-  },
-  night: {
-    web: {
-      orientation: "0deg 0deg 0deg",
-      cameraTarget: "auto auto auto",
-      cameraOrbit: "0deg 0deg auto",
-      fieldOfView: "10deg",
-      minCameraOrbit: "auto 55deg auto",
-      maxCameraOrbit: "auto 85deg auto",
-    },
-    hd: {
-      orientation: "0deg 0deg 0deg",
-      cameraTarget: "auto auto auto",
-      cameraOrbit: "0deg 0deg auto",
-      fieldOfView: "10deg",
-      minCameraOrbit: "auto 55deg auto",
-      maxCameraOrbit: "auto 85deg auto",
-    },
-  },
-};
-const indoorView = {
-  orientation: "0deg 0deg 0deg",
-  cameraTarget: "auto auto auto",
-  cameraOrbit: "0deg 72deg auto",
-  fieldOfView: "30deg",
-  minCameraOrbit: "auto 10deg auto",
-  maxCameraOrbit: "auto 88deg auto",
-};
-const ditView = {
-  orientation: "0deg 0deg 0deg",
-  cameraTarget: "auto auto auto",
-  cameraOrbit: "0deg 72deg auto",
-  fieldOfView: "30deg",
-  minCameraOrbit: "auto 35deg auto",
-  maxCameraOrbit: "auto 88deg auto",
+const isMobileDevice =
+  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const useBlobPreloading = !isMobileDevice;
+const splatProfile = {
+  maxDpr: isMobileDevice ? 1.05 : 1.35,
 };
 
 let activeTimeStage = "day";
 let activeLocationStage = "outdoors";
+let activeSceneId = null;
+let activeFormat = "glb";
 let hdEnabled = false;
 let warmCacheEnabled = false;
 let clayEnabled = false;
+let turntableEnabled = true;
 let originalMaterials = [];
 let currentStageRotation = timeStageAngles[activeTimeStage];
-let currentModelSource = modelSources[activeTimeStage].hd;
-let activeModelSwapId = 0;
+let currentAssetKey = "";
+let currentEngineType = "glb";
+let currentActiveAsset = null;
+let activeAssetSwapId = 0;
 let dialPointerId = null;
 let dialStartAngle = 0;
 let dialDragged = false;
 let skipNextDialClick = false;
 const preloadedModelUrls = new Map();
 const preloadPromises = new Map();
-const isMobileDevice =
-  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const useBlobPreloading = !isMobileDevice;
+const plyViewer = new SiteSplatViewer(splatViewerMount);
+const sogViewer = new PlayCanvasSogViewer(splatViewerMount);
+
+const FORMAT_LABELS = {
+  glb: "GLB",
+  splat: "PLY",
+  sog: "SOG",
+};
 
 function setProgress(value) {
   progressBar.style.width = `${Math.max(0, Math.min(100, Math.round(value * 100)))}%`;
@@ -168,38 +85,186 @@ function setStatusOverlayState(isIdle) {
   viewerStatus.classList.toggle("is-idle", isIdle);
 }
 
-function getActiveView() {
-  if (activeLocationStage === "indoors") {
-    return indoorView;
-  }
-
-  if (activeLocationStage === "dit") {
-    return ditView;
-  }
-
-  return stageViews[activeTimeStage][hdEnabled ? "hd" : "web"];
+function getCurrentLocationEntry() {
+  return LOCATION_CATALOG[activeLocationStage];
 }
 
-function frameDefaultView() {
-  const view = getActiveView();
-  modelViewer.orientation = view.orientation;
-  modelViewer.cameraTarget = view.cameraTarget;
-  modelViewer.cameraOrbit = view.cameraOrbit;
-  modelViewer.fieldOfView = view.fieldOfView;
-  modelViewer.minCameraOrbit = view.minCameraOrbit;
-  modelViewer.maxCameraOrbit = view.maxCameraOrbit;
+function getCurrentSceneCollection() {
+  const locationEntry = getCurrentLocationEntry();
+  if (!locationEntry) {
+    return [];
+  }
+
+  if (locationEntry.kind === "scene-group") {
+    return locationEntry.scenes || [];
+  }
+
+  if (locationEntry.kind === "single-scene" && locationEntry.scene) {
+    return [locationEntry.scene];
+  }
+
+  return [];
+}
+
+function getCurrentSceneEntry() {
+  const scenes = getCurrentSceneCollection();
+  if (!scenes.length) {
+    return null;
+  }
+
+  if (activeSceneId) {
+    const exactMatch = scenes.find((scene) => scene.id === activeSceneId);
+    if (exactMatch) {
+      return exactMatch;
+    }
+  }
+
+  return scenes[0];
+}
+
+function normalizeActiveScene() {
+  const locationEntry = getCurrentLocationEntry();
+  const scenes = getCurrentSceneCollection();
+
+  if (!scenes.length) {
+    activeSceneId = null;
+    return;
+  }
+
+  const hasExactScene = activeSceneId && scenes.some((scene) => scene.id === activeSceneId);
+  if (hasExactScene) {
+    return;
+  }
+
+  activeSceneId = locationEntry?.defaultSceneId || scenes[0].id;
+}
+
+function getAvailableFormats() {
+  const locationEntry = getCurrentLocationEntry();
+  if (!locationEntry || locationEntry.kind === "outdoor-cycle") {
+    return ["glb"];
+  }
+
+  normalizeActiveScene();
+  const scene = getCurrentSceneEntry();
+  return Object.keys(scene?.assets || {});
+}
+
+function normalizeActiveFormat() {
+  normalizeActiveScene();
+  const availableFormats = getAvailableFormats();
+  if (!availableFormats.includes(activeFormat)) {
+    activeFormat = availableFormats[0] || "glb";
+  }
+}
+
+function getOutdoorAsset(stage, qualityKey) {
+  const outdoorCatalog = LOCATION_CATALOG.outdoors;
+  if (isMobileDevice && outdoorCatalog.mobileStages?.[stage]?.[qualityKey]) {
+    return outdoorCatalog.mobileStages[stage][qualityKey];
+  }
+
+  return outdoorCatalog.stages[stage][qualityKey];
+}
+
+function getActiveAssetDescriptor() {
+  normalizeActiveFormat();
+
+  if (activeLocationStage === "outdoors") {
+    const qualityKey = hdEnabled ? "hd" : "web";
+    const asset = getOutdoorAsset(activeTimeStage, qualityKey);
+    return {
+      ...asset,
+      key: `outdoors:${activeTimeStage}:${qualityKey}`,
+      label: `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`,
+      locationId: "outdoors",
+      format: "glb",
+    };
+  }
+
+  const locationEntry = getCurrentLocationEntry();
+  normalizeActiveScene();
+  const scene = getCurrentSceneEntry();
+  const asset = scene?.assets?.[activeFormat] || scene?.assets?.glb || Object.values(scene?.assets || {})[0];
+
+  if (!asset) {
+    return null;
+  }
+
+  return {
+    ...asset,
+    key: `${locationEntry.id}:${scene.id}:${activeFormat}`,
+    label: scene.label,
+    locationId: locationEntry.id,
+    format: activeFormat,
+  };
+}
+
+function describeActiveAsset(asset = getActiveAssetDescriptor()) {
+  if (!asset) {
+    return "scene";
+  }
+
+  if (asset.locationId === "outdoors") {
+    return asset.label;
+  }
+
+  const sceneLabel = asset.label;
+  const baseLocationLabel = LOCATION_LABELS[asset.locationId] || sceneLabel;
+  const formatLabel = FORMAT_LABELS[asset.format] || FORMAT_LABELS[asset.fileFormat] || "GLB";
+  return `${baseLocationLabel} / ${sceneLabel} (${formatLabel})`;
+}
+
+function getActiveOverlayViewer() {
+  if (currentEngineType !== "splat") {
+    return null;
+  }
+
+  return currentActiveAsset?.runtime === "playcanvas" ? sogViewer : plyViewer;
+}
+
+function updateViewerLayerVisibility(engineType) {
+  const showSplat = engineType === "splat";
+  modelViewer.hidden = showSplat;
+  modelViewer.setAttribute("aria-hidden", String(showSplat));
+  splatViewerMount.hidden = !showSplat;
+  splatViewerMount.setAttribute("aria-hidden", String(!showSplat));
+}
+
+function applyGlbView(asset) {
+  modelViewer.orientation = asset.orientation || "0deg 0deg 0deg";
+  modelViewer.cameraTarget = asset.cameraTarget || "auto auto auto";
+  modelViewer.cameraOrbit = asset.cameraOrbit || "0deg 72deg auto";
+  modelViewer.fieldOfView = asset.fieldOfView || "30deg";
+  modelViewer.minCameraOrbit = asset.minCameraOrbit || "auto 10deg auto";
+  modelViewer.maxCameraOrbit = asset.maxCameraOrbit || "auto 88deg auto";
   modelViewer.jumpCameraToGoal();
 }
 
-async function resetViewAfterLoad() {
-  frameDefaultView();
+async function resetGlbViewAfterLoad() {
+  if (!currentActiveAsset || currentEngineType !== "glb") {
+    return;
+  }
+
+  applyGlbView(currentActiveAsset);
   await modelViewer.updateComplete;
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      frameDefaultView();
+      if (currentEngineType === "glb" && currentActiveAsset) {
+        applyGlbView(currentActiveAsset);
+      }
     });
   });
+}
+
+function resetActiveViewer() {
+  if (currentEngineType === "splat") {
+    getActiveOverlayViewer()?.resetView();
+    return;
+  }
+
+  resetGlbViewAfterLoad();
 }
 
 function cacheMaterialState() {
@@ -299,34 +364,43 @@ async function getModelUrl(src) {
   return preloadModel(src);
 }
 
-function getModelSourceFor(stage, qualityKey) {
-  if (isMobileDevice && mobileModelSources[stage]?.[qualityKey]) {
-    return mobileModelSources[stage][qualityKey];
-  }
-  return modelSources[stage][qualityKey];
-}
+function collectWarmModelSources() {
+  const sources = new Set();
+  const outdoorCatalog = LOCATION_CATALOG.outdoors;
 
-function getActiveModelSource() {
-  if (activeLocationStage === "indoors") {
-    return indoorModelSource;
-  }
-
-  if (activeLocationStage === "dit") {
-    return ditModelSource;
-  }
-
-  const qualityKey = hdEnabled ? "hd" : "web";
-  return getModelSourceFor(activeTimeStage, qualityKey);
-}
-
-function getWarmModelSources() {
-  const sources = new Set([indoorModelSource, ditModelSource]);
   for (const stage of timeStages) {
-    sources.add(getModelSourceFor(stage, "web"));
-    if (hdAvailability[stage]) {
-      sources.add(getModelSourceFor(stage, "hd"));
+    sources.add(outdoorCatalog.stages[stage].web.src);
+    if (outdoorCatalog.qualityAvailability?.[stage]) {
+      sources.add(outdoorCatalog.stages[stage].hd.src);
+    }
+
+    if (outdoorCatalog.mobileStages?.[stage]?.web?.src) {
+      sources.add(outdoorCatalog.mobileStages[stage].web.src);
+    }
+
+    if (outdoorCatalog.mobileStages?.[stage]?.hd?.src) {
+      sources.add(outdoorCatalog.mobileStages[stage].hd.src);
     }
   }
+
+  for (const locationId of Object.keys(LOCATION_CATALOG)) {
+    const locationEntry = LOCATION_CATALOG[locationId];
+    const scenes =
+      locationEntry.kind === "single-scene"
+        ? [locationEntry.scene]
+        : locationEntry.kind === "scene-group"
+          ? locationEntry.scenes || []
+          : [];
+
+    for (const scene of scenes) {
+      for (const asset of Object.values(scene?.assets || {})) {
+        if (asset.type === "glb") {
+          sources.add(asset.src);
+        }
+      }
+    }
+  }
+
   return [...sources];
 }
 
@@ -335,7 +409,7 @@ function warmModelCache() {
     return;
   }
 
-  for (const src of getWarmModelSources()) {
+  for (const src of collectWarmModelSources()) {
     preloadModel(src);
   }
 }
@@ -347,7 +421,8 @@ function updateWarmCacheToggle() {
 }
 
 function updateQualityToggle() {
-  const hdAvailable = activeLocationStage === "outdoors" && hdAvailability[activeTimeStage];
+  const outdoorCatalog = LOCATION_CATALOG.outdoors;
+  const hdAvailable = activeLocationStage === "outdoors" && outdoorCatalog.qualityAvailability?.[activeTimeStage];
   if (!hdAvailable) {
     hdEnabled = false;
   }
@@ -358,6 +433,87 @@ function updateQualityToggle() {
   qualityToggle.setAttribute("aria-label", "HD");
   qualityToggle.title = "HD";
   qualityToggle.disabled = !hdAvailable;
+}
+
+function updateMaterialToggle() {
+  const activeAsset = getActiveAssetDescriptor();
+  const isGlb = activeAsset?.type === "glb";
+  materialToggle.hidden = !isGlb;
+  materialToggle.style.display = isGlb ? "inline-flex" : "none";
+  materialToggle.disabled = !isGlb;
+}
+
+function renderSceneMarkers() {
+  const locationEntry = getCurrentLocationEntry();
+  const scenes = getCurrentSceneCollection();
+  const shouldShowSceneControl = locationEntry?.kind === "scene-group" && scenes.length > 0;
+
+  sceneControl.hidden = !shouldShowSceneControl;
+  if (!shouldShowSceneControl) {
+    sceneStageMarkers.innerHTML = "";
+    return;
+  }
+
+  normalizeActiveScene();
+  sceneStageMarkers.innerHTML = scenes
+    .map((scene) => `
+      <button
+        class="scene-stage-marker"
+        data-scene-id="${scene.id}"
+        data-active="${String(scene.id === activeSceneId)}"
+        type="button"
+      >${scene.label}</button>
+    `)
+    .join("");
+
+  for (const button of sceneStageMarkers.querySelectorAll(".scene-stage-marker")) {
+    button.addEventListener("click", () => {
+      const sceneId = button.dataset.sceneId;
+      if (!sceneId || sceneId === activeSceneId) {
+        return;
+      }
+
+      setActiveScene(sceneId);
+    });
+  }
+}
+
+function renderFormatMarkers() {
+  const availableFormats = getAvailableFormats();
+  const shouldShowFormatControl = availableFormats.length > 1;
+  formatControl.hidden = !shouldShowFormatControl;
+
+  if (!shouldShowFormatControl) {
+    formatStageMarkers.innerHTML = "";
+    return;
+  }
+
+  formatStageMarkers.innerHTML = availableFormats
+    .map((format) => `
+      <button
+        class="format-stage-marker"
+        data-format="${format}"
+        data-active="${String(format === activeFormat)}"
+        type="button"
+      >${FORMAT_LABELS[format] || format.toUpperCase()}</button>
+    `)
+    .join("");
+
+  for (const button of formatStageMarkers.querySelectorAll(".format-stage-marker")) {
+    button.addEventListener("click", () => {
+      const format = button.dataset.format;
+      if (!format || format === activeFormat) {
+        return;
+      }
+
+      setActiveFormat(format);
+    });
+  }
+}
+
+function updateSceneAndFormatUi() {
+  renderSceneMarkers();
+  renderFormatMarkers();
 }
 
 function updateLocationUi() {
@@ -374,6 +530,8 @@ function updateLocationUi() {
     marker.disabled = timeControlsDisabled;
     marker.setAttribute("aria-disabled", String(timeControlsDisabled));
   }
+
+  updateSceneAndFormatUi();
 }
 
 function setDialRotation(rotation) {
@@ -422,52 +580,144 @@ function setControlsBusy(isBusy) {
   for (const marker of locationStageMarkers) {
     marker.disabled = isBusy;
   }
+  for (const marker of sceneStageMarkers.querySelectorAll(".scene-stage-marker")) {
+    marker.disabled = isBusy;
+  }
+  for (const marker of formatStageMarkers.querySelectorAll(".format-stage-marker")) {
+    marker.disabled = isBusy;
+  }
 
   if (isBusy) {
     qualityToggle.disabled = true;
+    materialToggle.disabled = true;
   } else {
     updateQualityToggle();
+    updateMaterialToggle();
   }
 }
 
-async function applyActiveModelSelection() {
-  const nextSource = getActiveModelSource();
-  const swapId = ++activeModelSwapId;
+function updateTurntableUi() {
+  turntableToggle.setAttribute("aria-pressed", String(turntableEnabled));
+  turntableToggle.setAttribute("aria-label", turntableEnabled ? "Rotate on" : "Rotate off");
+  turntableToggle.title = turntableEnabled ? "Rotate on" : "Rotate off";
+}
 
-  if (nextSource === currentModelSource) {
-    const modelLabel =
-      activeLocationStage === "outdoors"
-        ? `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`
-        : locationLabels[activeLocationStage];
+function applyTurntableState() {
+  if (currentEngineType === "splat") {
+    getActiveOverlayViewer()?.setAutoRotate(turntableEnabled);
+    return;
+  }
+
+  modelViewer.autoRotate = turntableEnabled;
+}
+
+async function activateGlbAsset(asset, swapId) {
+  const resolvedSource = warmCacheEnabled ? await getModelUrl(asset.src) : asset.src;
+  if (swapId !== activeAssetSwapId) {
+    return;
+  }
+
+  plyViewer.dispose();
+  sogViewer.dispose();
+  updateViewerLayerVisibility("glb");
+  currentEngineType = "glb";
+  currentActiveAsset = asset;
+  currentAssetKey = asset.key;
+  modelViewer.autoRotate = turntableEnabled;
+  applyGlbView(asset);
+  modelViewer.src = resolvedSource;
+  await modelViewer.updateComplete;
+}
+
+async function activateSplatAsset(asset, swapId) {
+  if (swapId !== activeAssetSwapId) {
+    return;
+  }
+
+  const viewer = asset.runtime === "playcanvas" ? sogViewer : plyViewer;
+  const inactiveViewer = viewer === sogViewer ? plyViewer : sogViewer;
+
+  inactiveViewer.dispose();
+  updateViewerLayerVisibility("splat");
+  currentEngineType = "splat";
+  currentActiveAsset = asset;
+  currentAssetKey = asset.key;
+  setProgress(0.22);
+  await viewer.load(
+    {
+      ...asset,
+      autoRotate: turntableEnabled,
+    },
+    splatProfile,
+    (nextState) => {
+      if (swapId !== activeAssetSwapId) {
+        return;
+      }
+
+      if (nextState.status === "loading") {
+        setProgress(0.56);
+      }
+
+      setStatus(nextState.title, nextState.message);
+    }
+  );
+}
+
+async function applyActiveAssetSelection() {
+  const nextAsset = getActiveAssetDescriptor();
+  if (!nextAsset) {
+    return;
+  }
+
+  const swapId = ++activeAssetSwapId;
+
+  if (nextAsset.key === currentAssetKey && nextAsset.type === currentEngineType) {
     setStatusOverlayState(false);
-    setStatus(
-      "Model ready",
-      `${modelLabel} is already active.`
-    );
+    setStatus("Scene ready", `${describeActiveAsset(nextAsset)} is already active.`);
+    updateMaterialToggle();
+    updateQualityToggle();
     return;
   }
 
   setControlsBusy(true);
   setStatusOverlayState(false);
-  const modelLabel =
-    activeLocationStage === "outdoors"
-      ? `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`
-      : locationLabels[activeLocationStage];
-  setStatus("Switching model", `Loading ${modelLabel}...`);
+  setStatus("Switching scene", `Loading ${describeActiveAsset(nextAsset)}...`);
 
   try {
-    const resolvedSource = await getModelUrl(nextSource);
+    if (nextAsset.type === "splat") {
+      await activateSplatAsset(nextAsset, swapId);
+      if (swapId !== activeAssetSwapId) {
+        return;
+      }
 
-    if (swapId !== activeModelSwapId) {
+      document.body.classList.add("is-loaded");
+      document.body.classList.remove("is-error");
+      setProgress(1);
+      setStatus(
+        "3D hero active",
+        `${describeActiveAsset(nextAsset)} is loaded in ${FORMAT_LABELS[nextAsset.format] || "splat"} mode.`
+      );
+      requestAnimationFrame(() => {
+        if (swapId === activeAssetSwapId) {
+          setStatusOverlayState(true);
+        }
+      });
+    } else {
+      await activateGlbAsset(nextAsset, swapId);
+    }
+  } catch (error) {
+    if (swapId !== activeAssetSwapId) {
       return;
     }
 
-    currentModelSource = nextSource;
-    modelViewer.src = resolvedSource;
-    await modelViewer.updateComplete;
+    document.body.classList.add("is-error");
+    setStatusOverlayState(false);
+    setStatus("Asset issue", error?.message || "The selected scene did not render correctly.");
   } finally {
-    if (swapId === activeModelSwapId) {
+    if (swapId === activeAssetSwapId) {
       setControlsBusy(false);
+      updateMaterialToggle();
+      updateQualityToggle();
     }
   }
 }
@@ -479,21 +729,58 @@ async function setActiveTimeStage(stage, direction = 0) {
 
   activeLocationStage = "outdoors";
   activeTimeStage = stage;
+  activeFormat = "glb";
   updateLocationUi();
   updateQualityToggle();
+  updateMaterialToggle();
   updateTimeUi(direction);
-  await applyActiveModelSelection();
+  await applyActiveAssetSelection();
 }
 
 async function setActiveLocationStage(stage) {
-  if (!locationStages.includes(stage) || stage === activeLocationStage) {
+  if (!LOCATION_CATALOG[stage] || stage === activeLocationStage) {
     return;
   }
 
   activeLocationStage = stage;
+  activeSceneId = null;
+  if (stage === "outdoors") {
+    activeFormat = "glb";
+  } else {
+    normalizeActiveScene();
+    normalizeActiveFormat();
+  }
   updateLocationUi();
   updateQualityToggle();
-  await applyActiveModelSelection();
+  updateMaterialToggle();
+  await applyActiveAssetSelection();
+}
+
+async function setActiveScene(sceneId) {
+  const scenes = getCurrentSceneCollection();
+  if (!scenes.some((scene) => scene.id === sceneId) || sceneId === activeSceneId) {
+    return;
+  }
+
+  activeSceneId = sceneId;
+  normalizeActiveFormat();
+  updateLocationUi();
+  updateQualityToggle();
+  updateMaterialToggle();
+  await applyActiveAssetSelection();
+}
+
+async function setActiveFormat(format) {
+  const availableFormats = getAvailableFormats();
+  if (!availableFormats.includes(format) || format === activeFormat) {
+    return;
+  }
+
+  activeFormat = format;
+  updateLocationUi();
+  updateQualityToggle();
+  updateMaterialToggle();
+  await applyActiveAssetSelection();
 }
 
 function changeStageBy(step) {
@@ -525,20 +812,30 @@ function normalizeAngleDelta(start, end) {
 }
 
 modelViewer.addEventListener("progress", (event) => {
+  if (currentEngineType !== "glb") {
+    return;
+  }
+
   setStatusOverlayState(false);
   setProgress(event.detail.totalProgress);
   setStatus(
-    event.detail.totalProgress >= 1 ? "Model ready" : "Loading model",
+    event.detail.totalProgress >= 1 ? "Scene ready" : "Loading scene",
     `${Math.round(event.detail.totalProgress * 100)}% complete`
   );
 });
 
 modelViewer.addEventListener("load", async () => {
+  if (currentEngineType !== "glb") {
+    return;
+  }
+
   document.body.classList.add("is-loaded");
+  document.body.classList.remove("is-error");
   setProgress(1);
-  setStatus("3D hero active", "The model has loaded and the camera is orbiting around the campus.");
+  setStatus("3D hero active", `${describeActiveAsset()} is loaded.`);
   cacheMaterialState();
-  await resetViewAfterLoad();
+  await resetGlbViewAfterLoad();
+  applyTurntableState();
 
   if (clayEnabled) {
     applyClayMaterials();
@@ -550,6 +847,10 @@ modelViewer.addEventListener("load", async () => {
 });
 
 modelViewer.addEventListener("error", (event) => {
+  if (currentEngineType !== "glb") {
+    return;
+  }
+
   document.body.classList.add("is-error");
   setStatusOverlayState(false);
   setStatus("Asset issue", event.detail?.type || "The model did not render correctly.");
@@ -557,7 +858,7 @@ modelViewer.addEventListener("error", (event) => {
 });
 
 resetCamera.addEventListener("click", () => {
-  resetViewAfterLoad();
+  resetActiveViewer();
 });
 
 fullscreenToggle.addEventListener("click", async () => {
@@ -579,24 +880,31 @@ warmCacheToggle.addEventListener("click", () => {
 });
 
 qualityToggle.addEventListener("click", async () => {
-  if (activeLocationStage !== "outdoors" || !hdAvailability[activeTimeStage]) {
+  if (activeLocationStage !== "outdoors") {
+    return;
+  }
+
+  const outdoorCatalog = LOCATION_CATALOG.outdoors;
+  if (!outdoorCatalog.qualityAvailability?.[activeTimeStage]) {
     return;
   }
 
   hdEnabled = !hdEnabled;
   updateQualityToggle();
-  await applyActiveModelSelection();
+  await applyActiveAssetSelection();
 });
 
 turntableToggle.addEventListener("click", () => {
-  const shouldRotate = !modelViewer.autoRotate;
-  modelViewer.autoRotate = shouldRotate;
-  turntableToggle.setAttribute("aria-pressed", String(shouldRotate));
-  turntableToggle.setAttribute("aria-label", shouldRotate ? "Rotate on" : "Rotate off");
-  turntableToggle.title = shouldRotate ? "Rotate on" : "Rotate off";
+  turntableEnabled = !turntableEnabled;
+  updateTurntableUi();
+  applyTurntableState();
 });
 
 materialToggle.addEventListener("click", () => {
+  if (currentEngineType !== "glb") {
+    return;
+  }
+
   clayEnabled = !clayEnabled;
   materialToggle.setAttribute("aria-pressed", String(clayEnabled));
   materialToggle.setAttribute("aria-label", clayEnabled ? "Textured View" : "Clay View");
@@ -714,8 +1022,13 @@ document.addEventListener("fullscreenchange", () => {
 updateWarmCacheToggle();
 updateLocationUi();
 updateQualityToggle();
+updateMaterialToggle();
 updateTimeUi();
+updateTurntableUi();
 setStatusOverlayState(false);
 warmModelCache();
+applyTurntableState();
 
 setProgress(0.08);
+setStatus("Loading scene", "Preparing the 3D viewer and resolving the active campus scene.");
+applyActiveAssetSelection();

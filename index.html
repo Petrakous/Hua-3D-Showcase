@@ -19,6 +19,14 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three.module.js",
+          "@mkkellogg/gaussian-splats-3d": "./vendor/gaussian-splats-3d.module.js"
+        }
+      }
+    </script>
     <script
       type="module"
       src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"
@@ -89,6 +97,7 @@
             tone-mapping="commerce"
             loading="eager"
           ></model-viewer>
+          <div id="splatViewerMount" class="splat-viewer-layer" hidden aria-hidden="true"></div>
 
           <div class="hero-gradient"></div>
           <div class="hero-noise"></div>
@@ -129,6 +138,16 @@
               <button class="location-stage-marker" data-location="indoors" type="button">IndoorsM</button>
               <button class="location-stage-marker" data-location="dit" type="button">DIT</button>
             </div>
+          </div>
+
+          <div class="location-control location-subcontrol" id="sceneControl" hidden>
+            <span class="time-label">Scene</span>
+            <div class="location-stage-markers location-stage-markers--wrap" id="sceneStageMarkers" role="group" aria-label="Choose indoor scene"></div>
+          </div>
+
+          <div class="location-control location-subcontrol" id="formatControl" hidden>
+            <span class="time-label">Format</span>
+            <div class="location-stage-markers" id="formatStageMarkers" role="group" aria-label="Choose scene format"></div>
           </div>
         </div>
 

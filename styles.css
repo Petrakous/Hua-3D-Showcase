@@ -219,6 +219,7 @@ button {
 
 .hero-media,
 model-viewer,
+.splat-viewer-layer,
 .hero-gradient,
 .hero-noise {
   position: absolute;
@@ -240,6 +241,24 @@ model-viewer {
   background:
     radial-gradient(circle at 50% 64%, rgba(162, 216, 255, 0.18), transparent 16%),
     linear-gradient(180deg, rgba(10, 24, 38, 0.3), rgba(7, 17, 27, 0.4));
+}
+
+.splat-viewer-layer {
+  z-index: 1;
+  background:
+    radial-gradient(circle at 50% 64%, rgba(162, 216, 255, 0.18), transparent 16%),
+    linear-gradient(180deg, rgba(10, 24, 38, 0.3), rgba(7, 17, 27, 0.4));
+}
+
+.splat-viewer-layer canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.splat-viewer-layer[hidden],
+model-viewer[hidden] {
+  display: none !important;
 }
 
 model-viewer:active {
@@ -411,7 +430,9 @@ body:not([data-location="outdoors"]) .time-control-group {
 }
 
 .time-stage-marker,
-.location-stage-marker {
+.location-stage-marker,
+.scene-stage-marker,
+.format-stage-marker {
   appearance: none;
   padding: 0;
   border: 0;
@@ -423,18 +444,24 @@ body:not([data-location="outdoors"]) .time-control-group {
 }
 
 .time-stage-marker:hover,
-.location-stage-marker:hover {
+.location-stage-marker:hover,
+.scene-stage-marker:hover,
+.format-stage-marker:hover {
   color: rgba(255, 255, 255, 0.82);
   transform: translateY(-1px);
 }
 
 .time-stage-marker[data-active="true"],
-.location-stage-marker[data-active="true"] {
+.location-stage-marker[data-active="true"],
+.scene-stage-marker[data-active="true"],
+.format-stage-marker[data-active="true"] {
   color: rgba(255, 255, 255, 0.92);
 }
 
 .time-stage-marker:disabled,
-.location-stage-marker:disabled {
+.location-stage-marker:disabled,
+.scene-stage-marker:disabled,
+.format-stage-marker:disabled {
   cursor: wait;
   opacity: 0.72;
 }
@@ -455,6 +482,15 @@ body:not([data-location="outdoors"]) .time-stage-marker:disabled {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.location-stage-markers--wrap {
+  flex-wrap: wrap;
+  max-width: 220px;
+}
+
+.location-subcontrol[hidden] {
+  display: none !important;
 }
 
 .hero-noise {
