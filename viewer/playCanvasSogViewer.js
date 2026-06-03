@@ -699,7 +699,13 @@ class PlayCanvasSogViewer {
         });
       });
       splatAsset.on("load", resolve);
-      splatAsset.on("error", reject);
+      splatAsset.on("error", (error) => {
+        const detail =
+          typeof error === "string"
+            ? error
+            : error?.message || error?.status || error?.statusText || "Unknown PlayCanvas asset loader error";
+        reject(new Error(`Failed to load SOG asset: ${asset.src} (${detail})`));
+      });
       app.assets.add(splatAsset);
       app.assets.load(splatAsset);
     });

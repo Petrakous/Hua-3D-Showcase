@@ -99,6 +99,14 @@ const FORMAT_LABELS = {
 };
 const FORMAT_PRIORITY = ["sog", "glb", "splat"];
 const GITHUB_MEDIA_BASE_URL = "https://media.githubusercontent.com/media/Petrakous/Hua-3D-Showcase/main/";
+
+function encodeUrlPathSegments(path = "") {
+  return path
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
 const CAMPUS_INDOOR_BUILDINGS = [
   {
     id: "main",
@@ -782,7 +790,7 @@ async function getModelUrl(src) {
 }
 
 function resolveHostedSogUrl(src) {
-  if (!src || !/\.sog(?:$|\?)/i.test(src) || !window.location.hostname.endsWith("github.io")) {
+  if (!src || !/\.sog(?:$|\?)/i.test(src)) {
     return src;
   }
 
@@ -790,8 +798,13 @@ function resolveHostedSogUrl(src) {
     return src;
   }
 
-  const normalized = src.replace(/^\.\//, "").replace(/^\//, "");
-  return `${GITHUB_MEDIA_BASE_URL}${normalized}`;
+  if (window.location.hostname.endsWith("github.io")) {
+    const normalized = src.replace(/^\.\//, "").replace(/^\//, "");
+    const encodedPath = encodeUrlPathSegments(normalized);
+    return new URL(encodedPath, GITHUB_MEDIA_BASE_URL).toString();
+  }
+
+  return new URL(src, window.location.href).toString();
 }
 
 function collectWarmModelSources() {

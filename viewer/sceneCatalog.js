@@ -283,6 +283,7 @@ const LOCATION_CATALOG = {
       }),
       createIndoorScene('biology-lab', 'Biology Lab', null, {
         src: './PLYs/BioLab/BioLab.sog',
+        performanceSources: createSogPerformanceSources('BioLab'),
         manualBox: {
           position: [0.1, -3, 0.5],
           rotationDegrees: [90.3, -0.1, -450.4],
