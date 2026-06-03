@@ -120,8 +120,10 @@ const LOCATION_LABELS = {
 
 function createSogPerformanceSources(folderName) {
   return {
-    balanced: `./PLYs/${folderName}/generated_lods/lod3.sog`,
-    performance: `./PLYs/${folderName}/generated_lods/lod4.sog`,
+    lod1: `./PLYs/${folderName}/generated_lods/lod1.sog`,
+    lod2: `./PLYs/${folderName}/generated_lods/lod2.sog`,
+    lod3: `./PLYs/${folderName}/generated_lods/lod3.sog`,
+    lod4: `./PLYs/${folderName}/generated_lods/lod4.sog`,
   };
 }
 
