@@ -1,10 +1,15 @@
 import { computeAutoCutaway } from "./autoCutaway.js";
 
 const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas/+esm";
+const ORBIT_DAMPING_DECAY_MS = 140;
+const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
+const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
+const AUTO_CUTAWAY_FADE_WIDTH = 0.12;
 const SOG_BOX_CULLING_MODIFIER = {
   glsl: `
 uniform mat4 orientedClipBoxWorldToUnit;
 uniform float orientedClipBoxEnabled;
+uniform float orientedClipBoxFadeWidth;
 
 void modifySplatCenter(inout vec3 center) {
 }
@@ -18,17 +23,20 @@ void modifySplatColor(vec3 center, inout vec4 color) {
   }
 
   vec3 clipLocalPoint = (orientedClipBoxWorldToUnit * vec4(center, 1.0)).xyz;
+  vec3 outsideDistance = abs(clipLocalPoint) - vec3(0.5);
+  float maxOutsideDistance = max(max(outsideDistance.x, outsideDistance.y), outsideDistance.z);
 
-  if (abs(clipLocalPoint.x) > 0.5 ||
-      abs(clipLocalPoint.y) > 0.5 ||
-      abs(clipLocalPoint.z) > 0.5) {
-    color.a = 0.0;
+  if (maxOutsideDistance > 0.0) {
+    float fadeWidth = max(orientedClipBoxFadeWidth, 0.0001);
+    float visibility = 1.0 - smoothstep(0.0, fadeWidth, maxOutsideDistance);
+    color.a *= visibility;
   }
 }
 `,
   wgsl: `
 uniform orientedClipBoxWorldToUnit: mat4x4f;
 uniform orientedClipBoxEnabled: f32;
+uniform orientedClipBoxFadeWidth: f32;
 
 fn modifySplatCenter(center: ptr<function, vec3f>) {
 }
@@ -42,11 +50,13 @@ fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
   }
 
   let clipLocalPoint = (uniform.orientedClipBoxWorldToUnit * vec4f(center, 1.0)).xyz;
+  let outsideDistance = abs(clipLocalPoint) - vec3f(0.5, 0.5, 0.5);
+  let maxOutsideDistance = max(max(outsideDistance.x, outsideDistance.y), outsideDistance.z);
 
-  if (abs(clipLocalPoint.x) > 0.5 ||
-      abs(clipLocalPoint.y) > 0.5 ||
-      abs(clipLocalPoint.z) > 0.5) {
-    (*color).a = 0.0;
+  if (maxOutsideDistance > 0.0) {
+    let fadeWidth = max(uniform.orientedClipBoxFadeWidth, 0.0001);
+    let visibility = 1.0 - smoothstep(0.0, fadeWidth, maxOutsideDistance);
+    (*color).a *= visibility;
   }
 }
 `,
@@ -58,10 +68,13 @@ function supportsPlayCanvasSogViewer() {
 }
 
 class SimpleOrbitController {
-  constructor(canvas, onChange) {
+  constructor(canvas, options = {}) {
     this.canvas = canvas;
-    this.onChange = onChange;
+    this.onChange = options.onChange || (() => {});
+    this.onPanStateChange = options.onPanStateChange || (() => {});
+    this.getFieldOfView = options.getFieldOfView || (() => 45);
     this.dragging = false;
+    this.dragMode = "orbit";
     this.lastX = 0;
     this.lastY = 0;
     this.pinchDistance = 0;
@@ -71,10 +84,17 @@ class SimpleOrbitController {
 
   bind(state) {
     const pointerDown = (event) => {
+      if (event.button !== 0 && event.button !== 2) {
+        return;
+      }
+
       this.dragging = true;
+      this.dragMode = event.button === 2 ? "pan" : "orbit";
       this.lastX = event.clientX;
       this.lastY = event.clientY;
+      this.onPanStateChange(this.dragMode === "pan");
       this.canvas.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
     };
 
     const pointerMove = (event) => {
@@ -87,13 +107,23 @@ class SimpleOrbitController {
       this.lastX = event.clientX;
       this.lastY = event.clientY;
 
-      state.yaw -= deltaX * 0.25;
-      state.pitch = Math.max(-85, Math.min(85, state.pitch - deltaY * 0.2));
+      if (this.dragMode === "pan") {
+        this.panOrbitTarget(state, deltaX, deltaY);
+      } else {
+        state.yaw -= deltaX * 0.25;
+        state.pitch = Math.max(-85, Math.min(85, state.pitch + deltaY * 0.2));
+      }
       this.onChange();
+      event.preventDefault();
     };
 
     const pointerUp = (event) => {
+      const wasPanning = this.dragMode === "pan";
       this.dragging = false;
+      this.dragMode = "orbit";
+      if (wasPanning) {
+        this.onPanStateChange(false);
+      }
       this.canvas.releasePointerCapture?.(event.pointerId);
     };
 
@@ -123,7 +153,7 @@ class SimpleOrbitController {
         this.lastX = touch.clientX;
         this.lastY = touch.clientY;
         state.yaw -= deltaX * 0.25;
-        state.pitch = Math.max(-85, Math.min(85, state.pitch - deltaY * 0.2));
+        state.pitch = Math.max(-85, Math.min(85, state.pitch + deltaY * 0.2));
         this.onChange();
       } else if (event.touches.length === 2) {
         const nextDistance = this.computeTouchDistance(event.touches);
@@ -143,6 +173,10 @@ class SimpleOrbitController {
       this.pinchDistance = 0;
     };
 
+    const contextMenu = (event) => {
+      event.preventDefault();
+    };
+
     this.canvas.addEventListener("pointerdown", pointerDown);
     this.canvas.addEventListener("pointermove", pointerMove);
     this.canvas.addEventListener("pointerup", pointerUp);
@@ -152,6 +186,7 @@ class SimpleOrbitController {
     this.canvas.addEventListener("touchmove", touchMove, { passive: false });
     this.canvas.addEventListener("touchend", touchEnd);
     this.canvas.addEventListener("touchcancel", touchEnd);
+    this.canvas.addEventListener("contextmenu", contextMenu);
 
     this.disposeFns.push(() => this.canvas.removeEventListener("pointerdown", pointerDown));
     this.disposeFns.push(() => this.canvas.removeEventListener("pointermove", pointerMove));
@@ -162,6 +197,42 @@ class SimpleOrbitController {
     this.disposeFns.push(() => this.canvas.removeEventListener("touchmove", touchMove));
     this.disposeFns.push(() => this.canvas.removeEventListener("touchend", touchEnd));
     this.disposeFns.push(() => this.canvas.removeEventListener("touchcancel", touchEnd));
+    this.disposeFns.push(() => this.canvas.removeEventListener("contextmenu", contextMenu));
+  }
+
+  panOrbitTarget(state, deltaX, deltaY) {
+    if (!state.target?.clone) {
+      return;
+    }
+
+    const yaw = (state.yaw * Math.PI) / 180;
+    const pitch = (state.pitch * Math.PI) / 180;
+    const distance = Math.max(state.distance, 0.2);
+    const canvasHeight = Math.max(this.canvas.clientHeight || 1, 1);
+    const fovDegrees = Math.max(1, Number(this.getFieldOfView()) || 45);
+    const panScale = (distance * fovDegrees * MODEL_VIEWER_PAN_SENSITIVITY) / canvasHeight;
+
+    const cameraForward = {
+      x: -Math.cos(pitch) * Math.sin(yaw),
+      y: -Math.sin(pitch),
+      z: -Math.cos(pitch) * Math.cos(yaw),
+    };
+
+    const right = {
+      x: Math.cos(yaw),
+      y: 0,
+      z: -Math.sin(yaw),
+    };
+
+    const up = {
+      x: right.y * cameraForward.z - right.z * cameraForward.y,
+      y: right.z * cameraForward.x - right.x * cameraForward.z,
+      z: right.x * cameraForward.y - right.y * cameraForward.x,
+    };
+
+    state.target.x += (-deltaX * right.x + deltaY * up.x) * panScale;
+    state.target.y += (-deltaX * right.y + deltaY * up.y) * panScale;
+    state.target.z += (-deltaX * right.z + deltaY * up.z) * panScale;
   }
 
   computeTouchDistance(touches) {
@@ -190,13 +261,30 @@ class PlayCanvasSogViewer {
     this.resizeObserver = null;
     this.orbitController = null;
     this.orbitState = null;
+    this.goalOrbitState = null;
     this.defaultOrbitState = null;
     this.autoRotate = false;
-    this.autoRotateFrameId = 0;
     this.cutawayEnabled = true;
     this.activeManualBoxConfig = null;
     this.currentAsset = null;
     this.cutawayModifierInstalled = false;
+    this.panIndicatorVisible = false;
+  }
+
+  setPanIndicatorVisible(visible) {
+    const nextVisible = !!visible;
+    if (this.panIndicatorVisible === nextVisible) {
+      return;
+    }
+
+    this.panIndicatorVisible = nextVisible;
+    this.container?.dispatchEvent?.(
+      new CustomEvent("sog-pan-visibilitychange", {
+        detail: {
+          visible: nextVisible,
+        },
+      })
+    );
   }
 
   transformPointToWorld(pc, entity, point) {
@@ -232,6 +320,85 @@ class PlayCanvasSogViewer {
       yaw: state.yaw,
       pitch: state.pitch,
     };
+  }
+
+  normalizeAngleDegrees(angle) {
+    return ((angle % 360) + 360) % 360;
+  }
+
+  shortestAngleDeltaDegrees(fromAngle, toAngle) {
+    let delta = this.normalizeAngleDegrees(toAngle) - this.normalizeAngleDegrees(fromAngle);
+    if (delta > 180) {
+      delta -= 360;
+    }
+    if (delta < -180) {
+      delta += 360;
+    }
+    return delta;
+  }
+
+  dampScalar(current, goal, deltaMs, epsilon = 0.0001) {
+    if (!Number.isFinite(current) || !Number.isFinite(goal)) {
+      return goal;
+    }
+
+    if (Math.abs(goal - current) <= epsilon) {
+      return goal;
+    }
+
+    const alpha = 1 - Math.exp(-deltaMs / ORBIT_DAMPING_DECAY_MS);
+    return current + (goal - current) * alpha;
+  }
+
+  dampAngleDegrees(current, goal, deltaMs, epsilon = 0.01) {
+    const delta = this.shortestAngleDeltaDegrees(current, goal);
+    if (Math.abs(delta) <= epsilon) {
+      return goal;
+    }
+
+    const alpha = 1 - Math.exp(-deltaMs / ORBIT_DAMPING_DECAY_MS);
+    return current + delta * alpha;
+  }
+
+  animateOrbit(pc, deltaSeconds) {
+    if (!this.app || !this.orbitState || !this.goalOrbitState) {
+      return;
+    }
+
+    const deltaMs = Math.max(deltaSeconds * 1000, 0);
+    if (!deltaMs) {
+      return;
+    }
+
+    if (this.autoRotate) {
+      this.goalOrbitState.yaw += AUTO_ROTATE_DEGREES_PER_SECOND * deltaSeconds;
+    }
+
+    const nextYaw = this.dampAngleDegrees(this.orbitState.yaw, this.goalOrbitState.yaw, deltaMs);
+    const nextPitch = this.dampScalar(this.orbitState.pitch, this.goalOrbitState.pitch, deltaMs, 0.01);
+    const nextDistance = this.dampScalar(this.orbitState.distance, this.goalOrbitState.distance, deltaMs, 0.001);
+    const nextTargetX = this.dampScalar(this.orbitState.target.x, this.goalOrbitState.target.x, deltaMs, 0.0001);
+    const nextTargetY = this.dampScalar(this.orbitState.target.y, this.goalOrbitState.target.y, deltaMs, 0.0001);
+    const nextTargetZ = this.dampScalar(this.orbitState.target.z, this.goalOrbitState.target.z, deltaMs, 0.0001);
+
+    const changed =
+      Math.abs(this.shortestAngleDeltaDegrees(this.orbitState.yaw, nextYaw)) > 0.0001 ||
+      Math.abs(this.orbitState.pitch - nextPitch) > 0.0001 ||
+      Math.abs(this.orbitState.distance - nextDistance) > 0.0001 ||
+      Math.abs(this.orbitState.target.x - nextTargetX) > 0.0001 ||
+      Math.abs(this.orbitState.target.y - nextTargetY) > 0.0001 ||
+      Math.abs(this.orbitState.target.z - nextTargetZ) > 0.0001;
+
+    if (!changed) {
+      return;
+    }
+
+    this.orbitState.yaw = nextYaw;
+    this.orbitState.pitch = nextPitch;
+    this.orbitState.distance = nextDistance;
+    this.orbitState.target.set(nextTargetX, nextTargetY, nextTargetZ);
+    this.updateCameraOrbit(pc);
+    this.syncCutawayState(pc);
   }
 
   createStandardEulerQuaternion(pc, rotationDegrees = [0, 0, 0]) {
@@ -318,12 +485,14 @@ class PlayCanvasSogViewer {
 
     if (!enabled || !boxConfig) {
       gsplat.setParameter("orientedClipBoxEnabled", 0);
+      gsplat.setParameter("orientedClipBoxFadeWidth", AUTO_CUTAWAY_FADE_WIDTH);
       return;
     }
 
     const worldToUnitBox = this.createBoxWorldMatrix(pc, boxConfig).invert();
     gsplat.setParameter("orientedClipBoxWorldToUnit", worldToUnitBox.data);
     gsplat.setParameter("orientedClipBoxEnabled", 1);
+    gsplat.setParameter("orientedClipBoxFadeWidth", boxConfig.cutFadeWidth ?? AUTO_CUTAWAY_FADE_WIDTH);
   }
 
   getCameraPositionInBoxSpace(pc, boxConfig = this.activeManualBoxConfig) {
@@ -405,32 +574,16 @@ class PlayCanvasSogViewer {
   }
 
   startAutoRotate(pc = this.pc) {
-    if (!pc || !this.app || !this.orbitState || this.autoRotateFrameId) {
+    if (!pc || !this.app || !this.goalOrbitState) {
       return;
     }
 
     this.autoRotate = true;
-    const spin = () => {
-      if (!this.orbitState || !this.app || !this.autoRotate) {
-        this.autoRotateFrameId = 0;
-        return;
-      }
-
-      this.orbitState.yaw -= 0.1;
-      this.updateCameraOrbit(pc);
-      this.syncCutawayState(pc);
-      this.autoRotateFrameId = window.requestAnimationFrame(spin);
-    };
-
-    this.autoRotateFrameId = window.requestAnimationFrame(spin);
+    this.app.renderNextFrame = true;
   }
 
   stopAutoRotate() {
     this.autoRotate = false;
-    if (this.autoRotateFrameId) {
-      window.cancelAnimationFrame(this.autoRotateFrameId);
-      this.autoRotateFrameId = 0;
-    }
   }
 
   setAutoRotate(enabled) {
@@ -477,6 +630,9 @@ class PlayCanvasSogViewer {
       0.5,
       Math.min(window.devicePixelRatio || 1, profile.maxDpr || 1.05)
     );
+    app.on("update", (deltaSeconds) => {
+      this.animateOrbit(pc, deltaSeconds);
+    });
 
     const camera = new pc.Entity("Camera");
     camera.addComponent("camera", {
@@ -568,16 +724,24 @@ class PlayCanvasSogViewer {
     }
 
     const radius = Math.max(halfExtents.length(), 1);
-    this.orbitState = this.resolveOrbitState(pc, asset, splatEntity, center, radius);
-    this.defaultOrbitState = this.cloneOrbitState(this.orbitState);
+    this.goalOrbitState = this.resolveOrbitState(pc, asset, splatEntity, center, radius);
+    this.orbitState = this.cloneOrbitState(this.goalOrbitState);
+    this.defaultOrbitState = this.cloneOrbitState(this.goalOrbitState);
     this.updateCameraOrbit(pc);
     this.syncCutawayState(pc);
 
-    this.orbitController = new SimpleOrbitController(canvas, () => {
-      this.updateCameraOrbit(pc);
-      this.syncCutawayState(pc);
+    this.orbitController = new SimpleOrbitController(canvas, {
+      getFieldOfView: () => this.camera?.camera?.fov ?? asset.viewPreset?.fov ?? 60,
+      onChange: () => {
+        if (this.app) {
+          this.app.renderNextFrame = true;
+        }
+      },
+      onPanStateChange: (visible) => {
+        this.setPanIndicatorVisible(visible);
+      },
     });
-    this.orbitController.bind(this.orbitState);
+    this.orbitController.bind(this.goalOrbitState);
 
     if (this.autoRotate) {
       this.startAutoRotate(pc);
@@ -614,17 +778,19 @@ class PlayCanvasSogViewer {
   }
 
   resetView() {
-    if (!this.pc || !this.defaultOrbitState) {
+    if (!this.pc || !this.defaultOrbitState || !this.goalOrbitState) {
       return;
     }
 
-    this.orbitState = this.cloneOrbitState(this.defaultOrbitState);
-    this.updateCameraOrbit(this.pc);
-    this.syncCutawayState(this.pc);
+    this.goalOrbitState = this.cloneOrbitState(this.defaultOrbitState);
+    if (this.app) {
+      this.app.renderNextFrame = true;
+    }
   }
 
   dispose() {
     this.stopAutoRotate();
+    this.setPanIndicatorVisible(false);
     if (this.orbitController) {
       this.orbitController.dispose();
       this.orbitController = null;
@@ -649,6 +815,7 @@ class PlayCanvasSogViewer {
     this.camera = null;
     this.splatEntity = null;
     this.orbitState = null;
+    this.goalOrbitState = null;
     this.canvas?.remove?.();
     this.canvas = null;
 

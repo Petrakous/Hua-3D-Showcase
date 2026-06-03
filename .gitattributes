@@ -1,0 +1,1 @@
+PLYs/**/*.sog filter=lfs diff=lfs merge=lfs -text

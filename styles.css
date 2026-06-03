@@ -220,6 +220,7 @@ button {
 .hero-media,
 model-viewer,
 .splat-viewer-layer,
+.orbit-target-indicator,
 .hero-gradient,
 .hero-noise {
   position: absolute;
@@ -261,6 +262,34 @@ model-viewer[hidden] {
   display: none !important;
 }
 
+.orbit-target-indicator {
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.orbit-target-indicator::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  margin-top: -5px;
+  border: 1.5px solid rgba(226, 242, 255, 0.9);
+  border-radius: 999px;
+  background: rgba(8, 18, 30, 0.14);
+  box-shadow:
+    0 0 0 1px rgba(8, 18, 30, 0.22),
+    0 0 12px rgba(162, 216, 255, 0.24);
+}
+
+.orbit-target-indicator.is-visible {
+  opacity: 1;
+}
+
 model-viewer:active {
   cursor: grabbing;
 }
@@ -293,7 +322,7 @@ model-viewer:active {
   transition: opacity 180ms ease, filter 180ms ease;
 }
 
-body:not([data-location="outdoors"]) .time-control-group {
+body[data-show-time-control="false"] .time-control-group {
   opacity: 0.36;
   filter: grayscale(0.8);
 }
@@ -432,7 +461,8 @@ body:not([data-location="outdoors"]) .time-control-group {
 .time-stage-marker,
 .location-stage-marker,
 .scene-stage-marker,
-.format-stage-marker {
+.format-stage-marker,
+.nav-marker {
   appearance: none;
   padding: 0;
   border: 0;
@@ -446,7 +476,8 @@ body:not([data-location="outdoors"]) .time-control-group {
 .time-stage-marker:hover,
 .location-stage-marker:hover,
 .scene-stage-marker:hover,
-.format-stage-marker:hover {
+.format-stage-marker:hover,
+.nav-marker:hover {
   color: rgba(255, 255, 255, 0.82);
   transform: translateY(-1px);
 }
@@ -454,19 +485,21 @@ body:not([data-location="outdoors"]) .time-control-group {
 .time-stage-marker[data-active="true"],
 .location-stage-marker[data-active="true"],
 .scene-stage-marker[data-active="true"],
-.format-stage-marker[data-active="true"] {
+.format-stage-marker[data-active="true"],
+.nav-marker[data-active="true"] {
   color: rgba(255, 255, 255, 0.92);
 }
 
 .time-stage-marker:disabled,
 .location-stage-marker:disabled,
 .scene-stage-marker:disabled,
-.format-stage-marker:disabled {
+.format-stage-marker:disabled,
+.nav-marker:disabled {
   cursor: wait;
   opacity: 0.72;
 }
 
-body:not([data-location="outdoors"]) .time-stage-marker:disabled {
+body[data-show-time-control="false"] .time-stage-marker:disabled {
   cursor: not-allowed;
   opacity: 1;
 }
@@ -478,6 +511,16 @@ body:not([data-location="outdoors"]) .time-stage-marker:disabled {
   padding-left: 4px;
 }
 
+.navigation-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.navigation-group {
+  display: grid;
+  gap: 5px;
+}
+
 .location-stage-markers {
   display: flex;
   gap: 10px;
@@ -487,6 +530,18 @@ body:not([data-location="outdoors"]) .time-stage-marker:disabled {
 .location-stage-markers--wrap {
   flex-wrap: wrap;
   max-width: 220px;
+}
+
+.nav-marker:disabled {
+  color: rgba(255, 255, 255, 0.22);
+  cursor: not-allowed;
+  opacity: 1;
+  transform: none;
+}
+
+.nav-marker:disabled:hover {
+  color: rgba(255, 255, 255, 0.22);
+  transform: none;
 }
 
 .location-subcontrol[hidden] {

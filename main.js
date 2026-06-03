@@ -1,9 +1,10 @@
-import { LOCATION_CATALOG, LOCATION_LABELS } from "./viewer/sceneCatalog.js";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js";
 import { SiteSplatViewer } from "./viewer/splatViewer.js";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js";
 
-const modelViewer = document.getElementById("siteModel");
+let modelViewer = document.getElementById("siteModel");
 const splatViewerMount = document.getElementById("splatViewerMount");
+const orbitTargetIndicator = document.getElementById("orbitTargetIndicator");
 const siteHeader = document.getElementById("siteHeader");
 const progressBar = document.getElementById("progressBar");
 const statusPill = document.getElementById("statusPill");
@@ -13,10 +14,9 @@ const fullscreenToggle = document.getElementById("fullscreenToggle");
 const warmCacheToggle = document.getElementById("warmCacheToggle");
 const qualityToggle = document.getElementById("qualityToggle");
 const timeDial = document.getElementById("timeDial");
+const timeControlGroup = document.getElementById("timeControlGroup");
 const timeStageMarkers = [...document.querySelectorAll(".time-stage-marker")];
-const locationStageMarkers = [...document.querySelectorAll(".location-stage-marker")];
-const sceneControl = document.getElementById("sceneControl");
-const sceneStageMarkers = document.getElementById("sceneStageMarkers");
+const navigationGroups = document.getElementById("navigationGroups");
 const formatControl = document.getElementById("formatControl");
 const formatStageMarkers = document.getElementById("formatStageMarkers");
 const resetCamera = document.getElementById("resetCamera");
@@ -38,13 +38,36 @@ const clayColor = [0.86, 0.89, 0.92, 1];
 const isMobileDevice =
   /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const deviceMemory = Number.isFinite(navigator.deviceMemory) ? navigator.deviceMemory : null;
+const hardwareConcurrency = Number.isFinite(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : null;
 const useBlobPreloading = !isMobileDevice;
+
+function getAutoPerformanceProfile() {
+  if (isMobileDevice) {
+    if ((deviceMemory && deviceMemory <= 4) || (hardwareConcurrency && hardwareConcurrency <= 6)) {
+      return { tier: "performance", maxDpr: 0.85 };
+    }
+
+    return { tier: "balanced", maxDpr: 1 };
+  }
+
+  if ((deviceMemory && deviceMemory <= 4) || (hardwareConcurrency && hardwareConcurrency <= 4)) {
+    return { tier: "balanced", maxDpr: 1.1 };
+  }
+
+  return { tier: "quality", maxDpr: 1.35 };
+}
+
+const autoPerformanceProfile = getAutoPerformanceProfile();
 const splatProfile = {
-  maxDpr: isMobileDevice ? 1.05 : 1.35,
+  maxDpr: autoPerformanceProfile.maxDpr,
 };
 
 let activeTimeStage = "day";
+let activeSiteId = "campus";
+let activeEnvironmentId = "outside";
 let activeLocationStage = "outdoors";
+let activeBuildingId = "main";
 let activeSceneId = null;
 let activeFormat = "glb";
 let hdEnabled = false;
@@ -57,12 +80,15 @@ let currentAssetKey = "";
 let currentEngineType = "glb";
 let currentActiveAsset = null;
 let activeAssetSwapId = 0;
+let sogPanIndicatorVisible = false;
 let dialPointerId = null;
 let dialStartAngle = 0;
 let dialDragged = false;
 let skipNextDialClick = false;
 const preloadedModelUrls = new Map();
 const preloadPromises = new Map();
+const preloadAbortControllers = new Map();
+const preloadLinkElements = new Map();
 const plyViewer = new SiteSplatViewer(splatViewerMount);
 const sogViewer = new PlayCanvasSogViewer(splatViewerMount);
 
@@ -71,6 +97,41 @@ const FORMAT_LABELS = {
   splat: "PLY",
   sog: "SOG",
 };
+const FORMAT_PRIORITY = ["sog", "glb", "splat"];
+const GITHUB_MEDIA_BASE_URL = "https://media.githubusercontent.com/media/Petrakous/Hua-3D-Showcase/main/";
+const CAMPUS_INDOOR_BUILDINGS = [
+  {
+    id: "main",
+    label: "Main",
+    spaces: [
+      { id: "main-hall", label: "Main Hall", sceneId: "main-hall" },
+      { id: "amphitheater", label: "Amphitheater", sceneId: "amphitheater" },
+      { id: "classroom-5", label: "Classroom 5", sceneId: "classroom-5" },
+      { id: "biology", label: "Biology", sceneId: "biology-lab" },
+    ],
+  },
+  {
+    id: "geo",
+    label: "Geo",
+    spaces: [
+      { id: "lab-3-3", label: "Lab 3.3", sceneId: "geo3-3" },
+      { id: "systasis", label: "Systasis", sceneId: "systasis" },
+      { id: "fitness", label: "Fitness", sceneId: "fitness" },
+      { id: "ceremonial-hall", label: "Ceremonial Hall", sceneId: null },
+    ],
+  },
+  {
+    id: "diet",
+    label: "Diet",
+    spaces: [
+      { id: "metabolism", label: "Metabolism", sceneId: "metabolism" },
+      { id: "kitchen", label: "Kitchen", sceneId: "kitchen" },
+    ],
+  },
+];
+const DIT_INSIDE_SPACES = [
+  { id: "pc-lab", label: "PC Lab", sceneId: null },
+];
 
 function setProgress(value) {
   progressBar.style.width = `${Math.max(0, Math.min(100, Math.round(value * 100)))}%`;
@@ -83,6 +144,101 @@ function setStatus(title, text) {
 
 function setStatusOverlayState(isIdle) {
   viewerStatus.classList.toggle("is-idle", isIdle);
+}
+
+function sortFormats(formats = []) {
+  return [...formats].sort((left, right) => {
+    const leftIndex = FORMAT_PRIORITY.indexOf(left);
+    const rightIndex = FORMAT_PRIORITY.indexOf(right);
+    const safeLeftIndex = leftIndex === -1 ? FORMAT_PRIORITY.length : leftIndex;
+    const safeRightIndex = rightIndex === -1 ? FORMAT_PRIORITY.length : rightIndex;
+
+    if (safeLeftIndex !== safeRightIndex) {
+      return safeLeftIndex - safeRightIndex;
+    }
+
+    return left.localeCompare(right);
+  });
+}
+
+function getCampusIndoorScenes() {
+  return LOCATION_CATALOG.indoors?.scenes || [];
+}
+
+function getCampusIndoorSceneById(sceneId) {
+  return getCampusIndoorScenes().find((scene) => scene.id === sceneId) || null;
+}
+
+function getCampusBuilding(buildingId = activeBuildingId) {
+  return CAMPUS_INDOOR_BUILDINGS.find((building) => building.id === buildingId) || null;
+}
+
+function isCampusSpaceAvailable(space) {
+  return !!space?.sceneId && !!getCampusIndoorSceneById(space.sceneId);
+}
+
+function getEnabledCampusSpaces(buildingId = activeBuildingId) {
+  return (getCampusBuilding(buildingId)?.spaces || []).filter(isCampusSpaceAvailable);
+}
+
+function getActiveCampusSpace() {
+  return (getCampusBuilding()?.spaces || []).find((space) => space.sceneId === activeSceneId) || null;
+}
+
+function isTimeSelectionVisible() {
+  return activeEnvironmentId === "outside";
+}
+
+function isCampusOutsideSelected() {
+  return activeSiteId === "campus" && activeEnvironmentId === "outside";
+}
+
+function isDitOutsideSelected() {
+  return activeSiteId === "dit" && activeEnvironmentId === "outside";
+}
+
+function isTimeStageAvailable(stage) {
+  if (activeSiteId === "campus") {
+    const stageAssets = LOCATION_CATALOG.outdoors?.stages?.[stage] || {};
+    return Object.values(stageAssets).some((assetsByQuality) => Object.keys(assetsByQuality || {}).length > 0);
+  }
+
+  if (activeSiteId === "dit") {
+    return stage === "dusk" && !!LOCATION_CATALOG.dit?.scene?.assets?.glb;
+  }
+
+  return false;
+}
+
+function getFirstAvailableTimeStage() {
+  return timeStages.find((stage) => isTimeStageAvailable(stage)) || timeStages[0];
+}
+
+function hasMultipleAvailableTimeStages() {
+  return timeStages.filter((stage) => isTimeStageAvailable(stage)).length > 1;
+}
+
+function getCurrentContextLabel() {
+  const siteLabel = activeSiteId === "dit" ? "DIT" : "Campus";
+  const environmentLabel = activeEnvironmentId === "inside" ? "Inside" : "Outside";
+
+  if (activeEnvironmentId === "outside") {
+    return `${siteLabel} / ${environmentLabel} / ${timeLabels[activeTimeStage]}`;
+  }
+
+  if (activeSiteId === "campus") {
+    const building = getCampusBuilding();
+    const space = getActiveCampusSpace();
+    if (building?.label && space?.label) {
+      return `${siteLabel} / ${environmentLabel} / ${building.label} / ${space.label}`;
+    }
+  }
+
+  return `${siteLabel} / ${environmentLabel}`;
+}
+
+function getPreferredFormat(scene) {
+  return sortFormats(Object.keys(scene?.assets || {}))[0] || "glb";
 }
 
 function getCurrentLocationEntry() {
@@ -107,9 +263,14 @@ function getCurrentSceneCollection() {
 }
 
 function getCurrentSceneEntry() {
+  const locationEntry = getCurrentLocationEntry();
   const scenes = getCurrentSceneCollection();
   if (!scenes.length) {
     return null;
+  }
+
+  if (locationEntry?.kind === "single-scene") {
+    return scenes[0];
   }
 
   if (activeSceneId) {
@@ -119,10 +280,29 @@ function getCurrentSceneEntry() {
     }
   }
 
-  return scenes[0];
+  return null;
 }
 
 function normalizeActiveScene() {
+  if (activeSiteId === "campus" && activeEnvironmentId === "inside") {
+    const enabledSpaces = getEnabledCampusSpaces();
+    const enabledSceneIds = enabledSpaces.map((space) => space.sceneId);
+    if (!enabledSceneIds.length) {
+      activeSceneId = null;
+      return;
+    }
+
+    if (!enabledSceneIds.includes(activeSceneId)) {
+      activeSceneId = enabledSceneIds[0];
+    }
+    return;
+  }
+
+  if (activeSiteId === "dit" && activeEnvironmentId === "inside") {
+    activeSceneId = null;
+    return;
+  }
+
   const locationEntry = getCurrentLocationEntry();
   const scenes = getCurrentSceneCollection();
 
@@ -131,55 +311,164 @@ function normalizeActiveScene() {
     return;
   }
 
+  if (locationEntry?.kind === "single-scene") {
+    activeSceneId = locationEntry.scene?.id || scenes[0].id;
+    return;
+  }
+
   const hasExactScene = activeSceneId && scenes.some((scene) => scene.id === activeSceneId);
   if (hasExactScene) {
     return;
   }
 
-  activeSceneId = locationEntry?.defaultSceneId || scenes[0].id;
+  activeSceneId = null;
+}
+
+function syncNavigationState() {
+  if (activeSiteId === "campus") {
+    if (activeEnvironmentId === "outside") {
+      activeLocationStage = "outdoors";
+      activeSceneId = null;
+    } else {
+      activeLocationStage = "indoors";
+      if (!getCampusBuilding(activeBuildingId)) {
+        activeBuildingId = CAMPUS_INDOOR_BUILDINGS[0]?.id || "main";
+      }
+      normalizeActiveScene();
+    }
+    return;
+  }
+
+  activeLocationStage = "dit";
+  if (activeEnvironmentId === "outside") {
+    if (!isTimeStageAvailable(activeTimeStage)) {
+      activeTimeStage = getFirstAvailableTimeStage();
+    }
+    activeSceneId = LOCATION_CATALOG.dit?.scene?.id || null;
+    return;
+  }
+
+  activeSceneId = null;
 }
 
 function getAvailableFormats() {
+  syncNavigationState();
+
+  if (activeSiteId === "dit" && activeEnvironmentId === "inside") {
+    return [];
+  }
+
   const locationEntry = getCurrentLocationEntry();
-  if (!locationEntry || locationEntry.kind === "outdoor-cycle") {
+  if (!locationEntry) {
     return ["glb"];
+  }
+
+  if (isCampusOutsideSelected()) {
+    const stageAssets = locationEntry.stages?.[activeTimeStage] || {};
+    const outdoorFormats = Object.keys(stageAssets);
+    const outdoorPriority = ["glb", "sog"];
+    return outdoorFormats.sort((left, right) => {
+      const leftIndex = outdoorPriority.indexOf(left);
+      const rightIndex = outdoorPriority.indexOf(right);
+      const safeLeftIndex = leftIndex === -1 ? outdoorPriority.length : leftIndex;
+      const safeRightIndex = rightIndex === -1 ? outdoorPriority.length : rightIndex;
+
+      if (safeLeftIndex !== safeRightIndex) {
+        return safeLeftIndex - safeRightIndex;
+      }
+
+      return left.localeCompare(right);
+    });
   }
 
   normalizeActiveScene();
   const scene = getCurrentSceneEntry();
-  return Object.keys(scene?.assets || {});
+  return sortFormats(Object.keys(scene?.assets || {}));
 }
 
 function normalizeActiveFormat() {
-  normalizeActiveScene();
   const availableFormats = getAvailableFormats();
+  if (!availableFormats.length) {
+    activeFormat = "glb";
+    return;
+  }
+
   if (!availableFormats.includes(activeFormat)) {
     activeFormat = availableFormats[0] || "glb";
   }
 }
 
-function getOutdoorAsset(stage, qualityKey) {
+function getOutdoorAsset(stage, qualityKey, formatKey = activeFormat) {
   const outdoorCatalog = LOCATION_CATALOG.outdoors;
-  if (isMobileDevice && outdoorCatalog.mobileStages?.[stage]?.[qualityKey]) {
-    return outdoorCatalog.mobileStages[stage][qualityKey];
+  const stageAssets = outdoorCatalog.stages?.[stage]?.[formatKey] || outdoorCatalog.stages?.[stage]?.glb || {};
+  const mobileStageAssets = outdoorCatalog.mobileStages?.[stage]?.[formatKey] || {};
+
+  if (isMobileDevice && mobileStageAssets?.[qualityKey]) {
+    return mobileStageAssets[qualityKey];
   }
 
-  return outdoorCatalog.stages[stage][qualityKey];
+  return stageAssets[qualityKey] || stageAssets.web || Object.values(stageAssets)[0] || null;
+}
+
+function selectPerformanceSogAsset(asset) {
+  if (!asset || asset.type !== "splat" || asset.fileFormat !== "sog") {
+    return asset;
+  }
+
+  const tier = autoPerformanceProfile.tier;
+  const performanceSources = asset.performanceSources || {};
+  let nextSrc = asset.src;
+  let performanceTier = "quality";
+
+  if (tier === "performance") {
+    nextSrc = performanceSources.performance || performanceSources.balanced || asset.src;
+    performanceTier = nextSrc === asset.src ? "quality" : "performance";
+  } else if (tier === "balanced") {
+    nextSrc = performanceSources.balanced || performanceSources.performance || asset.src;
+    performanceTier = nextSrc === asset.src ? "quality" : "balanced";
+  }
+
+  return {
+    ...asset,
+    src: nextSrc,
+    performanceTier,
+  };
 }
 
 function getActiveAssetDescriptor() {
+  syncNavigationState();
   normalizeActiveFormat();
 
-  if (activeLocationStage === "outdoors") {
+  if (isCampusOutsideSelected()) {
     const qualityKey = hdEnabled ? "hd" : "web";
-    const asset = getOutdoorAsset(activeTimeStage, qualityKey);
-    return {
+    const asset = getOutdoorAsset(activeTimeStage, qualityKey, activeFormat);
+    return selectPerformanceSogAsset({
       ...asset,
-      key: `outdoors:${activeTimeStage}:${qualityKey}`,
+      key: `outdoors:${activeTimeStage}:${activeFormat}:${qualityKey}`,
       label: `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`,
       locationId: "outdoors",
-      format: "glb",
-    };
+      format: activeFormat,
+    });
+  }
+
+  if (activeSiteId === "dit") {
+    if (activeEnvironmentId !== "outside" || activeTimeStage !== "dusk") {
+      return null;
+    }
+
+    const scene = LOCATION_CATALOG.dit?.scene;
+    const asset = scene?.assets?.[activeFormat] || scene?.assets?.glb || Object.values(scene?.assets || {})[0];
+    if (!asset) {
+      return null;
+    }
+
+    return selectPerformanceSogAsset({
+      ...asset,
+      key: `dit:outside:${activeTimeStage}:${activeFormat}`,
+      label: scene.label,
+      locationId: "dit",
+      format: activeFormat,
+    });
   }
 
   const locationEntry = getCurrentLocationEntry();
@@ -191,28 +480,32 @@ function getActiveAssetDescriptor() {
     return null;
   }
 
-  return {
+  return selectPerformanceSogAsset({
     ...asset,
     key: `${locationEntry.id}:${scene.id}:${activeFormat}`,
     label: scene.label,
     locationId: locationEntry.id,
     format: activeFormat,
-  };
+  });
 }
 
 function describeActiveAsset(asset = getActiveAssetDescriptor()) {
   if (!asset) {
-    return "scene";
+    return getCurrentContextLabel();
   }
 
-  if (asset.locationId === "outdoors") {
-    return asset.label;
+  if (isCampusOutsideSelected()) {
+    const tierSuffix = asset.performanceTier && asset.performanceTier !== "quality"
+      ? ` / ${asset.performanceTier}`
+      : "";
+    return `${getCurrentContextLabel()} (${FORMAT_LABELS[asset.format] || "GLB"}${tierSuffix})`;
   }
 
-  const sceneLabel = asset.label;
-  const baseLocationLabel = LOCATION_LABELS[asset.locationId] || sceneLabel;
   const formatLabel = FORMAT_LABELS[asset.format] || FORMAT_LABELS[asset.fileFormat] || "GLB";
-  return `${baseLocationLabel} / ${sceneLabel} (${formatLabel})`;
+  const tierSuffix = asset.performanceTier && asset.performanceTier !== "quality"
+    ? ` / ${asset.performanceTier}`
+    : "";
+  return `${getCurrentContextLabel()} (${formatLabel}${tierSuffix})`;
 }
 
 function getActiveOverlayViewer() {
@@ -223,12 +516,69 @@ function getActiveOverlayViewer() {
   return currentActiveAsset?.runtime === "playcanvas" ? sogViewer : plyViewer;
 }
 
+function createModelViewerElement() {
+  const element = document.createElement("model-viewer");
+  element.id = "siteModel";
+  element.setAttribute("alt", "3D model of the campus");
+  element.setAttribute("camera-controls", "");
+  element.setAttribute("interaction-prompt", "none");
+  element.setAttribute("environment-image", "neutral");
+  element.setAttribute("exposure", "1.35");
+  element.setAttribute("shadow-intensity", "0.9");
+  element.setAttribute("tone-mapping", "commerce");
+  element.setAttribute("camera-orbit", "180deg 75deg auto");
+  element.setAttribute("min-camera-orbit", "auto 55deg auto");
+  element.setAttribute("max-camera-orbit", "auto 85deg auto");
+  element.setAttribute("field-of-view", "24deg");
+  element.setAttribute("min-field-of-view", "5deg");
+  element.setAttribute("max-field-of-view", "40deg");
+  element.setAttribute("interpolation-decay", "140");
+  element.setAttribute("touch-action", "none");
+  element.setAttribute("orientation", "0deg 0deg 0deg");
+  element.setAttribute("camera-target", "auto auto auto");
+  element.setAttribute("loading", "eager");
+
+  if (turntableEnabled) {
+    element.setAttribute("auto-rotate", "");
+    element.setAttribute("auto-rotate-delay", "0");
+    element.setAttribute("rotation-per-second", "-10deg");
+  }
+
+  return element;
+}
+
+function bindModelViewerEvents(element) {
+  element.addEventListener("progress", handleModelViewerProgress);
+  element.addEventListener("load", handleModelViewerLoad);
+  element.addEventListener("error", handleModelViewerError);
+}
+
+function replaceModelViewerElement() {
+  const nextModelViewer = createModelViewerElement();
+  nextModelViewer.hidden = modelViewer.hidden;
+  nextModelViewer.setAttribute("aria-hidden", modelViewer.getAttribute("aria-hidden") || "false");
+  modelViewer.replaceWith(nextModelViewer);
+  modelViewer = nextModelViewer;
+  bindModelViewerEvents(modelViewer);
+  return modelViewer;
+}
+
 function updateViewerLayerVisibility(engineType) {
+  const showGlb = engineType === "glb";
   const showSplat = engineType === "splat";
-  modelViewer.hidden = showSplat;
-  modelViewer.setAttribute("aria-hidden", String(showSplat));
+  modelViewer.hidden = !showGlb;
+  modelViewer.setAttribute("aria-hidden", String(!showGlb));
   splatViewerMount.hidden = !showSplat;
   splatViewerMount.setAttribute("aria-hidden", String(!showSplat));
+  updateOrbitTargetIndicatorVisibility();
+}
+
+function updateOrbitTargetIndicatorVisibility() {
+  const shouldShow =
+    sogPanIndicatorVisible &&
+    currentEngineType === "splat" &&
+    currentActiveAsset?.runtime === "playcanvas";
+  orbitTargetIndicator.classList.toggle("is-visible", shouldShow);
 }
 
 function applyGlbView(asset) {
@@ -299,6 +649,52 @@ function restoreMaterials() {
   }
 }
 
+function revokeObjectUrl(url) {
+  if (typeof url === "string" && url.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function clearWarmModelCache() {
+  const protectedUrl = modelViewer?.src || "";
+
+  for (const controller of preloadAbortControllers.values()) {
+    controller.abort();
+  }
+  preloadAbortControllers.clear();
+
+  for (const link of preloadLinkElements.values()) {
+    link.remove();
+  }
+  preloadLinkElements.clear();
+
+  for (const url of preloadedModelUrls.values()) {
+    if (url !== protectedUrl) {
+      revokeObjectUrl(url);
+    }
+  }
+  preloadedModelUrls.clear();
+  preloadPromises.clear();
+}
+
+function releaseActiveViewerResources({ preserveWarmCache = warmCacheEnabled } = {}) {
+  plyViewer.dispose();
+  sogViewer.dispose();
+  replaceModelViewerElement();
+  currentEngineType = "none";
+  currentActiveAsset = null;
+  sogPanIndicatorVisible = false;
+  updateViewerLayerVisibility("none");
+  document.body.classList.remove("is-loaded");
+  document.body.classList.remove("is-error");
+  originalMaterials = [];
+  currentAssetKey = "";
+
+  if (!preserveWarmCache) {
+    clearWarmModelCache();
+  }
+}
+
 function preloadModel(src) {
   if (preloadedModelUrls.has(src)) {
     return Promise.resolve(preloadedModelUrls.get(src));
@@ -314,9 +710,12 @@ function preloadModel(src) {
   link.href = src;
   link.crossOrigin = "anonymous";
   document.head.appendChild(link);
+  preloadLinkElements.set(src, link);
+  const controller = new AbortController();
+  preloadAbortControllers.set(src, controller);
 
   if (!useBlobPreloading) {
-    const preloadPromise = fetch(src, { cache: "force-cache" })
+    const preloadPromise = fetch(src, { cache: "force-cache", signal: controller.signal })
       .then((response) => {
         if (!response.ok) {
           throw new Error(`Failed to warm model cache: ${src}`);
@@ -325,16 +724,25 @@ function preloadModel(src) {
         preloadedModelUrls.set(src, src);
         return src;
       })
-      .catch(() => src)
+      .catch((error) => {
+        if (error?.name === "AbortError") {
+          return null;
+        }
+
+        return src;
+      })
       .finally(() => {
         preloadPromises.delete(src);
+        preloadAbortControllers.delete(src);
+        preloadLinkElements.get(src)?.remove?.();
+        preloadLinkElements.delete(src);
       });
 
     preloadPromises.set(src, preloadPromise);
     return preloadPromise;
   }
 
-  const preloadPromise = fetch(src, { cache: "force-cache" })
+  const preloadPromise = fetch(src, { cache: "force-cache", signal: controller.signal })
     .then((response) => {
       if (!response.ok) {
         throw new Error(`Failed to preload model: ${src}`);
@@ -347,9 +755,18 @@ function preloadModel(src) {
       preloadedModelUrls.set(src, objectUrl);
       return objectUrl;
     })
-    .catch(() => src)
+    .catch((error) => {
+      if (error?.name === "AbortError") {
+        return null;
+      }
+
+      return src;
+    })
     .finally(() => {
       preloadPromises.delete(src);
+      preloadAbortControllers.delete(src);
+      preloadLinkElements.get(src)?.remove?.();
+      preloadLinkElements.delete(src);
     });
 
   preloadPromises.set(src, preloadPromise);
@@ -361,7 +778,20 @@ async function getModelUrl(src) {
     return preloadedModelUrls.get(src);
   }
 
-  return preloadModel(src);
+  return (await preloadModel(src)) || src;
+}
+
+function resolveHostedSogUrl(src) {
+  if (!src || !/\.sog(?:$|\?)/i.test(src) || !window.location.hostname.endsWith("github.io")) {
+    return src;
+  }
+
+  if (/^https?:\/\//i.test(src)) {
+    return src;
+  }
+
+  const normalized = src.replace(/^\.\//, "").replace(/^\//, "");
+  return `${GITHUB_MEDIA_BASE_URL}${normalized}`;
 }
 
 function collectWarmModelSources() {
@@ -369,17 +799,24 @@ function collectWarmModelSources() {
   const outdoorCatalog = LOCATION_CATALOG.outdoors;
 
   for (const stage of timeStages) {
-    sources.add(outdoorCatalog.stages[stage].web.src);
-    if (outdoorCatalog.qualityAvailability?.[stage]) {
-      sources.add(outdoorCatalog.stages[stage].hd.src);
+    const stageAssets = outdoorCatalog.stages?.[stage] || {};
+    for (const formatAssets of Object.values(stageAssets)) {
+      if (formatAssets?.web?.src) {
+        sources.add(formatAssets.web.src);
+      }
+      if (formatAssets?.hd?.src) {
+        sources.add(formatAssets.hd.src);
+      }
     }
 
-    if (outdoorCatalog.mobileStages?.[stage]?.web?.src) {
-      sources.add(outdoorCatalog.mobileStages[stage].web.src);
-    }
-
-    if (outdoorCatalog.mobileStages?.[stage]?.hd?.src) {
-      sources.add(outdoorCatalog.mobileStages[stage].hd.src);
+    const mobileStageAssets = outdoorCatalog.mobileStages?.[stage] || {};
+    for (const formatAssets of Object.values(mobileStageAssets)) {
+      if (formatAssets?.web?.src) {
+        sources.add(formatAssets.web.src);
+      }
+      if (formatAssets?.hd?.src) {
+        sources.add(formatAssets.hd.src);
+      }
     }
   }
 
@@ -421,8 +858,9 @@ function updateWarmCacheToggle() {
 }
 
 function updateQualityToggle() {
-  const outdoorCatalog = LOCATION_CATALOG.outdoors;
-  const hdAvailable = activeLocationStage === "outdoors" && outdoorCatalog.qualityAvailability?.[activeTimeStage];
+  const hdAvailable =
+    isCampusOutsideSelected() &&
+    !!getOutdoorAsset(activeTimeStage, "hd", activeFormat);
   if (!hdAvailable) {
     hdEnabled = false;
   }
@@ -441,41 +879,6 @@ function updateMaterialToggle() {
   materialToggle.hidden = !isGlb;
   materialToggle.style.display = isGlb ? "inline-flex" : "none";
   materialToggle.disabled = !isGlb;
-}
-
-function renderSceneMarkers() {
-  const locationEntry = getCurrentLocationEntry();
-  const scenes = getCurrentSceneCollection();
-  const shouldShowSceneControl = locationEntry?.kind === "scene-group" && scenes.length > 0;
-
-  sceneControl.hidden = !shouldShowSceneControl;
-  if (!shouldShowSceneControl) {
-    sceneStageMarkers.innerHTML = "";
-    return;
-  }
-
-  normalizeActiveScene();
-  sceneStageMarkers.innerHTML = scenes
-    .map((scene) => `
-      <button
-        class="scene-stage-marker"
-        data-scene-id="${scene.id}"
-        data-active="${String(scene.id === activeSceneId)}"
-        type="button"
-      >${scene.label}</button>
-    `)
-    .join("");
-
-  for (const button of sceneStageMarkers.querySelectorAll(".scene-stage-marker")) {
-    button.addEventListener("click", () => {
-      const sceneId = button.dataset.sceneId;
-      if (!sceneId || sceneId === activeSceneId) {
-        return;
-      }
-
-      setActiveScene(sceneId);
-    });
-  }
 }
 
 function renderFormatMarkers() {
@@ -512,23 +915,123 @@ function renderFormatMarkers() {
 }
 
 function updateSceneAndFormatUi() {
-  renderSceneMarkers();
+  renderNavigationUi();
   renderFormatMarkers();
 }
 
+function renderNavigationGroup(label, items = []) {
+  return `
+    <div class="navigation-group">
+      <span class="time-label">${label}</span>
+      <div class="location-stage-markers location-stage-markers--wrap" role="group" aria-label="${label}">
+        ${items.map((item) => `
+          <button
+            class="nav-marker"
+            type="button"
+            data-nav-type="${item.type}"
+            data-nav-id="${item.id}"
+            data-active="${String(!!item.active)}"
+            ${item.disabled ? "disabled aria-disabled=\"true\"" : ""}
+          >${item.label}</button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderNavigationUi() {
+  const groups = [
+    {
+      label: "Location",
+      items: [
+        { type: "site", id: "campus", label: "Campus", active: activeSiteId === "campus" },
+        { type: "site", id: "dit", label: "DIT", active: activeSiteId === "dit" },
+      ],
+    },
+    {
+      label: "Environment",
+      items: [
+        { type: "environment", id: "outside", label: "Outside", active: activeEnvironmentId === "outside" },
+        { type: "environment", id: "inside", label: "Inside", active: activeEnvironmentId === "inside" },
+      ],
+    },
+  ];
+
+  if (activeSiteId === "campus" && activeEnvironmentId === "inside") {
+    groups.push({
+      label: "Building",
+      items: CAMPUS_INDOOR_BUILDINGS.map((building) => ({
+        type: "building",
+        id: building.id,
+        label: building.label,
+        active: activeBuildingId === building.id,
+      })),
+    });
+
+    groups.push({
+      label: "Space",
+      items: (getCampusBuilding()?.spaces || []).map((space) => ({
+        type: "space",
+        id: space.id,
+        label: space.label,
+        active: activeSceneId === space.sceneId,
+        disabled: !isCampusSpaceAvailable(space),
+      })),
+    });
+  } else if (activeSiteId === "dit" && activeEnvironmentId === "inside") {
+    groups.push({
+      label: "Space",
+      items: DIT_INSIDE_SPACES.map((space) => ({
+        type: "space",
+        id: space.id,
+        label: space.label,
+        active: false,
+        disabled: true,
+      })),
+    });
+  }
+
+  navigationGroups.className = "navigation-groups";
+  navigationGroups.innerHTML = groups.map((group) => renderNavigationGroup(group.label, group.items)).join("");
+
+  for (const button of navigationGroups.querySelectorAll(".nav-marker")) {
+    button.addEventListener("click", () => {
+      if (button.disabled) {
+        return;
+      }
+
+      const type = button.dataset.navType;
+      const id = button.dataset.navId;
+      if (!type || !id) {
+        return;
+      }
+
+      if (type === "site") {
+        setActiveSite(id);
+      } else if (type === "environment") {
+        setActiveEnvironment(id);
+      } else if (type === "building") {
+        setActiveBuilding(id);
+      } else if (type === "space") {
+        setActiveSpace(id);
+      }
+    });
+  }
+}
+
 function updateLocationUi() {
+  syncNavigationState();
   document.body.dataset.location = activeLocationStage;
-  const timeControlsDisabled = activeLocationStage !== "outdoors";
+  document.body.dataset.showTimeControl = String(isTimeSelectionVisible());
+  timeControlGroup.hidden = !isTimeSelectionVisible();
+  const timeControlsDisabled = !isTimeSelectionVisible() || !hasMultipleAvailableTimeStages();
   timeDial.disabled = timeControlsDisabled;
   timeDial.setAttribute("aria-disabled", String(timeControlsDisabled));
 
-  for (const marker of locationStageMarkers) {
-    marker.dataset.active = String(marker.dataset.location === activeLocationStage);
-  }
-
   for (const marker of timeStageMarkers) {
-    marker.disabled = timeControlsDisabled;
-    marker.setAttribute("aria-disabled", String(timeControlsDisabled));
+    const stageEnabled = isTimeSelectionVisible() && isTimeStageAvailable(marker.dataset.stage);
+    marker.disabled = !stageEnabled;
+    marker.setAttribute("aria-disabled", String(!stageEnabled));
   }
 
   updateSceneAndFormatUi();
@@ -570,18 +1073,18 @@ function updateTimeUi(direction = 0) {
 }
 
 function setControlsBusy(isBusy) {
-  const timeControlsDisabled = isBusy || activeLocationStage !== "outdoors";
+  const timeControlsDisabled = isBusy || !isTimeSelectionVisible() || !hasMultipleAvailableTimeStages();
   timeDial.disabled = timeControlsDisabled;
   timeDial.setAttribute("aria-disabled", String(timeControlsDisabled));
   for (const marker of timeStageMarkers) {
-    marker.disabled = timeControlsDisabled;
-    marker.setAttribute("aria-disabled", String(timeControlsDisabled));
+    const stageEnabled = !isBusy && isTimeSelectionVisible() && isTimeStageAvailable(marker.dataset.stage);
+    marker.disabled = !stageEnabled;
+    marker.setAttribute("aria-disabled", String(!stageEnabled));
   }
-  for (const marker of locationStageMarkers) {
-    marker.disabled = isBusy;
-  }
-  for (const marker of sceneStageMarkers.querySelectorAll(".scene-stage-marker")) {
-    marker.disabled = isBusy;
+  for (const marker of navigationGroups.querySelectorAll(".nav-marker")) {
+    if (!marker.hasAttribute("aria-disabled") || marker.getAttribute("aria-disabled") === "false") {
+      marker.disabled = isBusy;
+    }
   }
   for (const marker of formatStageMarkers.querySelectorAll(".format-stage-marker")) {
     marker.disabled = isBusy;
@@ -619,10 +1122,10 @@ async function activateGlbAsset(asset, swapId) {
 
   plyViewer.dispose();
   sogViewer.dispose();
-  updateViewerLayerVisibility("glb");
   currentEngineType = "glb";
   currentActiveAsset = asset;
   currentAssetKey = asset.key;
+  updateViewerLayerVisibility("glb");
   modelViewer.autoRotate = turntableEnabled;
   applyGlbView(asset);
   modelViewer.src = resolvedSource;
@@ -630,6 +1133,9 @@ async function activateGlbAsset(asset, swapId) {
 }
 
 async function activateSplatAsset(asset, swapId) {
+  const resolvedSource = asset.runtime === "playcanvas"
+    ? resolveHostedSogUrl(asset.src)
+    : asset.src;
   if (swapId !== activeAssetSwapId) {
     return;
   }
@@ -638,14 +1144,15 @@ async function activateSplatAsset(asset, swapId) {
   const inactiveViewer = viewer === sogViewer ? plyViewer : sogViewer;
 
   inactiveViewer.dispose();
-  updateViewerLayerVisibility("splat");
   currentEngineType = "splat";
   currentActiveAsset = asset;
   currentAssetKey = asset.key;
+  updateViewerLayerVisibility("splat");
   setProgress(0.22);
   await viewer.load(
     {
       ...asset,
+      src: resolvedSource,
       autoRotate: turntableEnabled,
     },
     splatProfile,
@@ -666,6 +1173,14 @@ async function activateSplatAsset(asset, swapId) {
 async function applyActiveAssetSelection() {
   const nextAsset = getActiveAssetDescriptor();
   if (!nextAsset) {
+    ++activeAssetSwapId;
+    releaseActiveViewerResources();
+    document.body.classList.remove("is-error");
+    setProgress(0);
+    setStatusOverlayState(false);
+    setStatus("Select scene", `Choose an available item in ${getCurrentContextLabel()} to load it.`);
+    updateMaterialToggle();
+    updateQualityToggle();
     return;
   }
 
@@ -682,6 +1197,7 @@ async function applyActiveAssetSelection() {
   setControlsBusy(true);
   setStatusOverlayState(false);
   setStatus("Switching scene", `Loading ${describeActiveAsset(nextAsset)}...`);
+  releaseActiveViewerResources();
 
   try {
     if (nextAsset.type === "splat") {
@@ -723,13 +1239,12 @@ async function applyActiveAssetSelection() {
 }
 
 async function setActiveTimeStage(stage, direction = 0) {
-  if (!timeStages.includes(stage)) {
+  if (!timeStages.includes(stage) || !isTimeStageAvailable(stage)) {
     return;
   }
 
-  activeLocationStage = "outdoors";
   activeTimeStage = stage;
-  activeFormat = "glb";
+  activeFormat = getAvailableFormats()[0] || "glb";
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -737,33 +1252,67 @@ async function setActiveTimeStage(stage, direction = 0) {
   await applyActiveAssetSelection();
 }
 
-async function setActiveLocationStage(stage) {
-  if (!LOCATION_CATALOG[stage] || stage === activeLocationStage) {
+async function setActiveSite(siteId) {
+  if (!["campus", "dit"].includes(siteId) || siteId === activeSiteId) {
     return;
   }
 
-  activeLocationStage = stage;
-  activeSceneId = null;
-  if (stage === "outdoors") {
-    activeFormat = "glb";
-  } else {
-    normalizeActiveScene();
-    normalizeActiveFormat();
+  activeSiteId = siteId;
+  activeEnvironmentId = "outside";
+  if (siteId === "campus" && !getCampusBuilding(activeBuildingId)) {
+    activeBuildingId = CAMPUS_INDOOR_BUILDINGS[0]?.id || "main";
   }
+  syncNavigationState();
+  activeFormat = getAvailableFormats()[0] || "glb";
+  updateLocationUi();
+  updateQualityToggle();
+  updateMaterialToggle();
+  updateTimeUi();
+  await applyActiveAssetSelection();
+}
+
+async function setActiveEnvironment(environmentId) {
+  if (!["outside", "inside"].includes(environmentId) || environmentId === activeEnvironmentId) {
+    return;
+  }
+
+  activeEnvironmentId = environmentId;
+  syncNavigationState();
+  if (activeSiteId === "campus" && activeEnvironmentId === "inside") {
+    activeFormat = getPreferredFormat(getCurrentSceneEntry());
+  } else {
+    activeFormat = getAvailableFormats()[0] || "glb";
+  }
+  updateLocationUi();
+  updateQualityToggle();
+  updateMaterialToggle();
+  updateTimeUi();
+  await applyActiveAssetSelection();
+}
+
+async function setActiveBuilding(buildingId) {
+  if (!getCampusBuilding(buildingId) || buildingId === activeBuildingId) {
+    return;
+  }
+
+  activeBuildingId = buildingId;
+  normalizeActiveScene();
+  activeFormat = getPreferredFormat(getCurrentSceneEntry());
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
   await applyActiveAssetSelection();
 }
 
-async function setActiveScene(sceneId) {
-  const scenes = getCurrentSceneCollection();
-  if (!scenes.some((scene) => scene.id === sceneId) || sceneId === activeSceneId) {
+async function setActiveSpace(spaceId) {
+  const space = (getCampusBuilding()?.spaces || []).find((item) => item.id === spaceId);
+  if (!space || !isCampusSpaceAvailable(space) || space.sceneId === activeSceneId) {
     return;
   }
 
-  activeSceneId = sceneId;
-  normalizeActiveFormat();
+  activeSceneId = space.sceneId;
+  const nextScene = getCampusIndoorSceneById(space.sceneId);
+  activeFormat = getPreferredFormat(nextScene);
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -811,8 +1360,8 @@ function normalizeAngleDelta(start, end) {
   return delta;
 }
 
-modelViewer.addEventListener("progress", (event) => {
-  if (currentEngineType !== "glb") {
+function handleModelViewerProgress(event) {
+  if (event.currentTarget !== modelViewer || currentEngineType !== "glb") {
     return;
   }
 
@@ -822,10 +1371,10 @@ modelViewer.addEventListener("progress", (event) => {
     event.detail.totalProgress >= 1 ? "Scene ready" : "Loading scene",
     `${Math.round(event.detail.totalProgress * 100)}% complete`
   );
-});
+}
 
-modelViewer.addEventListener("load", async () => {
-  if (currentEngineType !== "glb") {
+async function handleModelViewerLoad(event) {
+  if (event.currentTarget !== modelViewer || currentEngineType !== "glb") {
     return;
   }
 
@@ -844,10 +1393,10 @@ modelViewer.addEventListener("load", async () => {
   requestAnimationFrame(() => {
     setStatusOverlayState(true);
   });
-});
+}
 
-modelViewer.addEventListener("error", (event) => {
-  if (currentEngineType !== "glb") {
+function handleModelViewerError(event) {
+  if (event.currentTarget !== modelViewer || currentEngineType !== "glb") {
     return;
   }
 
@@ -855,7 +1404,7 @@ modelViewer.addEventListener("error", (event) => {
   setStatusOverlayState(false);
   setStatus("Asset issue", event.detail?.type || "The model did not render correctly.");
   setControlsBusy(false);
-});
+}
 
 resetCamera.addEventListener("click", () => {
   resetActiveViewer();
@@ -876,11 +1425,14 @@ warmCacheToggle.addEventListener("click", () => {
   updateWarmCacheToggle();
   if (warmCacheEnabled) {
     warmModelCache();
+    return;
   }
+
+  clearWarmModelCache();
 });
 
 qualityToggle.addEventListener("click", async () => {
-  if (activeLocationStage !== "outdoors") {
+  if (!isCampusOutsideSelected()) {
     return;
   }
 
@@ -998,17 +1550,6 @@ for (const marker of timeStageMarkers) {
   });
 }
 
-for (const marker of locationStageMarkers) {
-  marker.addEventListener("click", () => {
-    const stage = marker.dataset.location;
-    if (!stage) {
-      return;
-    }
-
-    setActiveLocationStage(stage);
-  });
-}
-
 document.addEventListener("scroll", () => {
   siteHeader.classList.toggle("is-solid", window.scrollY > 24);
 });
@@ -1019,6 +1560,13 @@ document.addEventListener("fullscreenchange", () => {
   fullscreenToggle.title = fullscreenLabel;
 });
 
+splatViewerMount.addEventListener("sog-pan-visibilitychange", (event) => {
+  sogPanIndicatorVisible = !!event.detail?.visible;
+  updateOrbitTargetIndicatorVisibility();
+});
+
+bindModelViewerEvents(modelViewer);
+syncNavigationState();
 updateWarmCacheToggle();
 updateLocationUi();
 updateQualityToggle();
@@ -1032,3 +1580,15 @@ applyTurntableState();
 setProgress(0.08);
 setStatus("Loading scene", "Preparing the 3D viewer and resolving the active campus scene.");
 applyActiveAssetSelection();
+
+
+
+
+
+
+
+
+
+
+
+

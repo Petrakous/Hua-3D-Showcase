@@ -98,13 +98,14 @@
             loading="eager"
           ></model-viewer>
           <div id="splatViewerMount" class="splat-viewer-layer" hidden aria-hidden="true"></div>
+          <div id="orbitTargetIndicator" class="orbit-target-indicator" aria-hidden="true"></div>
 
           <div class="hero-gradient"></div>
           <div class="hero-noise"></div>
         </div>
 
         <div class="hero-time-control">
-          <div class="time-control-group">
+          <div class="time-control-group" id="timeControlGroup">
             <button
               class="time-dial"
               id="timeDial"
@@ -131,18 +132,8 @@
             </div>
           </div>
 
-          <div class="location-control">
-            <span class="time-label">Location</span>
-            <div class="location-stage-markers" role="group" aria-label="Choose campus scene">
-              <button class="location-stage-marker" data-location="outdoors" type="button">OutdoorsM</button>
-              <button class="location-stage-marker" data-location="indoors" type="button">IndoorsM</button>
-              <button class="location-stage-marker" data-location="dit" type="button">DIT</button>
-            </div>
-          </div>
-
-          <div class="location-control location-subcontrol" id="sceneControl" hidden>
-            <span class="time-label">Scene</span>
-            <div class="location-stage-markers location-stage-markers--wrap" id="sceneStageMarkers" role="group" aria-label="Choose indoor scene"></div>
+          <div class="location-control location-subcontrol" id="navigationControl">
+            <div id="navigationGroups"></div>
           </div>
 
           <div class="location-control location-subcontrol" id="formatControl" hidden>
