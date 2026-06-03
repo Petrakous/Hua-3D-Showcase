@@ -99,6 +99,7 @@ const FORMAT_LABELS = {
 };
 const FORMAT_PRIORITY = ["sog", "glb", "splat"];
 const GITHUB_MEDIA_BASE_URL = "https://media.githubusercontent.com/media/Petrakous/Hua-3D-Showcase/main/";
+const GITHUB_RAW_BASE_URL = "https://raw.githubusercontent.com/Petrakous/Hua-3D-Showcase/main/";
 
 function encodeUrlPathSegments(path = "") {
   return path
@@ -801,7 +802,10 @@ function resolveHostedSogUrl(src) {
   if (window.location.hostname.endsWith("github.io")) {
     const normalized = src.replace(/^\.\//, "").replace(/^\//, "");
     const encodedPath = encodeUrlPathSegments(normalized);
-    return new URL(encodedPath, GITHUB_MEDIA_BASE_URL).toString();
+    const baseUrl = /\/generated_lods\/lod[34]\.sog(?:$|\?)/i.test(normalized)
+      ? GITHUB_RAW_BASE_URL
+      : GITHUB_MEDIA_BASE_URL;
+    return new URL(encodedPath, baseUrl).toString();
   }
 
   return new URL(src, window.location.href).toString();
