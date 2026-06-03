@@ -3,6 +3,5 @@ Thumbs.db
 # Large local source/intermediate splat files
 PLYs/**/*.ply
 PLYs/**/*.ssproj
-PLYs/**/generated_lods/
 PLYs/**/output_lod/
 
