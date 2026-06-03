@@ -783,6 +783,18 @@ class PlayCanvasSogViewer {
     }
   }
 
+  setMaxDpr(maxDpr) {
+    if (!this.app || !this.app.graphicsDevice) {
+      return;
+    }
+
+    this.app.graphicsDevice.maxPixelRatio = Math.max(
+      0.5,
+      Math.min(maxDpr || 1, window.devicePixelRatio || 1)
+    );
+    this.app.renderNextFrame = true;
+  }
+
   resetView() {
     if (!this.pc || !this.defaultOrbitState || !this.goalOrbitState) {
       return;

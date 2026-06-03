@@ -1,6 +1,6 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js";
-import { SiteSplatViewer } from "./viewer/splatViewer.js";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260604a";
+import { SiteSplatViewer } from "./viewer/splatViewer.js?v=20260604a";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260604a";
 
 let modelViewer = document.getElementById("siteModel");
 const splatViewerMount = document.getElementById("splatViewerMount");
@@ -42,6 +42,18 @@ const deviceMemory = Number.isFinite(navigator.deviceMemory) ? navigator.deviceM
 const hardwareConcurrency = Number.isFinite(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : null;
 const useBlobPreloading = !isMobileDevice;
 
+const SOG_ADAPTIVE_PERFORMANCE = {
+  minDpr: 0.65,
+  dprStep: 0.15,
+  lowFpsThreshold: 35,
+  highFpsThreshold: 50,
+  sampleIntervalMs: 1000,
+  downgradeHoldMs: 3000,
+  upgradeHoldMs: 5000,
+};
+
+let sogPerformanceMonitor = null;
+
 function getAutoPerformanceProfile() {
   if (isMobileDevice) {
     if ((deviceMemory && deviceMemory <= 4) || (hardwareConcurrency && hardwareConcurrency <= 6)) {
@@ -62,6 +74,192 @@ const autoPerformanceProfile = getAutoPerformanceProfile();
 const splatProfile = {
   maxDpr: autoPerformanceProfile.maxDpr,
 };
+
+function getPerformanceTierRank(tier) {
+  switch (tier) {
+    case "performance":
+      return 0;
+    case "balanced":
+      return 1;
+    case "quality":
+    default:
+      return 2;
+  }
+}
+
+function getSogAssetForPerformanceTier(asset, tier) {
+  if (!asset || asset.type !== "splat" || asset.fileFormat !== "sog") {
+    return null;
+  }
+
+  const normalizedTier = tier === "performance" || tier === "balanced" ? tier : "quality";
+  if (normalizedTier === "quality") {
+    const originalSrc = asset.originalSrc || asset.src;
+    if (!originalSrc) {
+      return null;
+    }
+
+    return {
+      ...asset,
+      src: originalSrc,
+      performanceTier: "quality",
+    };
+  }
+
+  const tierSource = asset.performanceSources?.[normalizedTier];
+  if (!tierSource) {
+    return null;
+  }
+
+  return {
+    ...asset,
+    src: tierSource,
+    performanceTier: normalizedTier,
+  };
+}
+
+function getLowerSogAsset(asset) {
+  if (!asset || asset.type !== "splat" || asset.fileFormat !== "sog") {
+    return null;
+  }
+
+  if (asset.performanceTier === "quality") {
+    return getSogAssetForPerformanceTier(asset, "balanced") || getSogAssetForPerformanceTier(asset, "performance");
+  }
+
+  if (asset.performanceTier === "balanced") {
+    return getSogAssetForPerformanceTier(asset, "performance");
+  }
+
+  return null;
+}
+
+function getHigherSogAsset(asset) {
+  if (!asset || asset.type !== "splat" || asset.fileFormat !== "sog") {
+    return null;
+  }
+
+  if (asset.performanceTier === "performance") {
+    return getSogAssetForPerformanceTier(asset, "balanced") || getSogAssetForPerformanceTier(asset, "quality");
+  }
+
+  if (asset.performanceTier === "balanced") {
+    return getSogAssetForPerformanceTier(asset, "quality");
+  }
+
+  return null;
+}
+
+function stopSogPerformanceMonitor() {
+  if (sogPerformanceMonitor?.frameRequestId) {
+    cancelAnimationFrame(sogPerformanceMonitor.frameRequestId);
+  }
+  sogPerformanceMonitor = null;
+}
+
+function startSogPerformanceMonitor(asset) {
+  stopSogPerformanceMonitor();
+
+  if (!asset || asset.type !== "splat" || asset.runtime !== "playcanvas" || currentEngineType !== "splat") {
+    return;
+  }
+
+  const monitor = {
+    assetKey: asset.key,
+    lastTimestamp: performance.now(),
+    sampleStart: performance.now(),
+    sampleFrames: 0,
+    stableHighSince: null,
+    stableLowSince: null,
+    currentDpr: Math.max(0.5, Math.min(autoPerformanceProfile.maxDpr || 1, window.devicePixelRatio || 1)),
+  };
+  sogPerformanceMonitor = monitor;
+
+  const tick = (timestamp) => {
+    if (!sogPerformanceMonitor || sogPerformanceMonitor.assetKey !== asset.key) {
+      return;
+    }
+
+    monitor.sampleFrames += 1;
+    monitor.lastTimestamp = timestamp;
+    const elapsed = timestamp - monitor.sampleStart;
+
+    if (elapsed >= SOG_ADAPTIVE_PERFORMANCE.sampleIntervalMs) {
+      const fps = Math.max(0, Math.round((monitor.sampleFrames * 1000) / elapsed));
+      monitor.sampleFrames = 0;
+      monitor.sampleStart = timestamp;
+      evaluateSogPerformance(asset, fps, timestamp, monitor);
+    }
+
+    monitor.frameRequestId = requestAnimationFrame(tick);
+  };
+
+  monitor.frameRequestId = requestAnimationFrame(tick);
+}
+
+function evaluateSogPerformance(asset, fps, timestamp, monitor) {
+  if (currentEngineType !== "splat" || !currentActiveAsset || currentActiveAsset.key !== monitor.assetKey) {
+    stopSogPerformanceMonitor();
+    return;
+  }
+
+  const activeAsset = currentActiveAsset;
+  const maxDpr = autoPerformanceProfile.maxDpr;
+  let targetDpr = monitor.currentDpr;
+
+  if (fps >= SOG_ADAPTIVE_PERFORMANCE.highFpsThreshold) {
+    monitor.stableHighSince = monitor.stableHighSince || timestamp;
+    monitor.stableLowSince = null;
+  } else if (fps <= SOG_ADAPTIVE_PERFORMANCE.lowFpsThreshold) {
+    monitor.stableLowSince = monitor.stableLowSince || timestamp;
+    monitor.stableHighSince = null;
+  } else {
+    monitor.stableHighSince = null;
+    monitor.stableLowSince = null;
+  }
+
+  if (fps < SOG_ADAPTIVE_PERFORMANCE.lowFpsThreshold) {
+    targetDpr = Math.max(SOG_ADAPTIVE_PERFORMANCE.minDpr, monitor.currentDpr - SOG_ADAPTIVE_PERFORMANCE.dprStep);
+  } else if (fps > SOG_ADAPTIVE_PERFORMANCE.highFpsThreshold) {
+    targetDpr = Math.min(maxDpr, monitor.currentDpr + SOG_ADAPTIVE_PERFORMANCE.dprStep);
+  }
+
+  if (targetDpr !== monitor.currentDpr) {
+    monitor.currentDpr = targetDpr;
+    sogViewer.setMaxDpr(targetDpr);
+  }
+
+  if (monitor.stableLowSince && timestamp - monitor.stableLowSince >= SOG_ADAPTIVE_PERFORMANCE.downgradeHoldMs) {
+    const lowerAsset = getLowerSogAsset(activeAsset);
+    if (lowerAsset) {
+      stopSogPerformanceMonitor();
+      reloadSogAsset(lowerAsset, { silent: true });
+      return;
+    }
+  }
+
+  if (monitor.stableHighSince && timestamp - monitor.stableHighSince >= SOG_ADAPTIVE_PERFORMANCE.upgradeHoldMs) {
+    const higherAsset = getHigherSogAsset(activeAsset);
+    if (higherAsset) {
+      stopSogPerformanceMonitor();
+      reloadSogAsset(higherAsset, { silent: true });
+      return;
+    }
+  }
+}
+
+async function reloadSogAsset(asset, options = {}) {
+  const swapId = ++activeAssetSwapId;
+  try {
+    await activateSplatAsset(asset, swapId, { silent: !!options.silent });
+  } catch (error) {
+    if (!options.silent) {
+      document.body.classList.add("is-error");
+      setStatusOverlayState(false);
+      setStatus("Asset issue", error?.message || "The selected scene did not render correctly.");
+    }
+  }
+}
 
 let activeTimeStage = "day";
 let activeSiteId = "campus";
@@ -440,6 +638,7 @@ function selectPerformanceSogAsset(asset) {
   return {
     ...asset,
     src: nextSrc,
+    originalSrc: asset.src,
     performanceTier,
   };
 }
@@ -689,6 +888,7 @@ function clearWarmModelCache() {
 function releaseActiveViewerResources({ preserveWarmCache = warmCacheEnabled } = {}) {
   plyViewer.dispose();
   sogViewer.dispose();
+  stopSogPerformanceMonitor();
   replaceModelViewerElement();
   currentEngineType = "none";
   currentActiveAsset = null;
@@ -1149,7 +1349,7 @@ async function activateGlbAsset(asset, swapId) {
   await modelViewer.updateComplete;
 }
 
-async function activateSplatAsset(asset, swapId) {
+async function activateSplatAsset(asset, swapId, options = {}) {
   const resolvedSource = asset.runtime === "playcanvas"
     ? resolveHostedSogUrl(asset.src)
     : asset.src;
@@ -1165,7 +1365,10 @@ async function activateSplatAsset(asset, swapId) {
   currentActiveAsset = asset;
   currentAssetKey = asset.key;
   updateViewerLayerVisibility("splat");
-  setProgress(0.22);
+  if (!options.silent) {
+    setProgress(0.22);
+  }
+
   await viewer.load(
     {
       ...asset,
@@ -1173,18 +1376,40 @@ async function activateSplatAsset(asset, swapId) {
       autoRotate: turntableEnabled,
     },
     splatProfile,
-    (nextState) => {
-      if (swapId !== activeAssetSwapId) {
-        return;
-      }
+    options.silent
+      ? undefined
+      : (nextState) => {
+          if (swapId !== activeAssetSwapId) {
+            return;
+          }
 
-      if (nextState.status === "loading") {
-        setProgress(0.56);
-      }
+          if (nextState.status === "loading") {
+            setProgress(0.56);
+          }
 
-      setStatus(nextState.title, nextState.message);
-    }
+          setStatus(nextState.title, nextState.message);
+        }
   );
+
+  if (swapId !== activeAssetSwapId) {
+    return;
+  }
+
+  if (!options.silent) {
+    document.body.classList.add("is-loaded");
+    document.body.classList.remove("is-error");
+    setProgress(1);
+    setStatus("3D hero active", `${describeActiveAsset(asset)} is loaded in ${FORMAT_LABELS[asset.format] || "splat"} mode.`);
+    requestAnimationFrame(() => {
+      if (swapId === activeAssetSwapId) {
+        setStatusOverlayState(true);
+      }
+    });
+  }
+
+  if (asset.runtime === "playcanvas") {
+    startSogPerformanceMonitor(asset);
+  }
 }
 
 async function applyActiveAssetSelection() {
