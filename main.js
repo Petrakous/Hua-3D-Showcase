@@ -19,6 +19,8 @@ const timeStageMarkers = [...document.querySelectorAll(".time-stage-marker")];
 const navigationGroups = document.getElementById("navigationGroups");
 const formatControl = document.getElementById("formatControl");
 const formatStageMarkers = document.getElementById("formatStageMarkers");
+const lodControl = document.getElementById("lodControl");
+const lodMarkers = document.getElementById("lodMarkers");
 const resetCamera = document.getElementById("resetCamera");
 const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
@@ -1098,6 +1100,58 @@ function updateMaterialToggle() {
   materialToggle.disabled = !isGlb;
 }
 
+function renderLodMarkers() {
+  const isSogActive = currentEngineType === "splat" && currentActiveAsset?.runtime === "playcanvas";
+  const shouldShowLodControl = isSogActive && currentActiveAsset?.performanceSources && Object.keys(currentActiveAsset.performanceSources).length > 0;
+  
+  lodControl.hidden = !shouldShowLodControl;
+
+  if (!shouldShowLodControl) {
+    lodMarkers.innerHTML = "";
+    return;
+  }
+
+  const availableTiers = ["quality"];
+  if (currentActiveAsset?.performanceSources?.balanced) {
+    availableTiers.push("balanced");
+  }
+  if (currentActiveAsset?.performanceSources?.performance) {
+    availableTiers.push("performance");
+  }
+
+  const tierLabels = {
+    quality: "Quality",
+    balanced: "Balanced",
+    performance: "Performance",
+  };
+
+  lodMarkers.innerHTML = availableTiers
+    .map((tier) => `
+      <button
+        class="lod-marker"
+        data-lod-tier="${tier}"
+        data-active="${String(tier === currentActiveAsset?.performanceTier)}"
+        type="button"
+      >${tierLabels[tier]}</button>
+    `)
+    .join("");
+
+  for (const button of lodMarkers.querySelectorAll(".lod-marker")) {
+    button.addEventListener("click", () => {
+      const tier = button.dataset.lodTier;
+      if (!tier || tier === currentActiveAsset?.performanceTier) {
+        return;
+      }
+
+      setActiveLodTier(tier);
+    });
+  }
+}
+
+function updateLodToggle() {
+  renderLodMarkers();
+}
+
 function renderFormatMarkers() {
   const availableFormats = getAvailableFormats();
   const shouldShowFormatControl = availableFormats.length > 1;
@@ -1134,6 +1188,7 @@ function renderFormatMarkers() {
 function updateSceneAndFormatUi() {
   renderNavigationUi();
   renderFormatMarkers();
+  updateLodToggle();
 }
 
 function renderNavigationGroup(label, items = []) {
@@ -1306,6 +1361,9 @@ function setControlsBusy(isBusy) {
   for (const marker of formatStageMarkers.querySelectorAll(".format-stage-marker")) {
     marker.disabled = isBusy;
   }
+  for (const marker of lodMarkers.querySelectorAll(".lod-marker")) {
+    marker.disabled = isBusy;
+  }
 
   if (isBusy) {
     qualityToggle.disabled = true;
@@ -1313,6 +1371,7 @@ function setControlsBusy(isBusy) {
   } else {
     updateQualityToggle();
     updateMaterialToggle();
+    updateLodToggle();
   }
 }
 
@@ -1423,6 +1482,7 @@ async function applyActiveAssetSelection() {
     setStatus("Select scene", `Choose an available item in ${getCurrentContextLabel()} to load it.`);
     updateMaterialToggle();
     updateQualityToggle();
+    updateLodToggle();
     return;
   }
 
@@ -1433,6 +1493,7 @@ async function applyActiveAssetSelection() {
     setStatus("Scene ready", `${describeActiveAsset(nextAsset)} is already active.`);
     updateMaterialToggle();
     updateQualityToggle();
+    updateLodToggle();
     return;
   }
 
@@ -1572,6 +1633,25 @@ async function setActiveFormat(format) {
   updateQualityToggle();
   updateMaterialToggle();
   await applyActiveAssetSelection();
+}
+
+async function setActiveLodTier(tier) {
+  if (!currentActiveAsset || currentActiveAsset.type !== "splat" || currentActiveAsset.runtime !== "playcanvas") {
+    return;
+  }
+
+  if (tier === currentActiveAsset.performanceTier) {
+    return;
+  }
+
+  const nextAsset = getSogAssetForPerformanceTier(currentActiveAsset, tier);
+  if (!nextAsset) {
+    return;
+  }
+
+  stopSogPerformanceMonitor();
+  await reloadSogAsset(nextAsset, { silent: false });
+  updateLodToggle();
 }
 
 function changeStageBy(step) {
