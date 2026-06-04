@@ -155,7 +155,7 @@ class SimpleOrbitController {
         state.yaw -= deltaX * 0.25;
         state.pitch = Math.max(-85, Math.min(85, state.pitch + deltaY * 0.2));
         this.onChange();
-      } else if (event.touches.length === 2) {
+      } else if (this.touchMode === "pinch" && event.touches.length === 2) {
         const nextDistance = this.computeTouchDistance(event.touches);
         if (this.pinchDistance > 0) {
           const ratio = this.pinchDistance / Math.max(nextDistance, 1);
@@ -168,9 +168,15 @@ class SimpleOrbitController {
       event.preventDefault();
     };
 
-    const touchEnd = () => {
-      this.touchMode = null;
-      this.pinchDistance = 0;
+    const touchEnd = (event) => {
+      if (event.touches.length === 0) {
+        this.touchMode = null;
+        this.pinchDistance = 0;
+      } else if (event.touches.length === 1) {
+        this.touchMode = "orbit";
+        this.lastX = event.touches[0].clientX;
+        this.lastY = event.touches[0].clientY;
+      }
     };
 
     const contextMenu = (event) => {
