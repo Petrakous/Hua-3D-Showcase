@@ -602,6 +602,61 @@ class PlayCanvasSogViewer {
   }
 
   async load(asset, profile = { maxDpr: 1.05 }, onState) {
+    if (this.app && this.pc && this.splatEntity && this.currentAsset?.key === asset.key) {
+      const splatAsset = new this.pc.Asset(asset.label || "Scene", "gsplat", {
+        url: asset.src,
+      });
+
+      await new Promise((resolve, reject) => {
+        splatAsset.on("progress", (received, total) => {
+          if (!total) {
+            return;
+          }
+
+          onState?.({
+            status: "loading",
+            title: "Loading SOG",
+            message: `${asset.label || "SOG scene"} loading (${Math.round((received / total) * 100)}%)`,
+          });
+        });
+        splatAsset.on("load", resolve);
+        splatAsset.on("error", (error) => {
+          const detail =
+            typeof error === "string"
+              ? error
+              : error?.message || error?.status || error?.statusText || "Unknown PlayCanvas asset loader error";
+          reject(new Error(`Failed to load SOG asset: ${asset.src} (${detail})`));
+        });
+        this.app.assets.add(splatAsset);
+        this.app.assets.load(splatAsset);
+      });
+
+      const oldEntity = this.splatEntity;
+      const splatEntity = new this.pc.Entity(asset.label || "SOG");
+      splatEntity.setLocalPosition(...(asset.position || [0, 0, 0]));
+      const rotation = asset.rotation || [0, 0, 0, 1];
+      splatEntity.setLocalRotation(rotation[0], rotation[1], rotation[2], rotation[3]);
+      splatEntity.setLocalScale(...(asset.scale || [1, 1, 1]));
+      splatEntity.addComponent("gsplat", {
+        asset: splatAsset,
+        unified: true,
+      });
+      this.app.root.addChild(splatEntity);
+      this.splatEntity = splatEntity;
+
+      const oldAsset = oldEntity.gsplat.asset;
+      oldEntity.destroy();
+      this.app.assets.remove(oldAsset);
+      oldAsset.unload();
+
+      this.currentAsset = asset;
+      this.cutawayModifierInstalled = false;
+      this.syncCutawayState(this.pc);
+      
+      this.app.renderNextFrame = true;
+      return;
+    }
+
     this.dispose();
 
     if (!supportsPlayCanvasSogViewer()) {
