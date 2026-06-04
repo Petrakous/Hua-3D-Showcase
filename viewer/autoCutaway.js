@@ -71,8 +71,8 @@ function selectActiveFaces(cameraPositionInBoxSpace) {
     .map((candidate) => {
       const share = candidate.strength / totalStrength;
       const presence = smoothstep(
-        MIN_COMPONENT_FOR_FACE_BLEND,
-        MIN_COMPONENT_FOR_FACE_BLEND * 2,
+        CUTAWAY_EDGE_FADE_START,
+        CUTAWAY_EDGE_FADE_END,
         candidate.strength
       );
       const weight = presence * smoothstep(FACE_SHARE_BLEND_START, FACE_SHARE_BLEND_END, share);
