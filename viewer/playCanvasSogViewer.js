@@ -631,6 +631,10 @@ class PlayCanvasSogViewer {
         this.app.assets.load(splatAsset);
       });
 
+      if (!this.app || !this.splatEntity) {
+        return;
+      }
+
       const oldEntity = this.splatEntity;
       const splatEntity = new this.pc.Entity(asset.label || "SOG");
       splatEntity.setLocalPosition(...(asset.position || [0, 0, 0]));
@@ -644,10 +648,21 @@ class PlayCanvasSogViewer {
       this.app.root.addChild(splatEntity);
       this.splatEntity = splatEntity;
 
-      const oldAsset = oldEntity.gsplat.asset;
-      oldEntity.destroy();
-      this.app.assets.remove(oldAsset);
-      oldAsset.unload();
+      const oldAsset = oldEntity.gsplat?.asset;
+      oldEntity.enabled = false;
+
+      setTimeout(() => {
+        if (!this.app) return;
+        try {
+          oldEntity.destroy();
+          if (oldAsset) {
+            this.app.assets.remove(oldAsset);
+            oldAsset.unload();
+          }
+        } catch (e) {
+          console.warn("Cleanup warning:", e);
+        }
+      }, 200);
 
       this.currentAsset = asset;
       this.cutawayModifierInstalled = false;
@@ -849,10 +864,19 @@ class PlayCanvasSogViewer {
       return;
     }
 
-    this.app.graphicsDevice.maxPixelRatio = Math.max(
+    const nextPixelRatio = Math.max(
       0.5,
       Math.min(maxDpr || 1, window.devicePixelRatio || 1)
     );
+
+    if (this.app.graphicsDevice.maxPixelRatio === nextPixelRatio) {
+      return;
+    }
+
+    this.app.graphicsDevice.maxPixelRatio = nextPixelRatio;
+    const width = Math.max(1, this.container.clientWidth || 800);
+    const height = Math.max(1, this.container.clientHeight || 600);
+    this.app.resizeCanvas(width, height);
     this.app.renderNextFrame = true;
   }
 
@@ -898,9 +922,7 @@ class PlayCanvasSogViewer {
     this.canvas?.remove?.();
     this.canvas = null;
 
-    if (this.container) {
-      this.container.innerHTML = "";
-    }
+    // Removed container wipe to avoid destroying the active canvas
   }
 }
 

@@ -245,7 +245,12 @@ class SiteSplatViewer {
     }
 
     if (this.container) {
-      this.container.innerHTML = "";
+      const children = Array.from(this.container.children);
+      for (const child of children) {
+        if (!child.classList.contains("playcanvas-sog-canvas")) {
+          child.remove();
+        }
+      }
     }
   }
 }
