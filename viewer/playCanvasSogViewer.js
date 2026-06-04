@@ -78,17 +78,26 @@ class SimpleOrbitController {
     this.lastX = 0;
     this.lastY = 0;
     this.pinchDistance = 0;
+    this.touchCenterX = 0;
+    this.touchCenterY = 0;
     this.touchMode = null;
+    this.activePointerId = null;
+    this.ignorePointerEvents = false;
     this.disposeFns = [];
   }
 
   bind(state) {
     const pointerDown = (event) => {
+      if (event.pointerType === "touch" || this.ignorePointerEvents) {
+        return;
+      }
+
       if (event.button !== 0 && event.button !== 2) {
         return;
       }
 
       this.dragging = true;
+      this.activePointerId = event.pointerId;
       this.dragMode = event.button === 2 ? "pan" : "orbit";
       this.lastX = event.clientX;
       this.lastY = event.clientY;
@@ -98,7 +107,7 @@ class SimpleOrbitController {
     };
 
     const pointerMove = (event) => {
-      if (!this.dragging) {
+      if (!this.dragging || this.ignorePointerEvents || event.pointerId !== this.activePointerId) {
         return;
       }
 
@@ -118,8 +127,13 @@ class SimpleOrbitController {
     };
 
     const pointerUp = (event) => {
+      if (event.pointerId !== this.activePointerId) {
+        return;
+      }
+
       const wasPanning = this.dragMode === "pan";
       this.dragging = false;
+      this.activePointerId = null;
       this.dragMode = "orbit";
       if (wasPanning) {
         this.onPanStateChange(false);
@@ -135,14 +149,27 @@ class SimpleOrbitController {
     };
 
     const touchStart = (event) => {
+      this.ignorePointerEvents = true;
+      this.dragging = false;
+      this.activePointerId = null;
+
       if (event.touches.length === 1) {
+        if (this.touchMode === "pinch") {
+          this.onPanStateChange(false);
+        }
         this.touchMode = "orbit";
         this.lastX = event.touches[0].clientX;
         this.lastY = event.touches[0].clientY;
       } else if (event.touches.length === 2) {
         this.touchMode = "pinch";
         this.pinchDistance = this.computeTouchDistance(event.touches);
+        const touchCenter = this.computeTouchCenter(event.touches);
+        this.touchCenterX = touchCenter.x;
+        this.touchCenterY = touchCenter.y;
+        this.onPanStateChange(true);
       }
+
+      event.preventDefault();
     };
 
     const touchMove = (event) => {
@@ -157,12 +184,23 @@ class SimpleOrbitController {
         this.onChange();
       } else if (this.touchMode === "pinch" && event.touches.length === 2) {
         const nextDistance = this.computeTouchDistance(event.touches);
+        const nextCenter = this.computeTouchCenter(event.touches);
+        const deltaX = nextCenter.x - this.touchCenterX;
+        const deltaY = nextCenter.y - this.touchCenterY;
+
+        if (Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01) {
+          this.panOrbitTarget(state, deltaX, deltaY);
+        }
+
         if (this.pinchDistance > 0) {
           const ratio = this.pinchDistance / Math.max(nextDistance, 1);
-          state.distance = Math.max(0.2, Math.min(200, state.distance * ratio));
-          this.onChange();
+          const dampedRatio = 1 + (ratio - 1) * 0.65;
+          state.distance = Math.max(0.2, Math.min(200, state.distance * dampedRatio));
         }
         this.pinchDistance = nextDistance;
+        this.touchCenterX = nextCenter.x;
+        this.touchCenterY = nextCenter.y;
+        this.onChange();
       }
 
       event.preventDefault();
@@ -170,12 +208,23 @@ class SimpleOrbitController {
 
     const touchEnd = (event) => {
       if (event.touches.length === 0) {
+        if (this.touchMode === "pinch") {
+          this.onPanStateChange(false);
+        }
         this.touchMode = null;
         this.pinchDistance = 0;
+        this.touchCenterX = 0;
+        this.touchCenterY = 0;
+        this.ignorePointerEvents = false;
       } else if (event.touches.length === 1) {
+        if (this.touchMode === "pinch") {
+          this.onPanStateChange(false);
+        }
         this.touchMode = "orbit";
         this.lastX = event.touches[0].clientX;
         this.lastY = event.touches[0].clientY;
+        this.pinchDistance = 0;
+        this.ignorePointerEvents = true;
       }
     };
 
@@ -245,6 +294,15 @@ class SimpleOrbitController {
     const a = touches[0];
     const b = touches[1];
     return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  }
+
+  computeTouchCenter(touches) {
+    const a = touches[0];
+    const b = touches[1];
+    return {
+      x: (a.clientX + b.clientX) * 0.5,
+      y: (a.clientY + b.clientY) * 0.5,
+    };
   }
 
   dispose() {
