@@ -462,6 +462,7 @@ body[data-show-time-control="false"] .time-control-group {
 .location-stage-marker,
 .scene-stage-marker,
 .format-stage-marker,
+.lod-marker,
 .nav-marker {
   appearance: none;
   padding: 0;
@@ -477,6 +478,7 @@ body[data-show-time-control="false"] .time-control-group {
 .location-stage-marker:hover,
 .scene-stage-marker:hover,
 .format-stage-marker:hover,
+.lod-marker:hover,
 .nav-marker:hover {
   color: rgba(255, 255, 255, 0.82);
   transform: translateY(-1px);
@@ -486,6 +488,7 @@ body[data-show-time-control="false"] .time-control-group {
 .location-stage-marker[data-active="true"],
 .scene-stage-marker[data-active="true"],
 .format-stage-marker[data-active="true"],
+.lod-marker[data-active="true"],
 .nav-marker[data-active="true"] {
   color: rgba(255, 255, 255, 0.92);
 }
@@ -494,6 +497,7 @@ body[data-show-time-control="false"] .time-control-group {
 .location-stage-marker:disabled,
 .scene-stage-marker:disabled,
 .format-stage-marker:disabled,
+.lod-marker:disabled,
 .nav-marker:disabled {
   cursor: wait;
   opacity: 0.72;
