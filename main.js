@@ -52,9 +52,16 @@ const SOG_ADAPTIVE_PERFORMANCE = {
   sampleIntervalMs: 1000,
   downgradeHoldMs: 3000,
   upgradeHoldMs: 5000,
+  tierChangeCooldownMs: 12000,
+  reverseTierChangeCooldownMs: 20000,
 };
 
 let sogPerformanceMonitor = null;
+let sogAdaptiveTierState = {
+  sceneKey: null,
+  lastTierChangeAt: 0,
+  lastDirection: null,
+};
 
 function getAutoPerformanceProfile() {
   if (isMobileDevice) {
@@ -163,7 +170,56 @@ function stopSogPerformanceMonitor() {
   sogPerformanceMonitor = null;
 }
 
-function startSogPerformanceMonitor(asset) {
+function resetSogAdaptiveTierState(sceneKey = null) {
+  sogAdaptiveTierState = {
+    sceneKey,
+    lastTierChangeAt: 0,
+    lastDirection: null,
+  };
+}
+
+function canAutoChangeSogTier(asset, direction, timestamp) {
+  const sceneKey = asset?.key || null;
+  if (!sceneKey) {
+    return false;
+  }
+
+  if (sogAdaptiveTierState.sceneKey !== sceneKey) {
+    resetSogAdaptiveTierState(sceneKey);
+  }
+
+  if (!sogAdaptiveTierState.lastTierChangeAt) {
+    return true;
+  }
+
+  const elapsedSinceLastChange = timestamp - (sogAdaptiveTierState.lastTierChangeAt || 0);
+  const cooldownMs =
+    sogAdaptiveTierState.lastDirection && sogAdaptiveTierState.lastDirection !== direction
+      ? SOG_ADAPTIVE_PERFORMANCE.reverseTierChangeCooldownMs
+      : SOG_ADAPTIVE_PERFORMANCE.tierChangeCooldownMs;
+
+  return elapsedSinceLastChange >= cooldownMs;
+}
+
+function recordAutoSogTierChange(asset, direction, timestamp) {
+  sogAdaptiveTierState = {
+    sceneKey: asset?.key || null,
+    lastTierChangeAt: timestamp,
+    lastDirection: direction,
+  };
+}
+
+function getCurrentSogDpr() {
+  return Math.max(
+    0.5,
+    Math.min(
+      sogViewer?.app?.graphicsDevice?.maxPixelRatio || autoPerformanceProfile.maxDpr || 1,
+      window.devicePixelRatio || 1
+    )
+  );
+}
+
+function startSogPerformanceMonitor(asset, initialDpr = null) {
   stopSogPerformanceMonitor();
 
   if (!asset || asset.type !== "splat" || asset.runtime !== "playcanvas" || currentEngineType !== "splat") {
@@ -177,7 +233,7 @@ function startSogPerformanceMonitor(asset) {
     sampleFrames: 0,
     stableHighSince: null,
     stableLowSince: null,
-    currentDpr: Math.max(0.5, Math.min(autoPerformanceProfile.maxDpr || 1, window.devicePixelRatio || 1)),
+    currentDpr: Number.isFinite(initialDpr) ? initialDpr : getCurrentSogDpr(),
   };
   sogPerformanceMonitor = monitor;
 
@@ -235,20 +291,33 @@ function evaluateSogPerformance(asset, fps, timestamp, monitor) {
     sogViewer.setMaxDpr(targetDpr);
   }
 
-  if (monitor.stableLowSince && timestamp - monitor.stableLowSince >= SOG_ADAPTIVE_PERFORMANCE.downgradeHoldMs) {
+  const isAtMinDpr = monitor.currentDpr <= SOG_ADAPTIVE_PERFORMANCE.minDpr + 0.01;
+  const isAtMaxDpr = monitor.currentDpr >= maxDpr - 0.01;
+
+  if (
+    isAtMinDpr &&
+    monitor.stableLowSince &&
+    timestamp - monitor.stableLowSince >= SOG_ADAPTIVE_PERFORMANCE.downgradeHoldMs
+  ) {
     const lowerAsset = getLowerSogAsset(activeAsset);
-    if (lowerAsset) {
+    if (lowerAsset && canAutoChangeSogTier(activeAsset, "downgrade", timestamp)) {
+      recordAutoSogTierChange(activeAsset, "downgrade", timestamp);
       stopSogPerformanceMonitor();
-      reloadSogAsset(lowerAsset, { silent: true });
+      reloadSogAsset(lowerAsset, { silent: true, targetDpr: monitor.currentDpr });
       return;
     }
   }
 
-  if (monitor.stableHighSince && timestamp - monitor.stableHighSince >= SOG_ADAPTIVE_PERFORMANCE.upgradeHoldMs) {
+  if (
+    isAtMaxDpr &&
+    monitor.stableHighSince &&
+    timestamp - monitor.stableHighSince >= SOG_ADAPTIVE_PERFORMANCE.upgradeHoldMs
+  ) {
     const higherAsset = getHigherSogAsset(activeAsset);
-    if (higherAsset) {
+    if (higherAsset && canAutoChangeSogTier(activeAsset, "upgrade", timestamp)) {
+      recordAutoSogTierChange(activeAsset, "upgrade", timestamp);
       stopSogPerformanceMonitor();
-      reloadSogAsset(higherAsset, { silent: true });
+      reloadSogAsset(higherAsset, { silent: true, targetDpr: monitor.currentDpr });
       return;
     }
   }
@@ -257,7 +326,10 @@ function evaluateSogPerformance(asset, fps, timestamp, monitor) {
 async function reloadSogAsset(asset, options = {}) {
   const swapId = ++activeAssetSwapId;
   try {
-    await activateSplatAsset(asset, swapId, { silent: !!options.silent });
+    await activateSplatAsset(asset, swapId, {
+      silent: !!options.silent,
+      targetDpr: options.targetDpr,
+    });
   } catch (error) {
     if (!options.silent) {
       document.body.classList.add("is-error");
@@ -1453,6 +1525,11 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   const inactiveViewer = viewer === sogViewer ? plyViewer : sogViewer;
 
   inactiveViewer.dispose();
+
+  if (currentAssetKey && currentAssetKey !== asset.key) {
+    resetSogAdaptiveTierState(asset.key);
+  }
+
   currentEngineType = "splat";
   currentActiveAsset = asset;
   currentAssetKey = asset.key;
@@ -1487,6 +1564,10 @@ async function activateSplatAsset(asset, swapId, options = {}) {
     return;
   }
 
+  if (asset.runtime === "playcanvas" && Number.isFinite(options.targetDpr)) {
+    sogViewer.setMaxDpr(options.targetDpr);
+  }
+
   if (!options.silent) {
     document.body.classList.add("is-loaded");
     document.body.classList.remove("is-error");
@@ -1500,7 +1581,10 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   }
 
   if (asset.runtime === "playcanvas") {
-    startSogPerformanceMonitor(asset);
+    startSogPerformanceMonitor(
+      asset,
+      Number.isFinite(options.targetDpr) ? options.targetDpr : null
+    );
   }
 }
 
