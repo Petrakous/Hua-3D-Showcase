@@ -231,6 +231,18 @@ model-viewer,
   isolation: isolate;
 }
 
+body[data-location="outdoors"] model-viewer,
+body[data-location="outdoors"] .splat-viewer-layer {
+  transform: translateY(-4.5svh) scale(1.035);
+  transform-origin: center center;
+}
+
+body[data-location="indoors"] model-viewer,
+body[data-location="indoors"] .splat-viewer-layer {
+  transform: translateY(-2.5svh) scale(1.02);
+  transform-origin: center center;
+}
+
 model-viewer {
   display: block;
   width: 100%;
@@ -297,8 +309,8 @@ model-viewer:active {
 .hero-gradient {
   z-index: 2;
   background:
-    linear-gradient(90deg, rgba(6, 14, 24, 0.88) 0%, rgba(6, 14, 24, 0.52) 34%, rgba(6, 14, 24, 0.18) 58%, rgba(6, 14, 24, 0.48) 100%),
-    linear-gradient(180deg, rgba(6, 14, 24, 0.58) 0%, rgba(6, 14, 24, 0.12) 32%, rgba(6, 14, 24, 0.66) 100%);
+    linear-gradient(90deg, rgba(8, 12, 18, 0.34) 0%, rgba(8, 12, 18, 0.18) 24%, rgba(8, 12, 18, 0.08) 46%, rgba(8, 12, 18, 0.18) 100%),
+    linear-gradient(180deg, rgba(6, 14, 24, 0.48) 0%, rgba(6, 14, 24, 0.08) 32%, rgba(6, 14, 24, 0.56) 100%);
   pointer-events: none;
 }
 
