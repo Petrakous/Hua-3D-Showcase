@@ -5,6 +5,11 @@ const ORBIT_DAMPING_DECAY_MS = 140;
 const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const AUTO_CUTAWAY_FADE_WIDTH = 0.12;
+const SOG_VISUAL_TUNING = {
+  brightness: 1.18,
+  contrast: 1.04,
+  saturate: 1.03,
+};
 const SOG_BOX_CULLING_MODIFIER = {
   glsl: `
 uniform mat4 orientedClipBoxWorldToUnit;
@@ -65,6 +70,14 @@ fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
 function supportsPlayCanvasSogViewer() {
   const canvas = document.createElement("canvas");
   return !!canvas.getContext("webgl2");
+}
+
+function applySogVisualTuning(canvas) {
+  if (!canvas) {
+    return;
+  }
+
+  canvas.style.filter = `brightness(${SOG_VISUAL_TUNING.brightness}) contrast(${SOG_VISUAL_TUNING.contrast}) saturate(${SOG_VISUAL_TUNING.saturate})`;
 }
 
 class SimpleOrbitController {
@@ -688,6 +701,7 @@ class PlayCanvasSogViewer {
     const pc = await import(PLAYCANVAS_CDN);
     const canvas = document.createElement("canvas");
     canvas.className = "viewer-canvas playcanvas-sog-canvas";
+    applySogVisualTuning(canvas);
     this.container.appendChild(canvas);
     this.canvas = canvas;
 
