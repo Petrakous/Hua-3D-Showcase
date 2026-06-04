@@ -79,15 +79,12 @@ const splatProfile = {
 
 function getPerformanceTierRank(tier) {
   switch (tier) {
-    case "lod4":
-      return 0;
-    case "lod3":
-      return 1;
-    case "lod2":
-      return 2;
-    case "lod1":
-    default:
-      return 3;
+    case "lod4": return 0;
+    case "lod3": return 1;
+    case "lod2": return 2;
+    case "lod1": return 3;
+    case "lod0": return 4;
+    default: return 3;
   }
 }
 
@@ -96,20 +93,20 @@ function getSogAssetForPerformanceTier(asset, tier) {
     return null;
   }
 
-  const normalizedTier = ["lod1", "lod2", "lod3", "lod4"].includes(tier) ? tier : "lod1";
+  const normalizedTier = ["lod0", "lod1", "lod2", "lod3", "lod4"].includes(tier) ? tier : "lod1";
   
-  if (normalizedTier === "lod1") {
+  if (normalizedTier === "lod1" || normalizedTier === "lod0") {
     const originalSrc = asset.originalSrc || asset.src;
     if (!originalSrc) {
       return null;
     }
 
-    const lod1Source = asset.performanceSources?.lod1 || originalSrc;
+    const source = asset.performanceSources?.[normalizedTier] || originalSrc;
 
     return {
       ...asset,
-      src: lod1Source,
-      performanceTier: "lod1",
+      src: source,
+      performanceTier: normalizedTier,
     };
   }
 
@@ -130,7 +127,7 @@ function getLowerSogAsset(asset) {
     return null;
   }
 
-  const ranks = ["lod1", "lod2", "lod3", "lod4"];
+  const ranks = ["lod0", "lod1", "lod2", "lod3", "lod4"];
   const currentIndex = ranks.indexOf(asset.performanceTier);
   if (currentIndex === -1 || currentIndex === ranks.length - 1) return null;
 
@@ -147,7 +144,7 @@ function getHigherSogAsset(asset) {
     return null;
   }
 
-  const ranks = ["lod1", "lod2", "lod3", "lod4"];
+  const ranks = ["lod0", "lod1", "lod2", "lod3", "lod4"];
   const currentIndex = ranks.indexOf(asset.performanceTier);
   if (currentIndex <= 0) return null;
 
@@ -634,29 +631,33 @@ function selectPerformanceSogAsset(asset) {
   const tier = autoPerformanceProfile.tier;
   const performanceSources = asset.performanceSources || {};
   let nextSrc = asset.src;
-  let performanceTier = "lod1";
+  let performanceTier = "lod0";
 
   if (tier === "lod4") {
-    nextSrc = performanceSources.lod4 || performanceSources.lod3 || performanceSources.lod2 || performanceSources.lod1 || asset.src;
+    nextSrc = performanceSources.lod4 || performanceSources.lod3 || performanceSources.lod2 || performanceSources.lod1 || performanceSources.lod0 || asset.src;
     performanceTier = "lod4";
   } else if (tier === "lod3") {
-    nextSrc = performanceSources.lod3 || performanceSources.lod4 || performanceSources.lod2 || performanceSources.lod1 || asset.src;
+    nextSrc = performanceSources.lod3 || performanceSources.lod4 || performanceSources.lod2 || performanceSources.lod1 || performanceSources.lod0 || asset.src;
     performanceTier = "lod3";
   } else if (tier === "lod2") {
-    nextSrc = performanceSources.lod2 || performanceSources.lod1 || performanceSources.lod3 || performanceSources.lod4 || asset.src;
+    nextSrc = performanceSources.lod2 || performanceSources.lod1 || performanceSources.lod0 || performanceSources.lod3 || performanceSources.lod4 || asset.src;
     performanceTier = "lod2";
-  } else {
-    nextSrc = performanceSources.lod1 || asset.src;
+  } else if (tier === "lod1") {
+    nextSrc = performanceSources.lod1 || performanceSources.lod0 || asset.src;
     performanceTier = "lod1";
+  } else {
+    nextSrc = performanceSources.lod0 || asset.src;
+    performanceTier = "lod0";
   }
 
   if (nextSrc === asset.src && !performanceSources[performanceTier]) {
-      performanceTier = "lod1"; 
+      performanceTier = "lod0"; 
   } else {
       if (nextSrc === performanceSources.lod4) performanceTier = "lod4";
       else if (nextSrc === performanceSources.lod3) performanceTier = "lod3";
       else if (nextSrc === performanceSources.lod2) performanceTier = "lod2";
       else if (nextSrc === performanceSources.lod1) performanceTier = "lod1";
+      else if (nextSrc === performanceSources.lod0) performanceTier = "lod0";
   }
 
   return {
@@ -726,18 +727,18 @@ function describeActiveAsset(asset = getActiveAssetDescriptor()) {
     return getCurrentContextLabel();
   }
 
-  const tierMap = { lod1: "LOD1", lod2: "LOD2", lod3: "LOD3", lod4: "LOD4" };
+  const tierMap = { lod0: "LOD0", lod1: "LOD1", lod2: "LOD2", lod3: "LOD3", lod4: "LOD4" };
   const tierName = tierMap[asset.performanceTier] || asset.performanceTier;
 
   if (isCampusOutsideSelected()) {
-    const tierSuffix = asset.performanceTier && asset.performanceTier !== "lod1"
+    const tierSuffix = asset.performanceTier && asset.performanceTier !== "lod0"
       ? ` / ${tierName}`
       : "";
     return `${getCurrentContextLabel()} (${FORMAT_LABELS[asset.format] || "GLB"}${tierSuffix})`;
   }
 
   const formatLabel = FORMAT_LABELS[asset.format] || FORMAT_LABELS[asset.fileFormat] || "GLB";
-  const tierSuffix = asset.performanceTier && asset.performanceTier !== "lod1"
+  const tierSuffix = asset.performanceTier && asset.performanceTier !== "lod0"
     ? ` / ${tierName}`
     : "";
   return `${getCurrentContextLabel()} (${formatLabel}${tierSuffix})`;
@@ -1137,20 +1138,20 @@ function renderLodMarkers() {
   }
 
   const availableTiers = [];
+  if (currentActiveAsset?.performanceSources?.lod0) availableTiers.push("lod0");
   if (currentActiveAsset?.performanceSources?.lod1) availableTiers.push("lod1");
   if (currentActiveAsset?.performanceSources?.lod2) availableTiers.push("lod2");
   if (currentActiveAsset?.performanceSources?.lod3) availableTiers.push("lod3");
   if (currentActiveAsset?.performanceSources?.lod4) availableTiers.push("lod4");
 
-  // Fallback if the active asset's original source acts as LOD1 and wasn't explicitly in performanceSources
-  if (availableTiers.length > 0 && !availableTiers.includes("lod1")) {
-      availableTiers.unshift("lod1");
+  if (availableTiers.length > 0 && !availableTiers.includes("lod0")) {
+      availableTiers.unshift("lod0");
   } else if (availableTiers.length === 0) {
-      // Just in case nothing matched but we decided to show the control anyway
-      availableTiers.push("lod1");
+      availableTiers.push("lod0");
   }
 
   const tierLabels = {
+    lod0: "LOD0",
     lod1: "LOD1",
     lod2: "LOD2",
     lod3: "LOD3",
@@ -1160,7 +1161,7 @@ function renderLodMarkers() {
   lodMarkers.innerHTML = availableTiers
     .map((tier) => `
       <button
-        class="lod-marker"
+        class="location-stage-marker"
         data-lod-tier="${tier}"
         data-active="${String(tier === currentActiveAsset?.performanceTier)}"
         type="button"
@@ -1168,7 +1169,7 @@ function renderLodMarkers() {
     `)
     .join("");
 
-  for (const button of lodMarkers.querySelectorAll(".lod-marker")) {
+  for (const button of lodMarkers.querySelectorAll(".location-stage-marker")) {
     button.addEventListener("click", () => {
       const tier = button.dataset.lodTier;
       if (!tier || tier === currentActiveAsset?.performanceTier) {
@@ -1393,7 +1394,7 @@ function setControlsBusy(isBusy) {
   for (const marker of formatStageMarkers.querySelectorAll(".format-stage-marker")) {
     marker.disabled = isBusy;
   }
-  for (const marker of lodMarkers.querySelectorAll(".lod-marker")) {
+  for (const marker of lodMarkers.querySelectorAll(".location-stage-marker")) {
     marker.disabled = isBusy;
   }
 
