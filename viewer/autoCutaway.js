@@ -1,6 +1,7 @@
 import * as THREE from "three";
 const MAX_ACTIVE_FACES = 3;
-const MIN_COMPONENT_FOR_FACE_BLEND = 0.08;
+const CUTAWAY_EDGE_FADE_START = 0.45;
+const CUTAWAY_EDGE_FADE_END = 0.51;
 const FACE_SHARE_BLEND_START = 0.18;
 const FACE_SHARE_BLEND_END = 0.34;
 
