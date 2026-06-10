@@ -1,7 +1,10 @@
-import { computeAutoCutaway } from "./autoCutaway.js";
+import { computeAutoCutaway } from "./autoCutaway.js?v=20260610fp21";
+import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb } from "./fpCollision.js?v=20260610fp21";
+import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260610fp21";
 
 const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas/+esm";
 const ORBIT_DAMPING_DECAY_MS = 140;
+const CUTAWAY_DAMPING_DECAY_MS = 110;
 const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const AUTO_CUTAWAY_FADE_WIDTH = 0.12;
@@ -10,54 +13,158 @@ const SOG_BOX_CULLING_MODIFIER = {
 uniform mat4 orientedClipBoxWorldToUnit;
 uniform float orientedClipBoxEnabled;
 uniform float orientedClipBoxFadeWidth;
+uniform vec3 cameraWorldPosition;
+uniform float backfaceCullingEnabled;
+uniform float backfaceThreshold;
+uniform float backfaceFadeWidth;
+
+vec3 rotateByQuaternion(vec3 v, vec4 q) {
+  return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+}
+
+vec3 selectNormalAxis(vec3 scale) {
+  if (scale.x <= scale.y && scale.x <= scale.z) {
+    return vec3(1.0, 0.0, 0.0);
+  }
+  if (scale.y <= scale.x && scale.y <= scale.z) {
+    return vec3(0.0, 1.0, 0.0);
+  }
+  return vec3(0.0, 0.0, 1.0);
+}
 
 void modifySplatCenter(inout vec3 center) {
 }
 
 void modifySplatRotationScale(vec3 originalCenter, vec3 modifiedCenter, inout vec4 rotation, inout vec3 scale) {
+  if (orientedClipBoxEnabled > 0.5) {
+    vec3 clipLocalPoint = (orientedClipBoxWorldToUnit * vec4(modifiedCenter, 1.0)).xyz;
+    vec3 outsideDistance = abs(clipLocalPoint) - vec3(0.5);
+    float maxOutsideDistance = max(max(outsideDistance.x, outsideDistance.y), outsideDistance.z);
+    float fadeWidth = max(orientedClipBoxFadeWidth, 0.0001);
+    float clipVisibility = 1.0 - smoothstep(0.0, fadeWidth, maxOutsideDistance);
+    if (clipVisibility <= 0.001) {
+      scale = vec3(0.0);
+      return;
+    }
+    scale *= max(clipVisibility, 0.05);
+  }
+
+  if (backfaceCullingEnabled > 0.5) {
+    vec3 axis = selectNormalAxis(max(scale, vec3(0.0001)));
+    vec3 worldNormal = normalize(rotateByQuaternion(axis, rotation));
+    vec3 directionToCamera = normalize(cameraWorldPosition - modifiedCenter);
+    float facingDot = dot(worldNormal, directionToCamera);
+    float visibility = smoothstep(
+      backfaceThreshold - max(backfaceFadeWidth, 0.0001),
+      backfaceThreshold + max(backfaceFadeWidth, 0.0001),
+      facingDot
+    );
+    if (visibility <= 0.001) {
+      scale = vec3(0.0);
+      return;
+    }
+    scale *= max(visibility, 0.08);
+  }
 }
 
 void modifySplatColor(vec3 center, inout vec4 color) {
+  float visibility = 1.0;
+
   if (orientedClipBoxEnabled < 0.5) {
-    return;
+  } else {
+    vec3 clipLocalPoint = (orientedClipBoxWorldToUnit * vec4(center, 1.0)).xyz;
+    vec3 outsideDistance = abs(clipLocalPoint) - vec3(0.5);
+    float maxOutsideDistance = max(max(outsideDistance.x, outsideDistance.y), outsideDistance.z);
+
+    if (maxOutsideDistance > 0.0) {
+      float fadeWidth = max(orientedClipBoxFadeWidth, 0.0001);
+      visibility *= 1.0 - smoothstep(0.0, fadeWidth, maxOutsideDistance);
+    }
   }
 
-  vec3 clipLocalPoint = (orientedClipBoxWorldToUnit * vec4(center, 1.0)).xyz;
-  vec3 outsideDistance = abs(clipLocalPoint) - vec3(0.5);
-  float maxOutsideDistance = max(max(outsideDistance.x, outsideDistance.y), outsideDistance.z);
-
-  if (maxOutsideDistance > 0.0) {
-    float fadeWidth = max(orientedClipBoxFadeWidth, 0.0001);
-    float visibility = 1.0 - smoothstep(0.0, fadeWidth, maxOutsideDistance);
+  if (backfaceCullingEnabled > 0.5) {
     color.a *= visibility;
   }
+
+  color.a *= visibility;
 }
 `,
   wgsl: `
 uniform orientedClipBoxWorldToUnit: mat4x4f;
 uniform orientedClipBoxEnabled: f32;
 uniform orientedClipBoxFadeWidth: f32;
+uniform cameraWorldPosition: vec3f;
+uniform backfaceCullingEnabled: f32;
+uniform backfaceThreshold: f32;
+uniform backfaceFadeWidth: f32;
+
+fn rotateByQuaternion(v: vec3f, q: vec4f) -> vec3f {
+  return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+}
+
+fn selectNormalAxis(scale: vec3f) -> vec3f {
+  if (scale.x <= scale.y && scale.x <= scale.z) {
+    return vec3f(1.0, 0.0, 0.0);
+  }
+  if (scale.y <= scale.x && scale.y <= scale.z) {
+    return vec3f(0.0, 1.0, 0.0);
+  }
+  return vec3f(0.0, 0.0, 1.0);
+}
 
 fn modifySplatCenter(center: ptr<function, vec3f>) {
 }
 
 fn modifySplatRotationScale(originalCenter: vec3f, modifiedCenter: vec3f, rotation: ptr<function, vec4f>, scale: ptr<function, vec3f>) {
+  if (uniform.orientedClipBoxEnabled > 0.5) {
+    let clipLocalPoint = (uniform.orientedClipBoxWorldToUnit * vec4f(modifiedCenter, 1.0)).xyz;
+    let outsideDistance = abs(clipLocalPoint) - vec3f(0.5, 0.5, 0.5);
+    let maxOutsideDistance = max(max(outsideDistance.x, outsideDistance.y), outsideDistance.z);
+    let fadeWidth = max(uniform.orientedClipBoxFadeWidth, 0.0001);
+    let clipVisibility = 1.0 - smoothstep(0.0, fadeWidth, maxOutsideDistance);
+    if (clipVisibility <= 0.001) {
+      (*scale) = vec3f(0.0, 0.0, 0.0);
+      return;
+    }
+    let clipScale = max(clipVisibility, 0.05);
+    (*scale) *= vec3f(clipScale, clipScale, clipScale);
+  }
+
+  if (uniform.backfaceCullingEnabled > 0.5) {
+    let axis = selectNormalAxis(max((*scale), vec3f(0.0001, 0.0001, 0.0001)));
+    let worldNormal = normalize(rotateByQuaternion(axis, (*rotation)));
+    let directionToCamera = normalize(uniform.cameraWorldPosition - modifiedCenter);
+    let fadeWidth = max(uniform.backfaceFadeWidth, 0.0001);
+    let facingDot = dot(worldNormal, directionToCamera);
+    let visibility = smoothstep(
+      uniform.backfaceThreshold - fadeWidth,
+      uniform.backfaceThreshold + fadeWidth,
+      facingDot
+    );
+    if (visibility <= 0.001) {
+      (*scale) = vec3f(0.0, 0.0, 0.0);
+      return;
+    }
+    let backfaceScale = max(visibility, 0.08);
+    (*scale) *= vec3f(backfaceScale, backfaceScale, backfaceScale);
+  }
 }
 
 fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
-  if (uniform.orientedClipBoxEnabled < 0.5) {
-    return;
+  var visibility = 1.0;
+
+  if (uniform.orientedClipBoxEnabled > 0.5) {
+    let clipLocalPoint = (uniform.orientedClipBoxWorldToUnit * vec4f(center, 1.0)).xyz;
+    let outsideDistance = abs(clipLocalPoint) - vec3f(0.5, 0.5, 0.5);
+    let maxOutsideDistance = max(max(outsideDistance.x, outsideDistance.y), outsideDistance.z);
+
+    if (maxOutsideDistance > 0.0) {
+      let fadeWidth = max(uniform.orientedClipBoxFadeWidth, 0.0001);
+      visibility *= 1.0 - smoothstep(0.0, fadeWidth, maxOutsideDistance);
+    }
   }
 
-  let clipLocalPoint = (uniform.orientedClipBoxWorldToUnit * vec4f(center, 1.0)).xyz;
-  let outsideDistance = abs(clipLocalPoint) - vec3f(0.5, 0.5, 0.5);
-  let maxOutsideDistance = max(max(outsideDistance.x, outsideDistance.y), outsideDistance.z);
-
-  if (maxOutsideDistance > 0.0) {
-    let fadeWidth = max(uniform.orientedClipBoxFadeWidth, 0.0001);
-    let visibility = 1.0 - smoothstep(0.0, fadeWidth, maxOutsideDistance);
-    (*color).a *= visibility;
-  }
+  (*color).a *= visibility;
 }
 `,
 };
@@ -330,9 +437,20 @@ class PlayCanvasSogViewer {
     this.autoRotate = false;
     this.cutawayEnabled = true;
     this.activeManualBoxConfig = null;
+    this.activeFpCollisionBoxConfig = null;
+    this.currentCutawayBoxConfig = null;
     this.currentAsset = null;
     this.cutawayModifierInstalled = false;
     this.panIndicatorVisible = false;
+    this.streamingState = null;
+    this.frameReadyHandler = null;
+    this.currentCutawayBoxConfig = null;
+    this.fpCollision = null;
+    this.fpNavigationController = null;
+    this.fpNavigationMode = "walk";
+    this.firstPersonActive = false;
+    this.firstPersonTransitionPending = false;
+    this.fpInteractionCommitted = false;
   }
 
   setPanIndicatorVisible(visible) {
@@ -357,11 +475,32 @@ class PlayCanvasSogViewer {
     return worldPoint;
   }
 
+  resolveOrbitStateFromCamera(pc, target, cameraPosition) {
+    const offsetX = cameraPosition.x - target.x;
+    const offsetY = cameraPosition.y - target.y;
+    const offsetZ = cameraPosition.z - target.z;
+    const distance = Math.max(Math.hypot(offsetX, offsetY, offsetZ), 0.001);
+    const pitch = pc.math.RAD_TO_DEG * Math.asin(offsetY / distance);
+    const yaw = pc.math.RAD_TO_DEG * Math.atan2(offsetX, offsetZ);
+
+    return {
+      target,
+      distance,
+      yaw,
+      pitch,
+    };
+  }
+
   resolveOrbitState(pc, asset, entity, localBoundsCenter, boundsRadius) {
     const viewPreset = asset.viewPreset || {};
     const target = viewPreset.target
       ? this.transformPointToWorld(pc, entity, new pc.Vec3(...viewPreset.target))
       : this.transformPointToWorld(pc, entity, localBoundsCenter);
+
+    if (viewPreset.cameraPosition) {
+      const cameraPosition = this.transformPointToWorld(pc, entity, new pc.Vec3(...viewPreset.cameraPosition));
+      return this.resolveOrbitStateFromCamera(pc, target, cameraPosition);
+    }
 
     return {
       target,
@@ -383,6 +522,157 @@ class PlayCanvasSogViewer {
       distance: state.distance,
       yaw: state.yaw,
       pitch: state.pitch,
+    };
+  }
+
+  getOrbitState() {
+    if (this.firstPersonActive && this.fpNavigationController && this.pc) {
+      return this.fpNavigationController.getOrbitState(this.pc);
+    }
+
+    return this.cloneOrbitState(this.orbitState || this.goalOrbitState);
+  }
+
+  setFirstPersonNavigationMode(mode = "walk") {
+    this.fpNavigationMode = mode === "fly" ? "fly" : "walk";
+    this.fpNavigationController?.setMode?.(this.fpNavigationMode);
+    if (this.app) {
+      this.app.renderNextFrame = true;
+    }
+  }
+
+  isOrbitSettled() {
+    if (!this.orbitState || !this.goalOrbitState) {
+      return true;
+    }
+
+    const yawDelta = Math.abs(this.shortestAngleDeltaDegrees(this.orbitState.yaw, this.goalOrbitState.yaw));
+    const pitchDelta = Math.abs(this.orbitState.pitch - this.goalOrbitState.pitch);
+    const distanceDelta = Math.abs(this.orbitState.distance - this.goalOrbitState.distance);
+    const targetDelta = Math.hypot(
+      this.orbitState.target.x - this.goalOrbitState.target.x,
+      this.orbitState.target.y - this.goalOrbitState.target.y,
+      this.orbitState.target.z - this.goalOrbitState.target.z
+    );
+
+    return yawDelta <= 0.7 && pitchDelta <= 0.5 && distanceDelta <= 0.03 && targetDelta <= 0.03;
+  }
+
+  ensureFirstPersonNavigation(pc) {
+    if (!this.canvas) {
+      return null;
+    }
+
+    if (!this.fpNavigationController) {
+      this.fpNavigationController = new FirstPersonNavigationController(this.canvas, this.fpCollision, {
+        mode: this.fpNavigationMode,
+        preservePresetSpawn: !!this.currentAsset?.fpViewPreset?.cameraPosition,
+        walk: {
+          fov: this.camera?.camera?.fov ?? 90,
+        },
+        fly: {
+          fov: this.camera?.camera?.fov ?? 90,
+        },
+      });
+    } else {
+      this.fpNavigationController.setCollision(this.fpCollision);
+      this.fpNavigationController.setPreservePresetSpawn(!!this.currentAsset?.fpViewPreset?.cameraPosition);
+      this.fpNavigationController.setMode(this.fpNavigationMode);
+    }
+
+    return this.fpNavigationController;
+  }
+
+  startFirstPersonNavigation(pc) {
+    if (!this.currentAsset?.streamingEnabled || !this.camera) {
+      return;
+    }
+
+    const controller = this.ensureFirstPersonNavigation(pc);
+    if (!controller) {
+      return;
+    }
+
+    controller.enterFromOrbitState(this.orbitState || this.goalOrbitState, this.camera.camera?.fov ?? 90);
+    this.firstPersonActive = true;
+    this.firstPersonTransitionPending = false;
+    this.fpInteractionCommitted = false;
+    this.setPanIndicatorVisible(false);
+    if (this.app) {
+      this.app.renderNextFrame = true;
+    }
+  }
+
+  stopFirstPersonNavigation() {
+    this.firstPersonActive = false;
+    this.firstPersonTransitionPending = false;
+    this.fpInteractionCommitted = false;
+    if (this.fpNavigationController) {
+      this.fpNavigationController.dispose();
+      this.fpNavigationController = null;
+    }
+  }
+
+  async prepareFirstPersonAsset(asset, onState) {
+    if (
+      !asset?.streamingEnabled ||
+      !asset?.fpCollisionSource ||
+      asset?.fpCollisionStrategy === "box" ||
+      !this.app ||
+      !this.pc
+    ) {
+      this.fpCollision = null;
+      return asset;
+    }
+
+    onState?.({
+      status: "loading",
+      title: "Preparing FP",
+      message: "Loading collision mesh and validating an inside spawn point.",
+    });
+
+    try {
+      const collision = await loadMeshCollisionFromGlb(this.app, this.pc, asset.fpCollisionSource, {
+        position: asset.position,
+        rotation: asset.rotation,
+        scale: asset.scale,
+      });
+      this.fpCollision = collision;
+      if (!collision) {
+        return asset;
+      }
+
+      if (asset.fpViewPreset?.cameraPosition) {
+        return asset;
+      }
+
+      return {
+        ...asset,
+        viewPreset: buildCollisionAdjustedViewPreset(
+          collision,
+          asset.viewPreset || {},
+          asset.manualBox?.position || [0, 0, 0]
+        ),
+      };
+    } catch (error) {
+      console.warn("FP collision preparation failed:", error);
+      this.fpCollision = null;
+      return asset;
+    }
+  }
+
+  cloneManualBoxConfig(config) {
+    if (!config) {
+      return null;
+    }
+
+    return {
+      position: [...(config.position || [0, 0, 0])],
+      rotationDegrees: [...(config.rotationDegrees || [0, 0, 0])],
+      scale: [...(config.scale || [1, 1, 1])],
+      cutRatio: Number.isFinite(config.cutRatio) ? config.cutRatio : 0.2,
+      cutFadeWidth: Number.isFinite(config.cutFadeWidth) ? config.cutFadeWidth : undefined,
+      cutDepthByFace: config.cutDepthByFace ? { ...config.cutDepthByFace } : undefined,
     };
   }
 
@@ -462,7 +752,6 @@ class PlayCanvasSogViewer {
     this.orbitState.distance = nextDistance;
     this.orbitState.target.set(nextTargetX, nextTargetY, nextTargetZ);
     this.updateCameraOrbit(pc);
-    this.syncCutawayState(pc);
   }
 
   createStandardEulerQuaternion(pc, rotationDegrees = [0, 0, 0]) {
@@ -508,6 +797,261 @@ class PlayCanvasSogViewer {
     return new pc.Mat4().mul2(this.splatEntity.getWorldTransform(), localBoxMatrix);
   }
 
+  createFallbackBoxCollision(pc, entity, boxConfig) {
+    if (!pc || !entity || !boxConfig?.scale) {
+      return null;
+    }
+
+    const worldMatrix = new pc.Mat4().mul2(entity.getWorldTransform(), this.createBoxLocalMatrix(pc, boxConfig));
+    const unitCorners = [
+      [-0.5, -0.5, -0.5],
+      [0.5, -0.5, -0.5],
+      [-0.5, 0.5, -0.5],
+      [0.5, 0.5, -0.5],
+      [-0.5, -0.5, 0.5],
+      [0.5, -0.5, 0.5],
+      [-0.5, 0.5, 0.5],
+      [0.5, 0.5, 0.5],
+    ];
+
+    const bounds = {
+      minX: Infinity,
+      minY: Infinity,
+      minZ: Infinity,
+      maxX: -Infinity,
+      maxY: -Infinity,
+      maxZ: -Infinity,
+    };
+
+    for (const [x, y, z] of unitCorners) {
+      const point = new pc.Vec3();
+      worldMatrix.transformPoint(new pc.Vec3(x, y, z), point);
+      if (point.x < bounds.minX) bounds.minX = point.x;
+      if (point.y < bounds.minY) bounds.minY = point.y;
+      if (point.z < bounds.minZ) bounds.minZ = point.z;
+      if (point.x > bounds.maxX) bounds.maxX = point.x;
+      if (point.y > bounds.maxY) bounds.maxY = point.y;
+      if (point.z > bounds.maxZ) bounds.maxZ = point.z;
+    }
+
+    const padding = 0.02;
+    bounds.minX += padding;
+    bounds.minY += padding;
+    bounds.minZ += padding;
+    bounds.maxX -= padding;
+    bounds.maxY -= padding;
+    bounds.maxZ -= padding;
+
+    const clampPointForRadius = (x, y, z, radius) => ({
+      x: Math.max(bounds.minX + radius, Math.min(bounds.maxX - radius, x)),
+      y: Math.max(bounds.minY + radius, Math.min(bounds.maxY - radius, y)),
+      z: Math.max(bounds.minZ + radius, Math.min(bounds.maxZ - radius, z)),
+    });
+
+    const intersectSegmentWithAabb = (start, end) => {
+      const direction = {
+        x: end.x - start.x,
+        y: end.y - start.y,
+        z: end.z - start.z,
+      };
+
+      let tMin = 0;
+      let tMax = 1;
+      let nearNormal = { x: 0, y: 1, z: 0 };
+      let farNormal = { x: 0, y: -1, z: 0 };
+
+      const axes = [
+        ["x", "minX", "maxX"],
+        ["y", "minY", "maxY"],
+        ["z", "minZ", "maxZ"],
+      ];
+
+      for (const [axis, minKey, maxKey] of axes) {
+        const origin = start[axis];
+        const delta = direction[axis];
+        const min = bounds[minKey];
+        const max = bounds[maxKey];
+
+        if (Math.abs(delta) < 1e-8) {
+          if (origin < min || origin > max) {
+            return null;
+          }
+          continue;
+        }
+
+        let t1 = (min - origin) / delta;
+        let t2 = (max - origin) / delta;
+        let normal1;
+        let normal2;
+
+        if (axis === "x") {
+          normal1 = { x: -1, y: 0, z: 0 };
+          normal2 = { x: 1, y: 0, z: 0 };
+        } else if (axis === "y") {
+          normal1 = { x: 0, y: -1, z: 0 };
+          normal2 = { x: 0, y: 1, z: 0 };
+        } else {
+          normal1 = { x: 0, y: 0, z: -1 };
+          normal2 = { x: 0, y: 0, z: 1 };
+        }
+
+        if (t1 > t2) {
+          [t1, t2] = [t2, t1];
+          [normal1, normal2] = [normal2, normal1];
+        }
+
+        if (t1 > tMin) {
+          tMin = t1;
+          nearNormal = normal1;
+        }
+        if (t2 < tMax) {
+          tMax = t2;
+          farNormal = normal2;
+        }
+
+        if (tMin > tMax) {
+          return null;
+        }
+      }
+
+      return { nearT: tMin, farT: tMax, nearNormal, farNormal };
+    };
+
+    const makeHit = (point, normal, originX, originY, originZ) => {
+      const worldNormal = new pc.Vec3(normal.x, normal.y, normal.z).normalize();
+      return {
+        distance: Math.hypot(point.x - originX, point.y - originY, point.z - originZ),
+        x: point.x,
+        y: point.y,
+        z: point.z,
+        nx: worldNormal.x,
+        ny: worldNormal.y,
+        nz: worldNormal.z,
+      };
+    };
+
+    const collision = {
+      voxelResolution: 0.12,
+      querySphere: (x, y, z, radius, out = { x: 0, y: 0, z: 0 }) => {
+        const clamped = clampPointForRadius(x, y, z, radius);
+        const push = {
+          x: clamped.x - x,
+          y: clamped.y - y,
+          z: clamped.z - z,
+        };
+
+        if (Math.hypot(push.x, push.y, push.z) <= 1e-8) {
+          out.x = 0;
+          out.y = 0;
+          out.z = 0;
+          return false;
+        }
+
+        out.x = push.x;
+        out.y = push.y;
+        out.z = push.z;
+        return true;
+      },
+      isFreeAt: (x, y, z) => {
+        return (
+          x >= bounds.minX &&
+          x <= bounds.maxX &&
+          y >= bounds.minY &&
+          y <= bounds.maxY &&
+          z >= bounds.minZ &&
+          z <= bounds.maxZ
+        );
+      },
+      queryRay: (ox, oy, oz, dx, dy, dz, maxDist = Infinity) => {
+        const safeMaxDist = Number.isFinite(maxDist) ? maxDist : 1000;
+        const worldStart = { x: ox, y: oy, z: oz };
+        const worldEnd = {
+          x: ox + dx * safeMaxDist,
+          y: oy + dy * safeMaxDist,
+          z: oz + dz * safeMaxDist,
+        };
+        const result = intersectSegmentWithAabb(worldStart, worldEnd);
+        if (!result) {
+          return null;
+        }
+
+        const nearPoint = {
+          x: worldStart.x + (worldEnd.x - worldStart.x) * result.nearT,
+          y: worldStart.y + (worldEnd.y - worldStart.y) * result.nearT,
+          z: worldStart.z + (worldEnd.z - worldStart.z) * result.nearT,
+        };
+        const farPoint = {
+          x: worldStart.x + (worldEnd.x - worldStart.x) * result.farT,
+          y: worldStart.y + (worldEnd.y - worldStart.y) * result.farT,
+          z: worldStart.z + (worldEnd.z - worldStart.z) * result.farT,
+        };
+
+        const nearHit = makeHit(nearPoint, result.nearNormal, ox, oy, oz);
+        const farHit = makeHit(farPoint, result.farNormal, ox, oy, oz);
+
+        if (dy < -0.0001) {
+          return farHit.y < nearHit.y ? farHit : nearHit;
+        }
+        if (dy > 0.0001) {
+          return farHit.y > nearHit.y ? farHit : nearHit;
+        }
+
+        return nearHit.distance <= farHit.distance ? nearHit : farHit;
+      },
+      querySurfaceNormal: (x, y, z) => {
+        const distances = [
+          { axis: "x", sign: -1, value: Math.abs(x - bounds.minX) },
+          { axis: "x", sign: 1, value: Math.abs(x - bounds.maxX) },
+          { axis: "y", sign: -1, value: Math.abs(y - bounds.minY) },
+          { axis: "y", sign: 1, value: Math.abs(y - bounds.maxY) },
+          { axis: "z", sign: -1, value: Math.abs(z - bounds.minZ) },
+          { axis: "z", sign: 1, value: Math.abs(z - bounds.maxZ) },
+        ].sort((left, right) => left.value - right.value);
+
+        const closest = distances[0];
+        const normal =
+          closest.axis === "x"
+            ? { x: closest.sign, y: 0, z: 0 }
+            : closest.axis === "y"
+              ? { x: 0, y: closest.sign, z: 0 }
+              : { x: 0, y: 0, z: closest.sign };
+        return { x: normal.x, y: normal.y, z: normal.z, nx: normal.x, ny: normal.y, nz: normal.z };
+      },
+      findSphereSpawnNear: (origin, options = {}) => {
+        const radius = options.radius ?? 0.18;
+        const clamped = clampPointForRadius(origin[0], origin[1], origin[2], radius);
+        return { x: clamped.x, y: clamped.y, z: clamped.z };
+      },
+      findCameraSpawnNear: (origin, options = {}) => {
+        const headClearance = options.headClearance ?? 1.65;
+        const clamped = {
+          x: Math.max(bounds.minX + 0.12, Math.min(bounds.maxX - 0.12, origin[0])),
+          y: origin[1],
+          z: Math.max(bounds.minZ + 0.12, Math.min(bounds.maxZ - 0.12, origin[2])),
+        };
+
+        const floorY = bounds.minY;
+        const ceilingY = bounds.maxY;
+        const cameraY = Math.min(
+          ceilingY - 0.12,
+          Math.max(
+            floorY + Math.max(headClearance * 0.82, 1.25),
+            origin[1] ?? floorY + 1.5
+          )
+        );
+
+        return {
+          x: clamped.x,
+          y: cameraY,
+          z: clamped.z,
+          floorY,
+        };
+      },
+    };
+
+    return collision;
+  }
+
   createDefaultManualBoxConfig(localBoundsCenter, localHalfExtents) {
     return {
       position: [localBoundsCenter.x, localBoundsCenter.y, localBoundsCenter.z],
@@ -546,6 +1090,18 @@ class PlayCanvasSogViewer {
     if (!gsplat?.setParameter) {
       return;
     }
+
+    const worldCameraPosition = this.camera?.getPosition?.();
+    if (worldCameraPosition) {
+      gsplat.setParameter("cameraWorldPosition", [
+        worldCameraPosition.x,
+        worldCameraPosition.y,
+        worldCameraPosition.z,
+      ]);
+    }
+    gsplat.setParameter("backfaceCullingEnabled", 0);
+    gsplat.setParameter("backfaceThreshold", 0);
+    gsplat.setParameter("backfaceFadeWidth", 1);
 
     if (!enabled || !boxConfig) {
       gsplat.setParameter("orientedClipBoxEnabled", 0);
@@ -589,20 +1145,76 @@ class PlayCanvasSogViewer {
       return boxConfig;
     }
 
-    return computeAutoCutaway(
+    const computed = computeAutoCutaway(
       boxConfig,
       cameraPositionInBoxSpace,
       boxConfig.cutRatio ?? 0.2
     ).boxConfig;
+
+    return {
+      ...computed,
+      cutFadeWidth: boxConfig.cutFadeWidth,
+    };
   }
 
-  syncCutawayState(pc) {
+  smoothCutawayBoxConfig(currentConfig, targetConfig, deltaMs) {
+    if (!currentConfig) {
+      return this.cloneManualBoxConfig(targetConfig);
+    }
+
+    if (!targetConfig) {
+      return null;
+    }
+
+    return {
+      position: [
+        this.dampScalar(currentConfig.position?.[0] ?? 0, targetConfig.position?.[0] ?? 0, deltaMs, 0.0001),
+        this.dampScalar(currentConfig.position?.[1] ?? 0, targetConfig.position?.[1] ?? 0, deltaMs, 0.0001),
+        this.dampScalar(currentConfig.position?.[2] ?? 0, targetConfig.position?.[2] ?? 0, deltaMs, 0.0001),
+      ],
+      rotationDegrees: [...(targetConfig.rotationDegrees || currentConfig.rotationDegrees || [0, 0, 0])],
+      scale: [
+        this.dampScalar(currentConfig.scale?.[0] ?? 1, targetConfig.scale?.[0] ?? 1, deltaMs, 0.0001),
+        this.dampScalar(currentConfig.scale?.[1] ?? 1, targetConfig.scale?.[1] ?? 1, deltaMs, 0.0001),
+        this.dampScalar(currentConfig.scale?.[2] ?? 1, targetConfig.scale?.[2] ?? 1, deltaMs, 0.0001),
+      ],
+      cutRatio: targetConfig.cutRatio ?? currentConfig.cutRatio ?? 0.2,
+      cutFadeWidth: targetConfig.cutFadeWidth ?? currentConfig.cutFadeWidth,
+      cutDepthByFace: targetConfig.cutDepthByFace ? { ...targetConfig.cutDepthByFace } : currentConfig.cutDepthByFace,
+    };
+  }
+
+  isSameCutawayBoxConfig(left, right, epsilon = 0.0005) {
+    if (!left || !right) {
+      return left === right;
+    }
+
+    for (let index = 0; index < 3; index += 1) {
+      if (Math.abs((left.position?.[index] ?? 0) - (right.position?.[index] ?? 0)) > epsilon) {
+        return false;
+      }
+      if (Math.abs((left.scale?.[index] ?? 1) - (right.scale?.[index] ?? 1)) > epsilon) {
+        return false;
+      }
+      if (Math.abs((left.rotationDegrees?.[index] ?? 0) - (right.rotationDegrees?.[index] ?? 0)) > epsilon) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  syncCutawayState(pc, options = {}) {
     const gsplat = this.splatEntity?.gsplat;
     if (!this.ensureCutawayModifier(gsplat)) {
       return;
     }
 
+    const immediate = !!options.immediate;
+    const deltaMs = Math.max((options.deltaSeconds || 0) * 1000, 0);
+
     if (!this.cutawayEnabled || !this.activeManualBoxConfig) {
+      this.currentCutawayBoxConfig = null;
       this.setCutawayParameters(pc, gsplat, null, false);
       if (this.app) {
         this.app.renderNextFrame = true;
@@ -610,9 +1222,19 @@ class PlayCanvasSogViewer {
       return;
     }
 
-    const boxConfig = this.getEffectiveCutawayBoxConfig(pc, this.activeManualBoxConfig);
-    this.setCutawayParameters(pc, gsplat, boxConfig, true);
-    if (this.app) {
+    const targetBoxConfig = this.getEffectiveCutawayBoxConfig(pc, this.activeManualBoxConfig);
+    const nextBoxConfig = immediate || !this.currentCutawayBoxConfig
+      ? this.cloneManualBoxConfig(targetBoxConfig)
+      : this.smoothCutawayBoxConfig(
+          this.currentCutawayBoxConfig,
+          targetBoxConfig,
+          deltaMs || CUTAWAY_DAMPING_DECAY_MS
+        );
+
+    const shouldContinueSmoothing = !this.isSameCutawayBoxConfig(nextBoxConfig, targetBoxConfig);
+    this.currentCutawayBoxConfig = nextBoxConfig;
+    this.setCutawayParameters(pc, gsplat, nextBoxConfig, true);
+    if (this.app && (shouldContinueSmoothing || immediate)) {
       this.app.renderNextFrame = true;
     }
   }
@@ -659,8 +1281,156 @@ class PlayCanvasSogViewer {
     this.stopAutoRotate();
   }
 
+  isStreamingAsset(asset = this.currentAsset) {
+    return !!asset?.streamingEnabled || /\.lod-meta\.json(?:$|\?)/i.test(asset?.src || "");
+  }
+
+  clearStreamingHandlers() {
+    if (this.frameReadyHandler && this.app?.systems?.gsplat?.off) {
+      this.app.systems.gsplat.off("frame:ready", this.frameReadyHandler);
+    }
+
+    this.frameReadyHandler = null;
+  }
+
+  getStreamingState() {
+    return this.streamingState ? { ...this.streamingState } : null;
+  }
+
+  setStreamingSplatBudget(splatBudget) {
+    if (!this.app?.scene?.gsplat || !Number.isFinite(splatBudget)) {
+      return;
+    }
+
+    this.app.scene.gsplat.splatBudget = Math.max(0, Math.round(splatBudget));
+    if (this.streamingState) {
+      this.streamingState.splatBudget = Math.max(0, Math.round(splatBudget));
+    }
+    this.app.renderNextFrame = true;
+  }
+
+  setStreamingLodRange(lodRangeMin, lodRangeMax) {
+    if (!this.app?.scene?.gsplat || !this.streamingState) {
+      return;
+    }
+
+    const maxIndex = Math.max(0, (this.streamingState.lodLevels || 1) - 1);
+    const nextMin = Math.max(0, Math.min(Math.round(lodRangeMin), maxIndex));
+    const nextMax = Math.max(nextMin, Math.min(Math.round(lodRangeMax), maxIndex));
+
+    this.app.scene.gsplat.lodRangeMin = nextMin;
+    this.app.scene.gsplat.lodRangeMax = nextMax;
+    this.streamingState.lodRangeMin = nextMin;
+    this.streamingState.lodRangeMax = nextMax;
+    this.app.renderNextFrame = true;
+  }
+
+  setStreamingDistances(lodBaseDistance, lodMultiplier) {
+    if (!this.splatEntity?.gsplat || !this.streamingState) {
+      return;
+    }
+
+    if (Number.isFinite(lodBaseDistance)) {
+      this.splatEntity.gsplat.lodBaseDistance = Math.max(0.1, lodBaseDistance);
+      this.streamingState.lodBaseDistance = Math.max(0.1, lodBaseDistance);
+    }
+
+    if (Number.isFinite(lodMultiplier)) {
+      this.splatEntity.gsplat.lodMultiplier = Math.max(1.2, lodMultiplier);
+      this.streamingState.lodMultiplier = Math.max(1.2, lodMultiplier);
+    }
+
+    if (this.app) {
+      this.app.renderNextFrame = true;
+    }
+  }
+
+  applyStreamingQuality(settings = {}) {
+    if (!this.streamingState) {
+      return;
+    }
+
+    if (Number.isFinite(settings.splatBudget)) {
+      this.setStreamingSplatBudget(settings.splatBudget);
+    }
+
+    if (Number.isFinite(settings.lodBaseDistance) || Number.isFinite(settings.lodMultiplier)) {
+      this.setStreamingDistances(settings.lodBaseDistance, settings.lodMultiplier);
+    }
+
+    if (Number.isFinite(settings.lodRangeMin) || Number.isFinite(settings.lodRangeMax)) {
+      const nextMin = Number.isFinite(settings.lodRangeMin) ? settings.lodRangeMin : this.streamingState.lodRangeMin;
+      const nextMax = Number.isFinite(settings.lodRangeMax) ? settings.lodRangeMax : this.streamingState.lodRangeMax;
+      this.setStreamingLodRange(nextMin, nextMax);
+    }
+  }
+
+  configureStreaming(asset) {
+    this.clearStreamingHandlers();
+    this.streamingState = null;
+
+    if (!this.isStreamingAsset(asset) || !this.app?.scene?.gsplat || !this.splatEntity?.gsplat) {
+      return;
+    }
+
+    const lodLevels = Math.max(1, Number(this.splatEntity.gsplat.resource?.octree?.lodLevels) || 1);
+    const settings = asset.streamingSettings || {};
+    const targetRangeMin = Math.max(0, Math.min(Math.round(settings.lodRangeMin ?? 0), lodLevels - 1));
+    const targetRangeMax = Math.max(
+      targetRangeMin,
+      Math.min(Math.round(settings.lodRangeMax ?? (lodLevels - 1)), lodLevels - 1)
+    );
+
+    this.streamingState = {
+      enabled: true,
+      lodLevels,
+      splatBudget: Math.max(0, Math.round(settings.splatBudget ?? 0)),
+      minSplatBudget: Math.max(0, Math.round(settings.minSplatBudget ?? 0)),
+      maxSplatBudget: Math.max(0, Math.round(settings.maxSplatBudget ?? 0)),
+      lodBaseDistance: Math.max(0.1, settings.lodBaseDistance ?? 5),
+      minLodBaseDistance: Math.max(0.1, settings.minLodBaseDistance ?? 2.5),
+      maxLodBaseDistance: Math.max(0.1, settings.maxLodBaseDistance ?? 18),
+      lodMultiplier: Math.max(1.2, settings.lodMultiplier ?? 2),
+      minLodMultiplier: Math.max(1.2, settings.minLodMultiplier ?? 1.6),
+      maxLodMultiplier: Math.max(1.2, settings.maxLodMultiplier ?? 3.4),
+      lodRangeMin: targetRangeMin,
+      lodRangeMax: targetRangeMax,
+      targetLodRangeMin: targetRangeMin,
+      targetLodRangeMax: targetRangeMax,
+    };
+
+    this.app.scene.gsplat.splatBudget = this.streamingState.splatBudget;
+    this.app.scene.gsplat.lodUnderfillLimit = Math.max(0, Math.round(settings.lodUnderfillLimit ?? 1));
+    this.splatEntity.gsplat.lodBaseDistance = this.streamingState.lodBaseDistance;
+    this.splatEntity.gsplat.lodMultiplier = this.streamingState.lodMultiplier;
+
+    const coarseFirst = settings.coarseFirst !== false && lodLevels > 1;
+    if (coarseFirst) {
+      const worstLod = lodLevels - 1;
+      this.setStreamingLodRange(worstLod, worstLod);
+
+      this.frameReadyHandler = (_camera, _layer, ready, loadingCount) => {
+        if (!ready || loadingCount !== 0 || !this.streamingState) {
+          return;
+        }
+
+        this.clearStreamingHandlers();
+        this.setStreamingLodRange(
+          this.streamingState.targetLodRangeMin,
+          this.streamingState.targetLodRangeMax
+        );
+      };
+
+      this.app.systems?.gsplat?.on?.("frame:ready", this.frameReadyHandler);
+      return;
+    }
+
+    this.setStreamingLodRange(targetRangeMin, targetRangeMax);
+  }
+
   async load(asset, profile = { maxDpr: 1.05 }, onState) {
     if (this.app && this.pc && this.splatEntity && this.currentAsset?.key === asset.key) {
+      this.stopFirstPersonNavigation();
       const splatAsset = new this.pc.Asset(asset.label || "Scene", "gsplat", {
         url: asset.src,
       });
@@ -724,7 +1494,20 @@ class PlayCanvasSogViewer {
 
       this.currentAsset = asset;
       this.cutawayModifierInstalled = false;
-      this.syncCutawayState(this.pc);
+      this.autoRotate = !!asset.autoRotate;
+      this.cutawayEnabled = asset.cutawayEnabled !== false;
+      this.activeManualBoxConfig = this.cloneManualBoxConfig(asset.manualBox) || this.activeManualBoxConfig;
+      this.activeFpCollisionBoxConfig = this.cloneManualBoxConfig(asset.fpCollisionBox || asset.manualBox) || this.activeFpCollisionBoxConfig;
+      this.currentCutawayBoxConfig = null;
+      this.fpCollision = asset.streamingEnabled
+        ? (this.fpCollision || this.createFallbackBoxCollision(this.pc, splatEntity, this.activeFpCollisionBoxConfig || this.activeManualBoxConfig))
+        : null;
+      this.syncCutawayState(this.pc, { immediate: true });
+      this.configureStreaming(asset);
+      if (asset.streamingEnabled) {
+        this.firstPersonTransitionPending = false;
+        this.startFirstPersonNavigation(this.pc);
+      }
       
       this.app.renderNextFrame = true;
       return;
@@ -764,16 +1547,41 @@ class PlayCanvasSogViewer {
       0.5,
       Math.min(window.devicePixelRatio || 1, profile.maxDpr || 1.05)
     );
+    canvas.tabIndex = 0;
     app.on("update", (deltaSeconds) => {
-      this.animateOrbit(pc, deltaSeconds);
+      if (this.firstPersonActive && this.fpNavigationController && this.camera) {
+        this.fpNavigationController.update(deltaSeconds, this.camera, {
+          autoRotate: this.autoRotate,
+        });
+        if (!this.fpInteractionCommitted && this.fpNavigationController.hasUserInteracted()) {
+          this.fpInteractionCommitted = true;
+          this.autoRotate = false;
+          this.container?.dispatchEvent?.(
+            new CustomEvent("fp-user-interaction", {
+              detail: { active: true },
+            })
+          );
+        }
+        app.renderNextFrame = true;
+      } else {
+        this.animateOrbit(pc, deltaSeconds);
+        if (this.currentAsset?.streamingEnabled && this.firstPersonTransitionPending && this.isOrbitSettled()) {
+          this.startFirstPersonNavigation(pc);
+        }
+      }
+      this.syncCutawayState(pc, { deltaSeconds });
     });
+
+    this.app = app;
+    this.pc = pc;
+    const preparedAsset = await this.prepareFirstPersonAsset(asset, onState);
 
     const camera = new pc.Entity("Camera");
     camera.addComponent("camera", {
       clearColor: new pc.Color(0.03, 0.05, 0.07, 0),
       farClip: 5000,
       nearClip: 0.01,
-      fov: asset.viewPreset?.fov ?? 60,
+      fov: preparedAsset.viewPreset?.fov ?? asset.viewPreset?.fov ?? 60,
     });
     app.root.addChild(camera);
 
@@ -786,22 +1594,14 @@ class PlayCanvasSogViewer {
     light.setEulerAngles(35, 35, 0);
     app.root.addChild(light);
 
-    this.app = app;
     this.camera = camera;
-    this.pc = pc;
-    this.currentAsset = asset;
-    this.autoRotate = !!asset.autoRotate;
-    this.cutawayEnabled = asset.cutawayEnabled !== false;
+    this.currentAsset = preparedAsset;
+    this.autoRotate = !!preparedAsset.autoRotate;
+    this.cutawayEnabled = preparedAsset.cutawayEnabled !== false;
     this.cutawayModifierInstalled = false;
-    this.activeManualBoxConfig = asset.manualBox
-      ? {
-          position: [...asset.manualBox.position],
-          rotationDegrees: [...asset.manualBox.rotationDegrees],
-          scale: [...asset.manualBox.scale],
-          cutRatio: Number.isFinite(asset.manualBox.cutRatio) ? asset.manualBox.cutRatio : 0.2,
-          cutDepthByFace: asset.manualBox.cutDepthByFace ? { ...asset.manualBox.cutDepthByFace } : undefined,
-        }
-      : null;
+    this.activeManualBoxConfig = this.cloneManualBoxConfig(preparedAsset.manualBox);
+    this.activeFpCollisionBoxConfig = this.cloneManualBoxConfig(preparedAsset.fpCollisionBox || preparedAsset.manualBox);
+    this.currentCutawayBoxConfig = null;
 
     const onResize = () => {
       const width = Math.max(1, this.container.clientWidth || 800);
@@ -816,8 +1616,8 @@ class PlayCanvasSogViewer {
     this.resizeObserver.observe(this.container);
     onResize();
 
-    const splatAsset = new pc.Asset(asset.label || "Scene", "gsplat", {
-      url: asset.src,
+    const splatAsset = new pc.Asset(preparedAsset.label || "Scene", "gsplat", {
+      url: preparedAsset.src,
     });
 
     await new Promise((resolve, reject) => {
@@ -829,7 +1629,7 @@ class PlayCanvasSogViewer {
         onState?.({
           status: "loading",
           title: "Loading SOG",
-          message: `${asset.label || "SOG scene"} loading (${Math.round((received / total) * 100)}%)`,
+          message: `${preparedAsset.label || "SOG scene"} loading (${Math.round((received / total) * 100)}%)`,
         });
       });
       splatAsset.on("load", resolve);
@@ -838,17 +1638,17 @@ class PlayCanvasSogViewer {
           typeof error === "string"
             ? error
             : error?.message || error?.status || error?.statusText || "Unknown PlayCanvas asset loader error";
-        reject(new Error(`Failed to load SOG asset: ${asset.src} (${detail})`));
+        reject(new Error(`Failed to load SOG asset: ${preparedAsset.src} (${detail})`));
       });
       app.assets.add(splatAsset);
       app.assets.load(splatAsset);
     });
 
-    const splatEntity = new pc.Entity(asset.label || "SOG");
-    splatEntity.setLocalPosition(...(asset.position || [0, 0, 0]));
-    const rotation = asset.rotation || [0, 0, 0, 1];
+    const splatEntity = new pc.Entity(preparedAsset.label || "SOG");
+    splatEntity.setLocalPosition(...(preparedAsset.position || [0, 0, 0]));
+    const rotation = preparedAsset.rotation || [0, 0, 0, 1];
     splatEntity.setLocalRotation(rotation[0], rotation[1], rotation[2], rotation[3]);
-    splatEntity.setLocalScale(...(asset.scale || [1, 1, 1]));
+    splatEntity.setLocalScale(...(preparedAsset.scale || [1, 1, 1]));
     splatEntity.addComponent("gsplat", {
       asset: splatAsset,
       unified: true,
@@ -862,58 +1662,70 @@ class PlayCanvasSogViewer {
     if (!this.activeManualBoxConfig) {
       this.activeManualBoxConfig = this.createDefaultManualBoxConfig(center, halfExtents);
     }
+    if (!this.activeFpCollisionBoxConfig) {
+      this.activeFpCollisionBoxConfig = this.cloneManualBoxConfig(this.activeManualBoxConfig);
+    }
+    this.fpCollision = preparedAsset.streamingEnabled
+      ? (this.fpCollision || this.createFallbackBoxCollision(pc, splatEntity, this.activeFpCollisionBoxConfig || this.activeManualBoxConfig))
+      : null;
 
     const radius = Math.max(halfExtents.length(), 1);
-    this.goalOrbitState = this.resolveOrbitState(pc, asset, splatEntity, center, radius);
-    this.orbitState = this.cloneOrbitState(this.goalOrbitState);
+    this.goalOrbitState = this.resolveOrbitState(pc, preparedAsset, splatEntity, center, radius);
+    const transitionOrbitState =
+      preparedAsset.streamingEnabled
+        ? null
+        : preparedAsset.transitionOrbitState
+          ? this.cloneOrbitState(preparedAsset.transitionOrbitState)
+          : null;
+    this.orbitState = transitionOrbitState || this.cloneOrbitState(this.goalOrbitState);
     this.defaultOrbitState = this.cloneOrbitState(this.goalOrbitState);
     this.updateCameraOrbit(pc);
-    this.syncCutawayState(pc);
+    this.syncCutawayState(pc, { immediate: true });
+    this.configureStreaming(preparedAsset);
 
-    this.orbitController = new SimpleOrbitController(canvas, {
-      getFieldOfView: () => this.camera?.camera?.fov ?? asset.viewPreset?.fov ?? 60,
-      onChange: () => {
-        if (this.app) {
-          this.app.renderNextFrame = true;
-        }
-      },
-      onPanStateChange: (visible) => {
-        this.setPanIndicatorVisible(visible);
-      },
-    });
-    this.orbitController.bind(this.goalOrbitState);
+    if (preparedAsset.streamingEnabled) {
+      this.firstPersonActive = false;
+      this.firstPersonTransitionPending = false;
+      this.startFirstPersonNavigation(pc);
+    } else {
+      this.orbitController = new SimpleOrbitController(canvas, {
+        getFieldOfView: () => this.camera?.camera?.fov ?? preparedAsset.viewPreset?.fov ?? 60,
+        onChange: () => {
+          if (this.app) {
+            this.app.renderNextFrame = true;
+          }
+        },
+        onPanStateChange: (visible) => {
+          this.setPanIndicatorVisible(visible);
+        },
+      });
+      this.orbitController.bind(this.goalOrbitState);
+    }
 
-    if (this.autoRotate) {
+    if (this.autoRotate && !preparedAsset.streamingEnabled) {
       this.startAutoRotate(pc);
     }
 
     onState?.({
       status: "ready",
       title: "SOG ready",
-      message: `${asset.label || "SOG scene"} loaded successfully.`,
+      message: `${preparedAsset.label || "SOG scene"} loaded successfully.`,
     });
   }
 
   setManualBoxConfig(config) {
-    this.activeManualBoxConfig = config
-      ? {
-          position: [...config.position],
-          rotationDegrees: [...config.rotationDegrees],
-          scale: [...config.scale],
-          cutRatio: Number.isFinite(config.cutRatio) ? config.cutRatio : 0.2,
-          cutDepthByFace: config.cutDepthByFace ? { ...config.cutDepthByFace } : undefined,
-        }
-      : null;
+    this.activeManualBoxConfig = this.cloneManualBoxConfig(config);
+    this.currentCutawayBoxConfig = null;
 
     if (this.app && this.splatEntity && this.pc) {
-      this.syncCutawayState(this.pc);
+      this.syncCutawayState(this.pc, { immediate: true });
     }
   }
 
   setCutawayEnabled(enabled) {
     this.cutawayEnabled = !!enabled;
     if (this.app && this.splatEntity && this.pc) {
-      this.syncCutawayState(this.pc);
+      this.syncCutawayState(this.pc, { immediate: true });
     }
   }
 
@@ -939,6 +1751,13 @@ class PlayCanvasSogViewer {
   }
 
   resetView() {
+    if (this.firstPersonActive && this.fpNavigationController && this.camera) {
+      if (this.fpNavigationController.reset(this.camera) && this.app) {
+        this.app.renderNextFrame = true;
+      }
+      return;
+    }
+
     if (!this.pc || !this.defaultOrbitState || !this.goalOrbitState) {
       return;
     }
@@ -951,7 +1770,9 @@ class PlayCanvasSogViewer {
 
   dispose() {
     this.stopAutoRotate();
+    this.stopFirstPersonNavigation();
     this.setPanIndicatorVisible(false);
+    this.clearStreamingHandlers();
     if (this.orbitController) {
       this.orbitController.dispose();
       this.orbitController = null;
@@ -962,10 +1783,14 @@ class PlayCanvasSogViewer {
     }
 
     this.activeManualBoxConfig = null;
+    this.activeFpCollisionBoxConfig = null;
     this.currentAsset = null;
+    this.fpCollision = null;
     this.cutawayModifierInstalled = false;
     this.cutawayEnabled = true;
     this.defaultOrbitState = null;
+    this.streamingState = null;
+    this.fpNavigationMode = "walk";
 
     if (this.app) {
       this.app.destroy();

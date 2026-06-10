@@ -1,6 +1,6 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260604a";
-import { SiteSplatViewer } from "./viewer/splatViewer.js?v=20260604a";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260604a";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260610fp21";
+import { SiteSplatViewer } from "./viewer/splatViewer.js?v=20260609f";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260610fp21";
 
 let modelViewer = document.getElementById("siteModel");
 const splatViewerMount = document.getElementById("splatViewerMount");
@@ -19,6 +19,10 @@ const timeStageMarkers = [...document.querySelectorAll(".time-stage-marker")];
 const navigationGroups = document.getElementById("navigationGroups");
 const formatControl = document.getElementById("formatControl");
 const formatStageMarkers = document.getElementById("formatStageMarkers");
+const sogModeControl = document.getElementById("sogModeControl");
+const sogModeMarkers = document.getElementById("sogModeMarkers");
+const fpNavControl = document.getElementById("fpNavControl");
+const fpNavMarkers = document.getElementById("fpNavMarkers");
 const lodControl = document.getElementById("lodControl");
 const lodMarkers = document.getElementById("lodMarkers");
 const resetCamera = document.getElementById("resetCamera");
@@ -56,6 +60,16 @@ const SOG_ADAPTIVE_PERFORMANCE = {
   reverseTierChangeCooldownMs: 20000,
 };
 
+const SOG_MODE_LABELS = {
+  classic: "TP",
+  streamed: "FP",
+};
+
+const FP_NAV_MODE_LABELS = {
+  walk: "Walk",
+  fly: "Fly",
+};
+
 let sogPerformanceMonitor = null;
 let sogAdaptiveTierState = {
   sceneKey: null,
@@ -83,6 +97,80 @@ const autoPerformanceProfile = getAutoPerformanceProfile();
 const splatProfile = {
   maxDpr: autoPerformanceProfile.maxDpr,
 };
+
+function getStreamingPerformanceProfile() {
+  if (isMobileDevice) {
+    if ((deviceMemory && deviceMemory <= 4) || (hardwareConcurrency && hardwareConcurrency <= 6)) {
+        return {
+          maxDpr: 0.85,
+          splatBudget: 350000,
+          minSplatBudget: 220000,
+          maxSplatBudget: 700000,
+        lodBaseDistance: 4.5,
+        minLodBaseDistance: 3.2,
+        maxLodBaseDistance: 14,
+        lodMultiplier: 2.8,
+        minLodMultiplier: 2.1,
+        maxLodMultiplier: 3.5,
+        lodRangeMin: 2,
+          lodUnderfillLimit: 2,
+          coarseFirst: true,
+        };
+    }
+
+      return {
+        maxDpr: 1,
+        splatBudget: 700000,
+        minSplatBudget: 350000,
+        maxSplatBudget: 1400000,
+      lodBaseDistance: 5.5,
+      minLodBaseDistance: 3.4,
+      maxLodBaseDistance: 16,
+      lodMultiplier: 2.45,
+      minLodMultiplier: 1.9,
+      maxLodMultiplier: 3.2,
+      lodRangeMin: 1,
+        lodUnderfillLimit: 2,
+        coarseFirst: true,
+      };
+  }
+
+  if ((deviceMemory && deviceMemory <= 4) || (hardwareConcurrency && hardwareConcurrency <= 4)) {
+      return {
+        maxDpr: 1.1,
+        splatBudget: 1200000,
+        minSplatBudget: 650000,
+        maxSplatBudget: 2200000,
+      lodBaseDistance: 6.5,
+      minLodBaseDistance: 4.2,
+      maxLodBaseDistance: 18,
+      lodMultiplier: 2.2,
+      minLodMultiplier: 1.8,
+      maxLodMultiplier: 3,
+      lodRangeMin: 1,
+        lodUnderfillLimit: 1,
+        coarseFirst: true,
+      };
+  }
+
+    return {
+      maxDpr: 1.25,
+      splatBudget: 2400000,
+      minSplatBudget: 1200000,
+      maxSplatBudget: 4200000,
+    lodBaseDistance: 7,
+    minLodBaseDistance: 4.5,
+    maxLodBaseDistance: 22,
+    lodMultiplier: 2,
+    minLodMultiplier: 1.65,
+    maxLodMultiplier: 2.8,
+    lodRangeMin: 0,
+      lodUnderfillLimit: 1,
+      coarseFirst: true,
+    };
+  }
+
+const sogStreamingPerformanceProfile = getStreamingPerformanceProfile();
 
 function getPerformanceTierRank(tier) {
   switch (tier) {
@@ -259,6 +347,96 @@ function startSogPerformanceMonitor(asset, initialDpr = null) {
   monitor.frameRequestId = requestAnimationFrame(tick);
 }
 
+function adjustStreamingQuality(direction) {
+  const state = sogViewer.getStreamingState?.();
+  if (!state?.enabled) {
+    return false;
+  }
+
+  const lodLevels = Math.max(1, state.lodLevels || 1);
+  const currentRangeMin = Math.max(0, state.lodRangeMin || 0);
+  const currentRangeMax = Math.max(currentRangeMin, state.lodRangeMax || (lodLevels - 1));
+  if (direction === "downgrade") {
+    const nextBudget = Math.max(
+      state.minSplatBudget || 0,
+      Math.round((state.splatBudget || 0) * 0.82)
+    );
+    if (nextBudget < (state.splatBudget || 0) - 20000) {
+      sogViewer.applyStreamingQuality({ splatBudget: nextBudget });
+      return true;
+    }
+
+    const nextRangeMin = Math.min(lodLevels - 1, currentRangeMin + 1);
+    if (nextRangeMin > currentRangeMin) {
+      sogViewer.applyStreamingQuality({
+        lodRangeMin: nextRangeMin,
+        lodRangeMax: lodLevels - 1,
+      });
+      return true;
+    }
+
+    const nextBaseDistance = Math.min(
+      state.maxLodBaseDistance || state.lodBaseDistance,
+      (state.lodBaseDistance || 5) * 1.1
+    );
+    const nextMultiplier = Math.min(
+      state.maxLodMultiplier || state.lodMultiplier,
+      (state.lodMultiplier || 2) + 0.18
+    );
+    if (
+      nextBaseDistance > (state.lodBaseDistance || 5) + 0.01 ||
+      nextMultiplier > (state.lodMultiplier || 2) + 0.01
+    ) {
+      sogViewer.applyStreamingQuality({
+        lodBaseDistance: nextBaseDistance,
+        lodMultiplier: nextMultiplier,
+      });
+      return true;
+    }
+
+    return false;
+  }
+
+  const targetRangeMin = Math.max(0, state.targetLodRangeMin || 0);
+  if (currentRangeMin > targetRangeMin) {
+    sogViewer.applyStreamingQuality({
+      lodRangeMin: currentRangeMin - 1,
+      lodRangeMax: currentRangeMax,
+    });
+    return true;
+  }
+
+  const nextBudget = Math.min(
+    state.maxSplatBudget || state.splatBudget || 0,
+    Math.round((state.splatBudget || 0) * 1.15)
+  );
+  if (nextBudget > (state.splatBudget || 0) + 20000) {
+    sogViewer.applyStreamingQuality({ splatBudget: nextBudget });
+    return true;
+  }
+
+  const nextBaseDistance = Math.max(
+    state.minLodBaseDistance || state.lodBaseDistance,
+    (state.lodBaseDistance || 5) * 0.92
+  );
+  const nextMultiplier = Math.max(
+    state.minLodMultiplier || state.lodMultiplier,
+    (state.lodMultiplier || 2) - 0.12
+  );
+  if (
+    nextBaseDistance < (state.lodBaseDistance || 5) - 0.01 ||
+    nextMultiplier < (state.lodMultiplier || 2) - 0.01
+  ) {
+    sogViewer.applyStreamingQuality({
+      lodBaseDistance: nextBaseDistance,
+      lodMultiplier: nextMultiplier,
+    });
+    return true;
+  }
+
+  return false;
+}
+
 function evaluateSogPerformance(asset, fps, timestamp, monitor) {
   if (currentEngineType !== "splat" || !currentActiveAsset || currentActiveAsset.key !== monitor.assetKey) {
     stopSogPerformanceMonitor();
@@ -266,7 +444,9 @@ function evaluateSogPerformance(asset, fps, timestamp, monitor) {
   }
 
   const activeAsset = currentActiveAsset;
-  const maxDpr = autoPerformanceProfile.maxDpr;
+  const maxDpr = activeAsset.streamingEnabled
+    ? activeAsset.streamingSettings?.maxDpr || autoPerformanceProfile.maxDpr
+    : autoPerformanceProfile.maxDpr;
   let targetDpr = monitor.currentDpr;
 
   if (fps >= SOG_ADAPTIVE_PERFORMANCE.highFpsThreshold) {
@@ -293,6 +473,30 @@ function evaluateSogPerformance(asset, fps, timestamp, monitor) {
 
   const isAtMinDpr = monitor.currentDpr <= SOG_ADAPTIVE_PERFORMANCE.minDpr + 0.01;
   const isAtMaxDpr = monitor.currentDpr >= maxDpr - 0.01;
+
+  if (activeAsset.streamingEnabled) {
+    if (
+      isAtMinDpr &&
+      monitor.stableLowSince &&
+      timestamp - monitor.stableLowSince >= SOG_ADAPTIVE_PERFORMANCE.downgradeHoldMs
+    ) {
+      if (adjustStreamingQuality("downgrade")) {
+        monitor.stableLowSince = timestamp;
+      }
+    }
+
+    if (
+      isAtMaxDpr &&
+      monitor.stableHighSince &&
+      timestamp - monitor.stableHighSince >= SOG_ADAPTIVE_PERFORMANCE.upgradeHoldMs
+    ) {
+      if (adjustStreamingQuality("upgrade")) {
+        monitor.stableHighSince = timestamp;
+      }
+    }
+
+    return;
+  }
 
   if (
     isAtMinDpr &&
@@ -323,6 +527,95 @@ function evaluateSogPerformance(asset, fps, timestamp, monitor) {
   }
 }
 
+function buildStreamingSettings(asset) {
+  const baseProfile = {
+    ...sogStreamingPerformanceProfile,
+  };
+
+  if (asset?.locationId === "outdoors") {
+    baseProfile.splatBudget = Math.round(baseProfile.splatBudget * 1.15);
+    baseProfile.maxSplatBudget = Math.round(baseProfile.maxSplatBudget * 1.15);
+  }
+
+  return baseProfile;
+}
+
+function buildFirstPersonViewPreset(asset) {
+  if (asset?.fpViewPreset) {
+    const cameraPosition = asset.fpViewPreset.cameraPosition || null;
+    const rawTarget = asset.fpViewPreset.target || null;
+    let normalizedTarget = rawTarget;
+
+    if (cameraPosition && rawTarget) {
+      const directionX = rawTarget[0] - cameraPosition[0];
+      const directionY = rawTarget[1] - cameraPosition[1];
+      const directionZ = rawTarget[2] - cameraPosition[2];
+      const directionLength = Math.hypot(directionX, directionY, directionZ);
+      const minTargetDistance = 0.85;
+
+      if (directionLength < minTargetDistance) {
+        const fallbackDirection =
+          directionLength > 1e-5
+            ? [directionX / Math.max(directionLength, 1e-5), directionY / Math.max(directionLength, 1e-5), directionZ / Math.max(directionLength, 1e-5)]
+            : [0, 0, 1];
+        normalizedTarget = [
+          cameraPosition[0] + fallbackDirection[0] * minTargetDistance,
+          cameraPosition[1] + fallbackDirection[1] * minTargetDistance,
+          cameraPosition[2] + fallbackDirection[2] * minTargetDistance,
+        ];
+      }
+    }
+
+    return {
+      ...(asset.viewPreset || {}),
+      ...asset.fpViewPreset,
+      target: normalizedTarget || asset.fpViewPreset.target,
+      distance: Number.isFinite(asset.fpViewPreset.distance) ? asset.fpViewPreset.distance : 0.001,
+      yaw: Number.isFinite(asset.fpViewPreset.yaw) ? asset.fpViewPreset.yaw : 180,
+      pitch: Number.isFinite(asset.fpViewPreset.pitch) ? asset.fpViewPreset.pitch : 0,
+      fov: asset.fpViewPreset.fov ?? asset.viewPreset?.fov ?? 72,
+    };
+  }
+
+  const manualBox = asset?.manualBox;
+  if (!manualBox?.position || !manualBox?.scale) {
+    return asset?.viewPreset || null;
+  }
+
+  const [boxX = 0, boxY = 0, boxZ = 0] = manualBox.position;
+  const [, scaleY = 1, scaleZ = 1] = manualBox.scale;
+  const eyeHeightOffset = Math.max(0.22, scaleZ * 0.22);
+  const lookForwardOffset = Math.max(0.18, Math.min(scaleY * 0.12, 0.65));
+
+  return {
+    ...(asset?.viewPreset || {}),
+    cameraPosition: [boxX, boxY - lookForwardOffset, boxZ + eyeHeightOffset],
+    target: [boxX, boxY + lookForwardOffset, boxZ + eyeHeightOffset],
+    distance: 0.001,
+    yaw: 180,
+    pitch: 0,
+    fov: asset?.viewPreset?.fov ?? 72,
+  };
+}
+
+function selectStreamingSogAsset(asset) {
+  if (!asset || asset.type !== "splat" || asset.fileFormat !== "sog" || !asset.streamingSource) {
+    return asset;
+  }
+
+  return {
+    ...asset,
+    src: asset.streamingSource,
+    originalSrc: asset.src,
+    rotation: asset.streamingRotation || asset.rotation,
+    streamingEnabled: true,
+    streamingSettings: buildStreamingSettings(asset),
+    viewPreset: buildFirstPersonViewPreset(asset),
+    autoRotate: false,
+    cutawayEnabled: false,
+  };
+}
+
 async function reloadSogAsset(asset, options = {}) {
   const swapId = ++activeAssetSwapId;
   try {
@@ -346,6 +639,8 @@ let activeLocationStage = "outdoors";
 let activeBuildingId = "main";
 let activeSceneId = null;
 let activeFormat = "glb";
+let activeSogMode = "classic";
+let activeFpNavigationMode = "walk";
 let hdEnabled = false;
 let warmCacheEnabled = false;
 let clayEnabled = false;
@@ -356,6 +651,7 @@ let currentAssetKey = "";
 let currentEngineType = "glb";
 let currentActiveAsset = null;
 let activeAssetSwapId = 0;
+let pendingSogModeTransitionOrbitState = null;
 let sogPanIndicatorVisible = false;
 let dialPointerId = null;
 let dialStartAngle = 0;
@@ -740,6 +1036,14 @@ function selectPerformanceSogAsset(asset) {
   };
 }
 
+function getEffectiveSogMode(asset) {
+  if (!asset || asset.type !== "splat" || asset.fileFormat !== "sog") {
+    return "classic";
+  }
+
+  return activeSogMode === "streamed" && asset.streamingSource && asset.manualBox ? "streamed" : "classic";
+}
+
 function getActiveAssetDescriptor() {
   syncNavigationState();
   normalizeActiveFormat();
@@ -747,13 +1051,17 @@ function getActiveAssetDescriptor() {
   if (isCampusOutsideSelected()) {
     const qualityKey = hdEnabled ? "hd" : "web";
     const asset = getOutdoorAsset(activeTimeStage, qualityKey, activeFormat);
-    return selectPerformanceSogAsset({
+    const baseAsset = {
       ...asset,
-      key: `outdoors:${activeTimeStage}:${activeFormat}:${qualityKey}`,
+      key: `outdoors:${activeTimeStage}:${activeFormat}:${qualityKey}:${getEffectiveSogMode(asset)}`,
       label: `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`,
       locationId: "outdoors",
       format: activeFormat,
-    });
+    };
+
+    return getEffectiveSogMode(baseAsset) === "streamed"
+      ? selectStreamingSogAsset(baseAsset)
+      : selectPerformanceSogAsset(baseAsset);
   }
 
   if (activeSiteId === "dit") {
@@ -767,13 +1075,17 @@ function getActiveAssetDescriptor() {
       return null;
     }
 
-    return selectPerformanceSogAsset({
+    const baseAsset = {
       ...asset,
-      key: `dit:outside:${activeTimeStage}:${activeFormat}`,
+      key: `dit:outside:${activeTimeStage}:${activeFormat}:${getEffectiveSogMode(asset)}`,
       label: scene.label,
       locationId: "dit",
       format: activeFormat,
-    });
+    };
+
+    return getEffectiveSogMode(baseAsset) === "streamed"
+      ? selectStreamingSogAsset(baseAsset)
+      : selectPerformanceSogAsset(baseAsset);
   }
 
   const locationEntry = getCurrentLocationEntry();
@@ -785,13 +1097,17 @@ function getActiveAssetDescriptor() {
     return null;
   }
 
-  return selectPerformanceSogAsset({
+  const baseAsset = {
     ...asset,
-    key: `${locationEntry.id}:${scene.id}:${activeFormat}`,
+    key: `${locationEntry.id}:${scene.id}:${activeFormat}:${getEffectiveSogMode(asset)}`,
     label: scene.label,
     locationId: locationEntry.id,
     format: activeFormat,
-  });
+  };
+
+  return getEffectiveSogMode(baseAsset) === "streamed"
+    ? selectStreamingSogAsset(baseAsset)
+    : selectPerformanceSogAsset(baseAsset);
 }
 
 function describeActiveAsset(asset = getActiveAssetDescriptor()) {
@@ -801,19 +1117,32 @@ function describeActiveAsset(asset = getActiveAssetDescriptor()) {
 
   const tierMap = { lod0: "LOD0", lod1: "LOD1", lod2: "LOD2", lod3: "LOD3", lod4: "LOD4" };
   const tierName = tierMap[asset.performanceTier] || asset.performanceTier;
+  const modeSuffix =
+    asset?.type === "splat" && asset?.runtime === "playcanvas" && asset?.fileFormat === "sog"
+      ? (asset.streamingEnabled ? " / FP" : " / TP")
+      : "";
 
   if (isCampusOutsideSelected()) {
     const tierSuffix = asset.performanceTier && asset.performanceTier !== "lod0"
       ? ` / ${tierName}`
       : "";
-    return `${getCurrentContextLabel()} (${FORMAT_LABELS[asset.format] || "GLB"}${tierSuffix})`;
+    return `${getCurrentContextLabel()} (${FORMAT_LABELS[asset.format] || "GLB"}${modeSuffix}${!asset.streamingEnabled ? tierSuffix : ""})`;
   }
 
   const formatLabel = FORMAT_LABELS[asset.format] || FORMAT_LABELS[asset.fileFormat] || "GLB";
   const tierSuffix = asset.performanceTier && asset.performanceTier !== "lod0"
     ? ` / ${tierName}`
     : "";
-  return `${getCurrentContextLabel()} (${formatLabel}${tierSuffix})`;
+  return `${getCurrentContextLabel()} (${formatLabel}${modeSuffix}${!asset.streamingEnabled ? tierSuffix : ""})`;
+}
+
+function describeLoadedAssetStatus(asset = getActiveAssetDescriptor()) {
+  const base = `${describeActiveAsset(asset)} is loaded`;
+  if (asset?.streamingEnabled) {
+    return `${base}. Click inside the viewer, then use WASD + mouse. ${activeFpNavigationMode === "fly" ? "Space goes up and Q goes down." : "Space jumps."}`;
+  }
+
+  return `${base} in ${FORMAT_LABELS[asset?.format] || "splat"} mode.`;
 }
 
 function getActiveOverlayViewer() {
@@ -1198,9 +1527,102 @@ function updateMaterialToggle() {
   materialToggle.disabled = !isGlb;
 }
 
+function renderSogModeMarkers() {
+  const asset = currentActiveAsset?.type === "splat" ? currentActiveAsset : getActiveAssetDescriptor();
+  const isSogActive =
+    currentEngineType === "splat" &&
+    asset?.type === "splat" &&
+    asset?.runtime === "playcanvas" &&
+    asset?.fileFormat === "sog";
+  const shouldShowModeControl =
+    isSogActive && !!asset?.manualBox;
+
+  sogModeControl.hidden = !shouldShowModeControl;
+
+  if (!shouldShowModeControl) {
+    sogModeMarkers.innerHTML = "";
+    return;
+  }
+
+  sogModeMarkers.innerHTML = ["classic", "streamed"]
+    .map((mode) => `
+      <button
+        class="location-stage-marker"
+        data-sog-mode="${mode}"
+        data-active="${String(mode === activeSogMode)}"
+        type="button"
+      >${SOG_MODE_LABELS[mode]}</button>
+    `)
+    .join("");
+
+  for (const button of sogModeMarkers.querySelectorAll(".location-stage-marker")) {
+    button.addEventListener("click", () => {
+      const mode = button.dataset.sogMode;
+      if (!mode || mode === activeSogMode) {
+        return;
+      }
+
+      if (mode === "streamed" && (!asset?.streamingSource || !asset?.manualBox)) {
+        setStatus("FP mode unavailable", "This scene does not have inside exploration data yet.");
+        setStatusOverlayState(false);
+        requestAnimationFrame(() => {
+          setStatusOverlayState(true);
+        });
+        return;
+      }
+
+      setActiveSogMode(mode);
+    });
+  }
+}
+
+function renderFpNavMarkers() {
+  const asset = currentActiveAsset?.type === "splat" ? currentActiveAsset : getActiveAssetDescriptor();
+  const shouldShowFpNavControl =
+    currentEngineType === "splat" &&
+    asset?.type === "splat" &&
+    asset?.runtime === "playcanvas" &&
+    asset?.fileFormat === "sog" &&
+    !!asset?.streamingEnabled;
+
+  fpNavControl.hidden = !shouldShowFpNavControl;
+
+  if (!shouldShowFpNavControl) {
+    fpNavMarkers.innerHTML = "";
+    return;
+  }
+
+  fpNavMarkers.innerHTML = ["walk", "fly"]
+    .map((mode) => `
+      <button
+        class="location-stage-marker"
+        data-fp-nav-mode="${mode}"
+        data-active="${String(mode === activeFpNavigationMode)}"
+        type="button"
+      >${FP_NAV_MODE_LABELS[mode]}</button>
+    `)
+    .join("");
+
+  for (const button of fpNavMarkers.querySelectorAll(".location-stage-marker")) {
+    button.addEventListener("click", () => {
+      const mode = button.dataset.fpNavMode;
+      if (!mode || mode === activeFpNavigationMode) {
+        return;
+      }
+
+      setActiveFpNavigationMode(mode);
+    });
+  }
+}
+
 function renderLodMarkers() {
   const isSogActive = currentEngineType === "splat" && currentActiveAsset?.runtime === "playcanvas";
-  const shouldShowLodControl = isSogActive && currentActiveAsset?.performanceSources && Object.keys(currentActiveAsset.performanceSources).length > 0;
+  const shouldShowLodControl =
+    isSogActive &&
+    activeSogMode === "classic" &&
+    !currentActiveAsset?.streamingEnabled &&
+    currentActiveAsset?.performanceSources &&
+    Object.keys(currentActiveAsset.performanceSources).length > 0;
   
   lodControl.hidden = !shouldShowLodControl;
 
@@ -1293,6 +1715,8 @@ function renderFormatMarkers() {
 function updateSceneAndFormatUi() {
   renderNavigationUi();
   renderFormatMarkers();
+  renderSogModeMarkers();
+  renderFpNavMarkers();
   updateLodToggle();
 }
 
@@ -1466,6 +1890,12 @@ function setControlsBusy(isBusy) {
   for (const marker of formatStageMarkers.querySelectorAll(".format-stage-marker")) {
     marker.disabled = isBusy;
   }
+  for (const marker of sogModeMarkers.querySelectorAll(".location-stage-marker")) {
+    marker.disabled = isBusy;
+  }
+  for (const marker of fpNavMarkers.querySelectorAll(".location-stage-marker")) {
+    marker.disabled = isBusy;
+  }
   for (const marker of lodMarkers.querySelectorAll(".location-stage-marker")) {
     marker.disabled = isBusy;
   }
@@ -1476,6 +1906,8 @@ function setControlsBusy(isBusy) {
   } else {
     updateQualityToggle();
     updateMaterialToggle();
+    renderSogModeMarkers();
+    renderFpNavMarkers();
     updateLodToggle();
   }
 }
@@ -1517,6 +1949,11 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   const resolvedSource = asset.runtime === "playcanvas"
     ? resolveHostedSogUrl(asset.src)
     : asset.src;
+  const targetSplatProfile = {
+    maxDpr: asset.streamingEnabled
+      ? Math.min(asset.streamingSettings?.maxDpr || autoPerformanceProfile.maxDpr, window.devicePixelRatio || 1)
+      : splatProfile.maxDpr,
+  };
   if (swapId !== activeAssetSwapId) {
     return;
   }
@@ -1543,8 +1980,12 @@ async function activateSplatAsset(asset, swapId, options = {}) {
       ...asset,
       src: resolvedSource,
       autoRotate: turntableEnabled,
+      transitionOrbitState:
+        asset.runtime === "playcanvas" && !asset.streamingEnabled
+          ? pendingSogModeTransitionOrbitState
+          : null,
     },
-    splatProfile,
+    targetSplatProfile,
     options.silent
       ? undefined
       : (nextState) => {
@@ -1568,17 +2009,29 @@ async function activateSplatAsset(asset, swapId, options = {}) {
     sogViewer.setMaxDpr(options.targetDpr);
   }
 
+  if (asset.runtime === "playcanvas" && asset.streamingEnabled) {
+    sogViewer.setFirstPersonNavigationMode(activeFpNavigationMode);
+  }
+
+  if (asset.runtime === "playcanvas") {
+    pendingSogModeTransitionOrbitState = null;
+  }
+
   if (!options.silent) {
     document.body.classList.add("is-loaded");
     document.body.classList.remove("is-error");
     setProgress(1);
-    setStatus("3D hero active", `${describeActiveAsset(asset)} is loaded in ${FORMAT_LABELS[asset.format] || "splat"} mode.`);
+    setStatus("3D hero active", describeLoadedAssetStatus(asset));
     requestAnimationFrame(() => {
       if (swapId === activeAssetSwapId) {
         setStatusOverlayState(true);
       }
     });
   }
+
+  renderSogModeMarkers();
+  renderFpNavMarkers();
+  updateLodToggle();
 
   if (asset.runtime === "playcanvas") {
     startSogPerformanceMonitor(
@@ -1599,6 +2052,7 @@ async function applyActiveAssetSelection() {
     setStatus("Select scene", `Choose an available item in ${getCurrentContextLabel()} to load it.`);
     updateMaterialToggle();
     updateQualityToggle();
+    renderFpNavMarkers();
     updateLodToggle();
     return;
   }
@@ -1610,6 +2064,7 @@ async function applyActiveAssetSelection() {
     setStatus("Scene ready", `${describeActiveAsset(nextAsset)} is already active.`);
     updateMaterialToggle();
     updateQualityToggle();
+    renderFpNavMarkers();
     updateLodToggle();
     return;
   }
@@ -1629,10 +2084,7 @@ async function applyActiveAssetSelection() {
       document.body.classList.add("is-loaded");
       document.body.classList.remove("is-error");
       setProgress(1);
-      setStatus(
-        "3D hero active",
-        `${describeActiveAsset(nextAsset)} is loaded in ${FORMAT_LABELS[nextAsset.format] || "splat"} mode.`
-      );
+      setStatus("3D hero active", describeLoadedAssetStatus(nextAsset));
       requestAnimationFrame(() => {
         if (swapId === activeAssetSwapId) {
           setStatusOverlayState(true);
@@ -1654,6 +2106,9 @@ async function applyActiveAssetSelection() {
       setControlsBusy(false);
       updateMaterialToggle();
       updateQualityToggle();
+      renderSogModeMarkers();
+      renderFpNavMarkers();
+      updateLodToggle();
     }
   }
 }
@@ -1750,6 +2205,41 @@ async function setActiveFormat(format) {
   updateQualityToggle();
   updateMaterialToggle();
   await applyActiveAssetSelection();
+}
+
+async function setActiveSogMode(mode) {
+  if (!["classic", "streamed"].includes(mode) || mode === activeSogMode) {
+    return;
+  }
+
+  pendingSogModeTransitionOrbitState =
+    currentEngineType === "splat" && currentActiveAsset?.runtime === "playcanvas"
+      ? sogViewer.getOrbitState?.()
+      : null;
+  activeSogMode = mode;
+  updateLocationUi();
+  updateQualityToggle();
+  updateMaterialToggle();
+  await applyActiveAssetSelection();
+}
+
+function setActiveFpNavigationMode(mode) {
+  if (!["walk", "fly"].includes(mode) || mode === activeFpNavigationMode) {
+    return;
+  }
+
+  activeFpNavigationMode = mode;
+  if (currentEngineType === "splat" && currentActiveAsset?.runtime === "playcanvas" && currentActiveAsset?.streamingEnabled) {
+    sogViewer.setFirstPersonNavigationMode(mode);
+    setStatus(
+      "FP navigation updated",
+      mode === "walk"
+        ? "Walk mode active. Click inside the viewer, then use WASD + mouse. Space jumps."
+        : "Fly mode active. Click inside the viewer, then use WASD + mouse. Space goes up, Q goes down."
+    );
+  }
+
+  renderFpNavMarkers();
 }
 
 async function setActiveLodTier(tier) {
@@ -2002,6 +2492,15 @@ document.addEventListener("fullscreenchange", () => {
 splatViewerMount.addEventListener("sog-pan-visibilitychange", (event) => {
   sogPanIndicatorVisible = !!event.detail?.visible;
   updateOrbitTargetIndicatorVisibility();
+});
+
+splatViewerMount.addEventListener("fp-user-interaction", () => {
+  if (!turntableEnabled) {
+    return;
+  }
+
+  turntableEnabled = false;
+  updateTurntableUi();
 });
 
 bindModelViewerEvents(modelViewer);

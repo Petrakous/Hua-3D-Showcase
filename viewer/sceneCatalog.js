@@ -65,13 +65,19 @@ function createSplatAsset(src, options = {}) {
           ? DEFAULT_SOG_ROTATION
           : DEFAULT_SPLAT_ROTATION
     ),
+    streamingRotation: options.streamingRotation || null,
     scale: options.scale || [1, 1, 1],
     manualBox: options.manualBox || null,
+    fpCollisionBox: options.fpCollisionBox || null,
     initialCameraPosition: options.initialCameraPosition || [8, -8, 0],
     initialCameraLookAt: options.initialCameraLookAt || [0, 0, 1],
     clipBox: options.clipBox || DEFAULT_CLIP_BOX,
     viewPreset: options.viewPreset || null,
+    fpViewPreset: options.fpViewPreset || null,
     performanceSources: options.performanceSources || null,
+    streamingSource: options.streamingSource || null,
+    fpCollisionSource: options.fpCollisionSource || null,
+    fpCollisionStrategy: options.fpCollisionStrategy || null,
     autoRotate: options.autoRotate !== false,
     cutawayEnabled: options.cutawayEnabled !== false,
   };
@@ -128,21 +134,30 @@ function createSogPerformanceSources(folderName) {
   };
 }
 
+function createSogStreamingSource(folderName) {
+  return `./PLYs/${folderName}/output_lod/lod-meta.json`;
+}
+
 function createIndoorScene(id, label, glbSrc = null, sogOptions = null) {
   return {
     id,
     label,
     assets: {
       ...(glbSrc ? { glb: createGlbAsset(glbSrc, INDOOR_VIEW) } : {}),
-      ...(sogOptions?.src ? {
-        sog: createSogAsset(sogOptions.src, {
-          manualBox: sogOptions.manualBox || null,
-          performanceSources: sogOptions.performanceSources || null,
-          rotationDegrees: sogOptions.rotationDegrees,
-          viewPreset: sogOptions.viewPreset || null,
-          cutawayEnabled: sogOptions.cutawayEnabled !== false,
-        }),
-      } : {}),
+        ...(sogOptions?.src ? {
+          sog: createSogAsset(sogOptions.src, {
+            manualBox: sogOptions.manualBox || null,
+            performanceSources: sogOptions.performanceSources || null,
+            streamingSource: sogOptions.streamingSource || null,
+            streamingRotation: sogOptions.streamingRotation || null,
+            rotationDegrees: sogOptions.rotationDegrees,
+            viewPreset: sogOptions.viewPreset || null,
+            fpViewPreset: sogOptions.fpViewPreset || null,
+            fpCollisionSource: sogOptions.fpCollisionSource || glbSrc || null,
+            fpCollisionStrategy: sogOptions.fpCollisionStrategy || (sogOptions.manualBox ? 'box' : null),
+            cutawayEnabled: sogOptions.cutawayEnabled !== false,
+          }),
+        } : {}),
     },
   };
 }
@@ -162,10 +177,12 @@ const LOCATION_CATALOG = {
           web: createSogAsset('./PLYs/Campus Day/Campus Day.sog', {
             cutawayEnabled: false,
             performanceSources: createSogPerformanceSources('Campus Day'),
+            streamingSource: createSogStreamingSource('Campus Day'),
           }),
           hd: createSogAsset('./PLYs/Campus Day/Campus Day.sog', {
             cutawayEnabled: false,
             performanceSources: createSogPerformanceSources('Campus Day'),
+            streamingSource: createSogStreamingSource('Campus Day'),
           }),
         },
       },
@@ -178,10 +195,12 @@ const LOCATION_CATALOG = {
           web: createSogAsset('./PLYs/Campus Dusk/Campus Dusk.sog', {
             cutawayEnabled: false,
             performanceSources: createSogPerformanceSources('Campus Dusk'),
+            streamingSource: createSogStreamingSource('Campus Dusk'),
           }),
           hd: createSogAsset('./PLYs/Campus Dusk/Campus Dusk.sog', {
             cutawayEnabled: false,
             performanceSources: createSogPerformanceSources('Campus Dusk'),
+            streamingSource: createSogStreamingSource('Campus Dusk'),
           }),
         },
       },
@@ -194,10 +213,12 @@ const LOCATION_CATALOG = {
           web: createSogAsset('./PLYs/Campus Night/Campus Night.sog', {
             cutawayEnabled: false,
             performanceSources: createSogPerformanceSources('Campus Night'),
+            streamingSource: createSogStreamingSource('Campus Night'),
           }),
           hd: createSogAsset('./PLYs/Campus Night/Campus Night.sog', {
             cutawayEnabled: false,
             performanceSources: createSogPerformanceSources('Campus Night'),
+            streamingSource: createSogStreamingSource('Campus Night'),
           }),
         },
       },
@@ -234,23 +255,38 @@ const LOCATION_CATALOG = {
     defaultSceneId: 'main-hall',
     scenes: [
 
-      createIndoorScene('metabolism', 'Metabolism', './GLBs/Metabolism.glb', {
-        src: './PLYs/Metabolism/Metabolism.sog',
-        performanceSources: createSogPerformanceSources('Metabolism'),
-        rotationDegrees: [180, 0, 0],
-        viewPreset: { distanceMultiplier: 1.8, yaw: 180, pitch: 12, fov: 70 },
-        manualBox: {
-          position: [0, -1.7, 0],
+        createIndoorScene('metabolism', 'Metabolism', './GLBs/Metabolism.glb', {
+          src: './PLYs/Metabolism/Metabolism.sog',
+          performanceSources: createSogPerformanceSources('Metabolism'),
+          streamingSource: createSogStreamingSource('Metabolism'),
+          fpCollisionSource: './GLBs/Metabolism_no_Draco.glb',
+          fpCollisionStrategy: 'mesh',
+          streamingRotation: [0, 0, 0, 1],
+          rotationDegrees: [180, 0, 0],
+          viewPreset: { distanceMultiplier: 1.8, yaw: 180, pitch: 12, fov: 70 },
+          fpViewPreset: {
+            cameraPosition: [-0.5617085695266724, 1.7075152397155762, 0.20549151301383972],
+            target: [-0.5617023871473766, 1.7075135007754372, 0.20549363465114281],
+            fov: 120,
+          },
+          manualBox: {
+            position: [0, -1.7, 0],
           rotationDegrees: [90, 0, 178.7],
           scale: [3.9, 5.7, 3.4],
           cutRatio: 0.23,
           cutDepthByFace: { left: 0.19, right: 0.17, front: 0.19, back: 0.27, top: 0.23, bottom: 0.23 },
           cutDepthLockedByFace: { left: true, right: true, front: true, back: true, top: true, bottom: true },
         },
+          fpCollisionBox: {
+            position: [0, -1.7, 0],
+            rotationDegrees: [90, 0, 180],
+            scale: [3.9, 5.7, 3.4],
+          },
       }),
       createIndoorScene('systasis', 'Systasis', './GLBs/Systasis.glb', {
         src: './PLYs/Systasis/Systasis.sog',
         performanceSources: createSogPerformanceSources('Systasis'),
+        streamingSource: createSogStreamingSource('Systasis'),
         manualBox: {
           position: [0.1, -2, 0],
           rotationDegrees: [90, 360, 179],
@@ -263,6 +299,7 @@ const LOCATION_CATALOG = {
       createIndoorScene('fitness', 'Fitness', './GLBs/Fitness.glb', {
         src: './PLYs/Fitness/Fitness.sog',
         performanceSources: createSogPerformanceSources('Fitness'),
+        streamingSource: createSogStreamingSource('Fitness'),
         manualBox: {
           position: [0.1, -1.8, -0.2],
           rotationDegrees: [90.3, -1.9, 361.1],
@@ -275,6 +312,7 @@ const LOCATION_CATALOG = {
       createIndoorScene('classroom-5', 'Classroom 5', './GLBs/Classroom 5.glb', {
         src: './PLYs/Classroom 5/Classroom 5.sog',
         performanceSources: createSogPerformanceSources('Classroom 5'),
+        streamingSource: createSogStreamingSource('Classroom 5'),
         manualBox: {
           position: [0.1, -2.2, -0.3],
           rotationDegrees: [89.5, -0.1, -450.4],
@@ -287,6 +325,7 @@ const LOCATION_CATALOG = {
       createIndoorScene('biology-lab', 'Biology Lab', null, {
         src: './PLYs/BioLab/BioLab.sog',
         performanceSources: createSogPerformanceSources('BioLab'),
+        streamingSource: createSogStreamingSource('BioLab'),
         manualBox: {
           position: [0.1, -3, 0.5],
           rotationDegrees: [90.3, -0.1, -450.4],
@@ -299,6 +338,7 @@ const LOCATION_CATALOG = {
       createIndoorScene('amphitheater', 'Amphitheater', null, {
         src: './PLYs/Amphitheater/Amphitheater.sog',
         performanceSources: createSogPerformanceSources('Amphitheater'),
+        streamingSource: createSogStreamingSource('Amphitheater'),
         manualBox: {
           position: [-0.5, -2.8, -1.1],
           rotationDegrees: [94.3, -0.1, -542.4],
@@ -311,6 +351,7 @@ const LOCATION_CATALOG = {
       createIndoorScene('geo3-3', 'Geo 3.3', null, {
         src: './PLYs/3.3/3.3.sog',
         performanceSources: createSogPerformanceSources('3.3'),
+        streamingSource: createSogStreamingSource('3.3'),
         manualBox: {
           position: [-0.1, -2.4, -0.5],
           rotationDegrees: [90.3, -0.1, -540.4],
@@ -323,6 +364,7 @@ const LOCATION_CATALOG = {
       createIndoorScene('kitchen', 'Kitchen', null, {
         src: './PLYs/Kitchen/Kitchen.sog',
         performanceSources: createSogPerformanceSources('Kitchen'),
+        streamingSource: createSogStreamingSource('Kitchen'),
         manualBox: {
           position: [-0.1, -1.6, -0.1],
           rotationDegrees: [90.3, -0.1, -537.4],
@@ -335,6 +377,7 @@ const LOCATION_CATALOG = {
       createIndoorScene('main-hall', 'Main Hall', './Indoors.glb', {
         src: './PLYs/MainHall/MainHall.sog',
         performanceSources: createSogPerformanceSources('MainHall'),
+        streamingSource: createSogStreamingSource('MainHall'),
         manualBox: {
           position: [-0.1, -11.6, 7.7],
           rotationDegrees: [90.3, -0.1, -537.4],
