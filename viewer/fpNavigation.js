@@ -3,16 +3,16 @@ const MAX_PITCH = 89;
 const MIN_MOVE_EPSILON = 1e-6;
 const MAX_LOOK_DELTA_PER_EVENT = 40;
 
-const DEFAULT_FLY_SPEED = 2.5;
+const DEFAULT_FLY_SPEED = 4.0;
 const DEFAULT_FLY_SPRINT_MULTIPLIER = 1.8;
-const DEFAULT_WALK_SPEED = 1.75;
+const DEFAULT_WALK_SPEED = 2.5;
 const DEFAULT_WALK_SPRINT_MULTIPLIER = 1.45;
 const DEFAULT_GRAVITY = 9.8;
-const DEFAULT_JUMP_SPEED = 3.8;
-const DEFAULT_EYE_HEIGHT = 1.55;
+const DEFAULT_JUMP_SPEED = 5.2;
+const DEFAULT_EYE_HEIGHT = 1.65;
 const DEFAULT_COLLISION_RADIUS = 0.18;
 const DEFAULT_STEP_HEIGHT = 0.28;
-const DEFAULT_GROUND_STICK_DISTANCE = 0.18;
+const DEFAULT_GROUND_STICK_DISTANCE = 0.45;
 const DEFAULT_HEAD_OFFSET = 0.16;
 
 function clamp(value, min, max) {
@@ -466,6 +466,7 @@ class WalkController {
     this.velocityY = 0;
     this.grounded = false;
     this.jumpLatch = false;
+    this.jumping = false;
     this.spawnPose = null;
     this.pushOut = { x: 0, y: 0, z: 0 };
     this.referenceFloorY = null;
@@ -484,6 +485,7 @@ class WalkController {
     this.velocityY = 0;
     this.grounded = false;
     this.jumpLatch = false;
+    this.jumping = false;
     this.referenceFloorY = null;
 
     console.log("[WalkController enter] initial position:", { ...this.position }, "allowSpawnAdjustment:", allowSpawnAdjustment);
@@ -559,14 +561,28 @@ class WalkController {
     const headOffset = -this.headOffset;
 
     for (let iteration = 0; iteration < 4; iteration += 1) {
-      const pushes = [
-        this.applySpherePushAtOffset(footOffset),
-        this.applySpherePushAtOffset(torsoOffset),
-        this.applySpherePushAtOffset(headOffset),
-      ];
+      const footPush = this.applySpherePushAtOffset(footOffset);
+      const torsoPush = this.applySpherePushAtOffset(torsoOffset);
+      const headPush = this.applySpherePushAtOffset(headOffset);
+
+      if (footPush.y > 0.001) {
+        if (this.velocityY < 0) {
+          this.velocityY = 0;
+        }
+        this.grounded = true;
+        this.jumping = false;
+      }
+
+      if (headPush.y < -0.001) {
+        if (this.velocityY > 0) {
+          this.velocityY = 0;
+        }
+      }
 
       const maxPushLength = Math.max(
-        ...pushes.map((push) => Math.hypot(push.x, push.y, push.z))
+        Math.hypot(footPush.x, footPush.y, footPush.z),
+        Math.hypot(torsoPush.x, torsoPush.y, torsoPush.z),
+        Math.hypot(headPush.x, headPush.y, headPush.z)
       );
 
       if (maxPushLength <= 1e-5) {
@@ -581,26 +597,58 @@ class WalkController {
       return;
     }
 
-    const footY = this.position.y - this.eyeHeight + this.radius + this.stepHeight + 0.08;
-    const maxDistance = this.eyeHeight + this.stepHeight + 0.5;
-    const groundHit = this.collision.queryRay(
-      this.position.x,
-      footY,
-      this.position.z,
-      0,
-      -1,
-      0,
-      maxDistance
-    );
+    const startY = this.position.y - 0.05;
+    const maxDistance = this.eyeHeight + this.stepHeight + 1.5;
+
+    // Cast 5 rays (center, and 4 orthogonal offsets within collision radius) to prevent falling through small gaps/holes.
+    const rayOffset = this.radius * 0.7; // 0.18 * 0.7 = ~0.126m offset
+    const testOffsets = [
+      { dx: 0, dz: 0 },
+      { dx: rayOffset, dz: 0 },
+      { dx: -rayOffset, dz: 0 },
+      { dx: 0, dz: rayOffset },
+      { dx: 0, dz: -rayOffset }
+    ];
+
+    let detectedGroundY = null;
+    let bestGroundHit = null;
+
+    for (const offset of testOffsets) {
+      const groundHit = this.collision.queryRay(
+        this.position.x + offset.dx,
+        startY,
+        this.position.z + offset.dz,
+        0,
+        -1,
+        0,
+        maxDistance
+      );
+
+      if (groundHit && groundHit.ny >= 0.4) {
+        if (detectedGroundY === null || groundHit.y > detectedGroundY) {
+          detectedGroundY = groundHit.y;
+          bestGroundHit = groundHit;
+        }
+      }
+    }
 
     const referenceFloorY = Number.isFinite(this.referenceFloorY) ? this.referenceFloorY : null;
-    const detectedGroundY = groundHit && groundHit.ny >= 0.4 ? groundHit.y : null;
-    const targetFloorY =
-      detectedGroundY !== null && referenceFloorY !== null
-        ? Math.max(detectedGroundY, referenceFloorY)
-        : detectedGroundY ?? referenceFloorY;
 
-    console.log("[WalkController snapToGround] position.y:", this.position.y, "footY:", footY, "groundHit:", groundHit, "referenceFloorY:", referenceFloorY, "detectedGroundY:", detectedGroundY, "targetFloorY:", targetFloorY);
+    // Guard: never snap to a floor that is much lower than the last known floor.
+    // This prevents a nearby lower surface (staircase, sub-floor) from pulling the
+    // player down when they are walking on a flat corridor above it.
+    const maxDropFromReference = this.groundStickDistance; // same as downward stick distance
+    let guardedDetectedY = null;
+    if (detectedGroundY !== null) {
+      if (referenceFloorY === null || detectedGroundY >= referenceFloorY - maxDropFromReference) {
+        guardedDetectedY = detectedGroundY;
+      }
+      // else: detected floor is too far below last known floor — ignore it.
+    }
+
+    const targetFloorY = guardedDetectedY !== null ? guardedDetectedY : referenceFloorY;
+
+    console.log("[WalkController snapToGround] position.y:", this.position.y, "startY:", startY, "bestGroundHit:", bestGroundHit, "referenceFloorY:", referenceFloorY, "detectedGroundY:", detectedGroundY, "guardedDetectedY:", guardedDetectedY, "targetFloorY:", targetFloorY);
 
     if (targetFloorY === null) {
       this.grounded = false;
@@ -609,11 +657,15 @@ class WalkController {
 
     const targetEyeY = targetFloorY + this.eyeHeight;
     const deltaY = targetEyeY - this.position.y;
-
-    if (force || (deltaY >= -this.groundStickDistance && deltaY <= this.stepHeight && this.velocityY <= 0)) {
+ 
+    const currentStickDistance = this.jumping ? 0.05 : this.groundStickDistance;
+ 
+    if (force || (deltaY >= -currentStickDistance && deltaY <= this.stepHeight && this.velocityY <= 0)) {
       this.position.y = targetEyeY;
       this.velocityY = 0;
       this.grounded = true;
+      this.jumping = false;
+      this.referenceFloorY = targetFloorY;
       console.log("[WalkController snapToGround] SNAPPED to targetEyeY:", targetEyeY);
       return;
     }
@@ -632,28 +684,42 @@ class WalkController {
       z: -Math.cos((this.yaw * Math.PI) / 180),
     };
 
-    const speed = this.walkSpeed * (frame.sprint ? this.sprintMultiplier : 1) * deltaSeconds;
-    this.position.x += (right.x * move.x + planarForward.x * move.z) * speed;
-    this.position.z += (right.z * move.x + planarForward.z * move.z) * speed;
+    // Sub-step the physics update to prevent tunneling through collision geometry on lag frames.
+    const maxSubStepTime = 0.015; // ~60fps step size
+    let remainingTime = Math.min(deltaSeconds, 0.1); // clamp extreme lag frames to 100ms to avoid freezing
 
     if (frame.jumpPressed && this.grounded && !this.jumpLatch) {
       this.velocityY = this.jumpSpeed;
       this.grounded = false;
       this.jumpLatch = true;
+      this.jumping = true;
     } else if (!frame.jumpPressed) {
       this.jumpLatch = false;
     }
 
-    this.velocityY -= this.gravity * deltaSeconds;
-    this.position.y += this.velocityY * deltaSeconds;
+    while (remainingTime > 0) {
+      const subDelta = Math.min(remainingTime, maxSubStepTime);
+      remainingTime -= subDelta;
 
-    this.resolveBodyCollision();
+      // Horizontal movement
+      const speed = this.walkSpeed * (frame.sprint ? this.sprintMultiplier : 1) * subDelta;
+      this.position.x += (right.x * move.x + planarForward.x * move.z) * speed;
+      this.position.z += (right.z * move.x + planarForward.z * move.z) * speed;
 
-    if (this.velocityY > 0) {
-      this.grounded = false;
+      // Vertical movement
+      this.velocityY -= this.gravity * subDelta;
+      this.position.y += this.velocityY * subDelta;
+
+      // Collision resolution
+      this.resolveBodyCollision();
+
+      if (this.velocityY > 0) {
+        this.grounded = false;
+      }
+
+      // Ground snapping
+      this.snapToGround(false);
     }
-
-    this.snapToGround(false);
   }
 
   reset() {
@@ -668,6 +734,7 @@ class WalkController {
     this.velocityY = 0;
     this.grounded = false;
     this.jumpLatch = false;
+    this.jumping = false;
     this.referenceFloorY = this.position.y - this.eyeHeight;
     this.resolveBodyCollision();
     this.grounded = true;
@@ -698,6 +765,10 @@ class FirstPersonNavigationController {
     this.walkController.setCollision(this.collision);
   }
 
+  setFlyCollisionIgnored(ignored) {
+    this.flyController.setCollision(ignored ? null : this.collision);
+  }
+
   setMode(mode) {
     const nextMode = mode === "fly" ? "fly" : "walk";
     if (nextMode === this.mode) {
@@ -707,6 +778,24 @@ class FirstPersonNavigationController {
     const pose = this.activeController.getPose();
     this.mode = nextMode;
     this.activeController = this.mode === "fly" ? this.flyController : this.walkController;
+
+    if (this.mode === "walk" && this.collision) {
+      const startY = pose.position.y - 0.05;
+      const groundHit = this.collision.queryRay(
+        pose.position.x,
+        startY,
+        pose.position.z,
+        0,
+        -1,
+        0,
+        50.0
+      );
+      if (groundHit && groundHit.ny >= 0.4) {
+        pose.position.y = groundHit.y + this.walkController.eyeHeight;
+        console.log("[FirstPersonNavigationController setMode] Snapped from fly to walk floor at Y:", groundHit.y);
+      }
+    }
+
     this.activeController.enter(pose, {
       allowSpawnAdjustment: false,
     });

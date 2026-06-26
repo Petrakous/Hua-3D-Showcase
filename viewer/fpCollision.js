@@ -385,13 +385,19 @@ class MeshCollision {
           continue;
         }
 
-        const normal = distanceSq <= COLLISION_EPSILON
+        let normal = distanceSq <= COLLISION_EPSILON
           ? this.getTriangleNormal(triangleIndex)
           : {
               x: deltaX / distance,
               y: deltaY / distance,
               z: deltaZ / distance,
             };
+
+        const triNormal = this.getTriangleNormal(triangleIndex);
+        const dot = normal.x * triNormal.x + normal.y * triNormal.y + normal.z * triNormal.z;
+        if (dot < 0) {
+          normal = triNormal;
+        }
 
         bestPenetration = penetration;
         bestPushX = normal.x * (penetration + 0.001);
@@ -764,4 +770,93 @@ function buildCollisionAdjustedViewPreset(collision, viewPreset = {}, fallbackTa
   };
 }
 
-export { loadMeshCollisionFromGlb, buildCollisionAdjustedViewPreset };
+/**
+ * Build a MeshCollision from a live PlayCanvas entity already placed in the
+ * scene graph. Extracts world-space vertices/indices using each mesh node's
+ * current world transform, so the resulting collision matches EXACTLY what is
+ * rendered on screen. Use this to rebuild collision after the user moves the
+ * visible collision preview.
+ */
+function buildMeshCollisionFromEntity(pc, entity) {
+  if (!pc || !entity) {
+    return null;
+  }
+
+  entity.syncHierarchy?.();
+
+  const allPositions = [];
+  const allIndices = [];
+  let vertexOffset = 0;
+
+  const meshInstances = [];
+  entity.forEach((node) => {
+    if (node.render && node.render.meshInstances) {
+      meshInstances.push(...node.render.meshInstances);
+    }
+  });
+
+  if (!meshInstances.length) {
+    return null;
+  }
+
+  const localPos = new pc.Vec3();
+  const worldPos = new pc.Vec3();
+
+  for (const meshInstance of meshInstances) {
+    const mesh = meshInstance.mesh;
+    const node = meshInstance.node;
+    if (!mesh || !node) {
+      continue;
+    }
+
+    const vb = mesh.vertexBuffer;
+    const ib = mesh.indexBuffer?.[0];
+    if (!vb || !ib) {
+      continue;
+    }
+
+    let posElement = null;
+    for (const element of vb.format.elements) {
+      if (element.name === pc.SEMANTIC_POSITION) {
+        posElement = element;
+        break;
+      }
+    }
+    if (!posElement) {
+      continue;
+    }
+
+    const transform = node.getWorldTransform();
+    const data = new Float32Array(vb.storage);
+    const stride = vb.format.size / 4;
+    const offset = posElement.offset / 4;
+    const numVerts = vb.numVertices;
+
+    for (let vertex = 0; vertex < numVerts; vertex += 1) {
+      const base = vertex * stride + offset;
+      localPos.set(data[base], data[base + 1], data[base + 2]);
+      transform.transformPoint(localPos, worldPos);
+      allPositions.push(worldPos.x, worldPos.y, worldPos.z);
+    }
+
+    const indexData = ib.format === pc.INDEXFORMAT_UINT32
+      ? new Uint32Array(ib.storage)
+      : new Uint16Array(ib.storage);
+
+    for (const primitive of mesh.primitive || []) {
+      for (let index = 0; index < primitive.count; index += 1) {
+        allIndices.push(indexData[primitive.base + index] + vertexOffset);
+      }
+    }
+
+    vertexOffset += numVerts;
+  }
+
+  if (!allIndices.length) {
+    return null;
+  }
+
+  return new MeshCollision(new Float32Array(allPositions), new Uint32Array(allIndices));
+}
+
+export { loadMeshCollisionFromGlb, buildCollisionAdjustedViewPreset, buildMeshCollisionFromEntity };

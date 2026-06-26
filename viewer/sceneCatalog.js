@@ -1,4 +1,3 @@
-const DEFAULT_SPLAT_ROTATION = [0.70710678, 0, 0, 0.70710678];
 const DEFAULT_SOG_ROTATION_DEGREES = [180, 0, 0];
 const DEFAULT_CLIP_BOX = {
   minX: -8,
@@ -8,6 +7,126 @@ const DEFAULT_CLIP_BOX = {
   minZ: -2,
   maxZ: 5,
 };
+
+const ASSET_MANIFEST_PATH = './assets/manifest.json';
+const ASSET_MODE_LOCAL = 'local';
+const ASSET_MODE_REMOTE = 'remote';
+const DEBUG_ASSET_ROLES = new Set([
+  'glb',
+  'glb-web',
+  'glb-hd',
+  'glb-web-mobile',
+  'glb-hd-mobile',
+  'sog-source',
+  'streamed',
+  'collision',
+]);
+const loggedAssetResolutions = new Set();
+
+function getRuntimeAssetMode() {
+  if (typeof window === 'undefined') {
+    return ASSET_MODE_REMOTE;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const override = params.get('assets');
+  if (override === ASSET_MODE_LOCAL || override === ASSET_MODE_REMOTE) {
+    return override;
+  }
+
+  const host = window.location.hostname;
+  const isLocal =
+    window.location.protocol === 'file:' ||
+    host === '' ||
+    host === 'localhost' ||
+    host === '127.0.0.1';
+
+  return isLocal ? ASSET_MODE_LOCAL : ASSET_MODE_REMOTE;
+}
+
+function joinAssetUrl(base, assetPath) {
+  const cleanPath = String(assetPath || '').replace(/^\/+/, '');
+  const cleanBase = String(base || '.').replace(/\/+$/, '');
+  return `${cleanBase}/${cleanPath}`;
+}
+
+async function loadAssetManifest() {
+  if (typeof fetch !== 'function') {
+    console.error('[asset-manifest] fetch is not available; active scenes will use fallback local paths.');
+    return null;
+  }
+
+  try {
+    const response = await fetch(ASSET_MANIFEST_PATH, { cache: 'no-cache' });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('[asset-manifest] Failed to load assets/manifest.json; active scenes will use fallback local paths.', error);
+    return null;
+  }
+}
+
+const ASSET_MANIFEST = await loadAssetManifest();
+const ACTIVE_ASSET_MODE = getRuntimeAssetMode();
+
+function logAssetResolution(sceneId, role, resolvedUrl) {
+  if (!DEBUG_ASSET_ROLES.has(role)) {
+    return;
+  }
+
+  const logKey = `${ACTIVE_ASSET_MODE}:${sceneId}:${role}:${resolvedUrl}`;
+  if (loggedAssetResolutions.has(logKey)) {
+    return;
+  }
+
+  loggedAssetResolutions.add(logKey);
+  console.info('[asset-manifest] Resolved active asset', {
+    assetMode: ACTIVE_ASSET_MODE,
+    sceneId,
+    role,
+    url: resolvedUrl,
+  });
+}
+
+function resolveManifestAsset(sceneId, role, fallback, suffix = '') {
+  if (!ASSET_MANIFEST) {
+    return fallback;
+  }
+
+  const scene = ASSET_MANIFEST.scenes?.[sceneId];
+  if (!scene) {
+    console.error(`[asset-manifest] Active scene "${sceneId}" is missing from manifest.`);
+    return fallback;
+  }
+
+  const asset = scene.assets?.find((candidate) => candidate.role === role || candidate.id === role);
+  if (!asset) {
+    console.error(`[asset-manifest] Asset role "${role}" is missing for active scene "${sceneId}".`);
+    return fallback;
+  }
+
+  const assetPath = asset.assetPath || asset.r2Key;
+  if (!assetPath) {
+    console.error(`[asset-manifest] Asset role "${role}" for pilot scene "${sceneId}" has no assetPath/r2Key.`);
+    return fallback;
+  }
+
+  const base = ASSET_MANIFEST.assetBases?.[ACTIVE_ASSET_MODE];
+  if (!base) {
+    console.error(`[asset-manifest] Asset base "${ACTIVE_ASSET_MODE}" is missing from manifest.`);
+    return fallback;
+  }
+
+  const resolvedPath = suffix
+    ? `${assetPath.replace(/\/+$/, '')}/${String(suffix).replace(/^\/+/, '')}`
+    : assetPath;
+
+  const resolvedUrl = joinAssetUrl(base, resolvedPath);
+  logAssetResolution(sceneId, role, resolvedUrl);
+  return resolvedUrl;
+}
 
 function degreesToQuaternion(rotationDegrees = [0, 0, 0]) {
   const [xDegrees = 0, yDegrees = 0, zDegrees = 0] = rotationDegrees;
@@ -48,8 +167,8 @@ function createGlbAsset(src, view = {}, extras = {}) {
 }
 
 function createSplatAsset(src, options = {}) {
-  const fileFormat = options.fileFormat || 'ply';
-  const runtime = options.runtime || (fileFormat === 'sog' ? 'playcanvas' : 'gaussian-splats-3d');
+  const fileFormat = options.fileFormat || 'sog';
+  const runtime = options.runtime || 'playcanvas';
 
   return {
     type: 'splat',
@@ -61,9 +180,7 @@ function createSplatAsset(src, options = {}) {
     rotation: options.rotation || (
       options.rotationDegrees
         ? degreesToQuaternion(options.rotationDegrees)
-        : fileFormat === 'sog'
-          ? DEFAULT_SOG_ROTATION
-          : DEFAULT_SPLAT_ROTATION
+        : DEFAULT_SOG_ROTATION
     ),
     streamingRotation: options.streamingRotation || null,
     scale: options.scale || [1, 1, 1],
@@ -138,6 +255,20 @@ function createSogStreamingSource(folderName) {
   return `./PLYs/${folderName}/output_lod/lod-meta.json`;
 }
 
+function createManifestSogPerformanceSources(sceneId, fallbackFolderName) {
+  return {
+    lod0: resolveManifestAsset(sceneId, 'sog-source', `./PLYs/${fallbackFolderName}/${fallbackFolderName}.sog`),
+    lod1: resolveManifestAsset(sceneId, 'generated-lods', `./PLYs/${fallbackFolderName}/generated_lods/lod1.sog`, 'lod1.sog'),
+    lod2: resolveManifestAsset(sceneId, 'generated-lods', `./PLYs/${fallbackFolderName}/generated_lods/lod2.sog`, 'lod2.sog'),
+    lod3: resolveManifestAsset(sceneId, 'generated-lods', `./PLYs/${fallbackFolderName}/generated_lods/lod3.sog`, 'lod3.sog'),
+    lod4: resolveManifestAsset(sceneId, 'generated-lods', `./PLYs/${fallbackFolderName}/generated_lods/lod4.sog`, 'lod4.sog'),
+  };
+}
+
+function createManifestSogStreamingSource(sceneId, fallbackFolderName) {
+  return resolveManifestAsset(sceneId, 'streamed', `./PLYs/${fallbackFolderName}/output_lod/lod-meta.json`, 'lod-meta.json');
+}
+
 function createIndoorScene(id, label, glbSrc = null, sogOptions = null) {
   return {
     id,
@@ -170,55 +301,55 @@ const LOCATION_CATALOG = {
     stages: {
       day: {
         glb: {
-          web: createGlbAsset('./HuaDayBest1_web.glb', OUTDOOR_VIEW),
-          hd: createGlbAsset('./HuaDayBest1.glb', OUTDOOR_VIEW),
+          web: createGlbAsset(resolveManifestAsset('campus-day', 'glb-web', './HuaDayBest1_web.glb'), OUTDOOR_VIEW),
+          hd: createGlbAsset(resolveManifestAsset('campus-day', 'glb-hd', './HuaDayBest1.glb'), OUTDOOR_VIEW),
         },
         sog: {
-          web: createSogAsset('./PLYs/Campus Day/Campus Day.sog', {
+          web: createSogAsset(resolveManifestAsset('campus-day', 'sog-source', './PLYs/Campus Day/Campus Day.sog'), {
             cutawayEnabled: false,
-            performanceSources: createSogPerformanceSources('Campus Day'),
-            streamingSource: createSogStreamingSource('Campus Day'),
+            performanceSources: createManifestSogPerformanceSources('campus-day', 'Campus Day'),
+            streamingSource: createManifestSogStreamingSource('campus-day', 'Campus Day'),
           }),
-          hd: createSogAsset('./PLYs/Campus Day/Campus Day.sog', {
+          hd: createSogAsset(resolveManifestAsset('campus-day', 'sog-source', './PLYs/Campus Day/Campus Day.sog'), {
             cutawayEnabled: false,
-            performanceSources: createSogPerformanceSources('Campus Day'),
-            streamingSource: createSogStreamingSource('Campus Day'),
+            performanceSources: createManifestSogPerformanceSources('campus-day', 'Campus Day'),
+            streamingSource: createManifestSogStreamingSource('campus-day', 'Campus Day'),
           }),
         },
       },
       dusk: {
         glb: {
-          web: createGlbAsset('./HuaMainDraco.glb', OUTDOOR_VIEW),
-          hd: createGlbAsset('./NoonHDDraco.glb', OUTDOOR_VIEW),
+          web: createGlbAsset(resolveManifestAsset('campus-dusk', 'glb-web', './HuaMainDraco.glb'), OUTDOOR_VIEW),
+          hd: createGlbAsset(resolveManifestAsset('campus-dusk', 'glb-hd', './NoonHDDraco.glb'), OUTDOOR_VIEW),
         },
         sog: {
-          web: createSogAsset('./PLYs/Campus Dusk/Campus Dusk.sog', {
+          web: createSogAsset(resolveManifestAsset('campus-dusk', 'sog-source', './PLYs/Campus Dusk/Campus Dusk.sog'), {
             cutawayEnabled: false,
-            performanceSources: createSogPerformanceSources('Campus Dusk'),
-            streamingSource: createSogStreamingSource('Campus Dusk'),
+            performanceSources: createManifestSogPerformanceSources('campus-dusk', 'Campus Dusk'),
+            streamingSource: createManifestSogStreamingSource('campus-dusk', 'Campus Dusk'),
           }),
-          hd: createSogAsset('./PLYs/Campus Dusk/Campus Dusk.sog', {
+          hd: createSogAsset(resolveManifestAsset('campus-dusk', 'sog-source', './PLYs/Campus Dusk/Campus Dusk.sog'), {
             cutawayEnabled: false,
-            performanceSources: createSogPerformanceSources('Campus Dusk'),
-            streamingSource: createSogStreamingSource('Campus Dusk'),
+            performanceSources: createManifestSogPerformanceSources('campus-dusk', 'Campus Dusk'),
+            streamingSource: createManifestSogStreamingSource('campus-dusk', 'Campus Dusk'),
           }),
         },
       },
       night: {
         glb: {
-          web: createGlbAsset('./HuaMainNightDraco.glb', OUTDOOR_VIEW),
-          hd: createGlbAsset('./NightHD.glb', OUTDOOR_VIEW),
+          web: createGlbAsset(resolveManifestAsset('campus-night', 'glb-web', './HuaMainNightDraco.glb'), OUTDOOR_VIEW),
+          hd: createGlbAsset(resolveManifestAsset('campus-night', 'glb-hd', './NightHD.glb'), OUTDOOR_VIEW),
         },
         sog: {
-          web: createSogAsset('./PLYs/Campus Night/Campus Night.sog', {
+          web: createSogAsset(resolveManifestAsset('campus-night', 'sog-source', './PLYs/Campus Night/Campus Night.sog'), {
             cutawayEnabled: false,
-            performanceSources: createSogPerformanceSources('Campus Night'),
-            streamingSource: createSogStreamingSource('Campus Night'),
+            performanceSources: createManifestSogPerformanceSources('campus-night', 'Campus Night'),
+            streamingSource: createManifestSogStreamingSource('campus-night', 'Campus Night'),
           }),
-          hd: createSogAsset('./PLYs/Campus Night/Campus Night.sog', {
+          hd: createSogAsset(resolveManifestAsset('campus-night', 'sog-source', './PLYs/Campus Night/Campus Night.sog'), {
             cutawayEnabled: false,
-            performanceSources: createSogPerformanceSources('Campus Night'),
-            streamingSource: createSogStreamingSource('Campus Night'),
+            performanceSources: createManifestSogPerformanceSources('campus-night', 'Campus Night'),
+            streamingSource: createManifestSogStreamingSource('campus-night', 'Campus Night'),
           }),
         },
       },
@@ -230,14 +361,14 @@ const LOCATION_CATALOG = {
       },
       dusk: {
         glb: {
-          hd: createGlbAsset('./NoonHDDraco_mobile.glb', OUTDOOR_VIEW),
+          hd: createGlbAsset(resolveManifestAsset('campus-dusk', 'glb-hd-mobile', './NoonHDDraco_mobile.glb'), OUTDOOR_VIEW),
         },
         sog: {},
       },
       night: {
         glb: {
-          web: createGlbAsset('./HuaMainNightDraco_mobile.glb', OUTDOOR_VIEW),
-          hd: createGlbAsset('./NightHD_mobile.glb', OUTDOOR_VIEW),
+          web: createGlbAsset(resolveManifestAsset('campus-night', 'glb-web-mobile', './HuaMainNightDraco_mobile.glb'), OUTDOOR_VIEW),
+          hd: createGlbAsset(resolveManifestAsset('campus-night', 'glb-hd-mobile', './NightHD_mobile.glb'), OUTDOOR_VIEW),
         },
         sog: {},
       },
@@ -255,11 +386,11 @@ const LOCATION_CATALOG = {
     defaultSceneId: 'main-hall',
     scenes: [
 
-        createIndoorScene('metabolism', 'Metabolism', './GLBs/Metabolism.glb', {
-          src: './PLYs/Metabolism/Metabolism.sog',
-          performanceSources: createSogPerformanceSources('Metabolism'),
-          streamingSource: createSogStreamingSource('Metabolism'),
-          fpCollisionSource: './GLBs/Metabolism_no_Draco.glb',
+        createIndoorScene('metabolism', 'Metabolism', resolveManifestAsset('metabolism', 'glb', './GLBs/Metabolism.glb'), {
+          src: resolveManifestAsset('metabolism', 'sog-source', './PLYs/Metabolism/Metabolism.sog'),
+          performanceSources: createManifestSogPerformanceSources('metabolism', 'Metabolism'),
+          streamingSource: createManifestSogStreamingSource('metabolism', 'Metabolism'),
+          fpCollisionSource: resolveManifestAsset('metabolism', 'collision', './GLBs/Metabolism_collision.glb'),
           fpCollisionStrategy: 'mesh',
           streamingRotation: [0, 0, 0, 1],
           rotationDegrees: [180, 0, 0],
@@ -283,10 +414,12 @@ const LOCATION_CATALOG = {
             scale: [3.9, 5.7, 3.4],
           },
       }),
-      createIndoorScene('systasis', 'Systasis', './GLBs/Systasis.glb', {
-        src: './PLYs/Systasis/Systasis.sog',
-        performanceSources: createSogPerformanceSources('Systasis'),
-        streamingSource: createSogStreamingSource('Systasis'),
+      createIndoorScene('systasis', 'Systasis', resolveManifestAsset('systasis', 'glb', './GLBs/Systasis.glb'), {
+        src: resolveManifestAsset('systasis', 'sog-source', './PLYs/Systasis/Systasis.sog'),
+        performanceSources: createManifestSogPerformanceSources('systasis', 'Systasis'),
+        streamingSource: createManifestSogStreamingSource('systasis', 'Systasis'),
+        fpCollisionSource: resolveManifestAsset('systasis', 'collision', './GLBs/Systasis_collision.glb'),
+        fpCollisionStrategy: 'mesh',
         manualBox: {
           position: [0.1, -2, 0],
           rotationDegrees: [90, 360, 179],
@@ -296,10 +429,12 @@ const LOCATION_CATALOG = {
           cutDepthLockedByFace: { left: true, right: true, front: true, back: true, top: true, bottom: true },
         },
       }),
-      createIndoorScene('fitness', 'Fitness', './GLBs/Fitness.glb', {
-        src: './PLYs/Fitness/Fitness.sog',
-        performanceSources: createSogPerformanceSources('Fitness'),
-        streamingSource: createSogStreamingSource('Fitness'),
+      createIndoorScene('fitness', 'Fitness', resolveManifestAsset('fitness', 'glb', './GLBs/Fitness.glb'), {
+        src: resolveManifestAsset('fitness', 'sog-source', './PLYs/Fitness/Fitness.sog'),
+        performanceSources: createManifestSogPerformanceSources('fitness', 'Fitness'),
+        streamingSource: createManifestSogStreamingSource('fitness', 'Fitness'),
+        fpCollisionSource: resolveManifestAsset('fitness', 'collision', './GLBs/Fitness_collision.glb'),
+        fpCollisionStrategy: 'mesh',
         manualBox: {
           position: [0.1, -1.8, -0.2],
           rotationDegrees: [90.3, -1.9, 361.1],
@@ -309,10 +444,12 @@ const LOCATION_CATALOG = {
           cutDepthLockedByFace: { left: true, right: true, front: true, back: true, top: true, bottom: true },
         },
       }),
-      createIndoorScene('classroom-5', 'Classroom 5', './GLBs/Classroom 5.glb', {
-        src: './PLYs/Classroom 5/Classroom 5.sog',
-        performanceSources: createSogPerformanceSources('Classroom 5'),
-        streamingSource: createSogStreamingSource('Classroom 5'),
+      createIndoorScene('classroom-5', 'Classroom 5', resolveManifestAsset('classroom-5', 'glb', './GLBs/Classroom 5.glb'), {
+        src: resolveManifestAsset('classroom-5', 'sog-source', './PLYs/Classroom 5/Classroom 5.sog'),
+        performanceSources: createManifestSogPerformanceSources('classroom-5', 'Classroom 5'),
+        streamingSource: createManifestSogStreamingSource('classroom-5', 'Classroom 5'),
+        fpCollisionSource: resolveManifestAsset('classroom-5', 'collision', './GLBs/Classroom 5_collision.glb'),
+        fpCollisionStrategy: 'mesh',
         manualBox: {
           position: [0.1, -2.2, -0.3],
           rotationDegrees: [89.5, -0.1, -450.4],
@@ -323,9 +460,11 @@ const LOCATION_CATALOG = {
         },
       }),
       createIndoorScene('biology-lab', 'Biology Lab', null, {
-        src: './PLYs/BioLab/BioLab.sog',
-        performanceSources: createSogPerformanceSources('BioLab'),
-        streamingSource: createSogStreamingSource('BioLab'),
+        src: resolveManifestAsset('biology-lab', 'sog-source', './PLYs/BioLab/BioLab.sog'),
+        performanceSources: createManifestSogPerformanceSources('biology-lab', 'BioLab'),
+        streamingSource: createManifestSogStreamingSource('biology-lab', 'BioLab'),
+        fpCollisionSource: resolveManifestAsset('biology-lab', 'collision', './GLBs/Biolab_collision.glb'),
+        fpCollisionStrategy: 'mesh',
         manualBox: {
           position: [0.1, -3, 0.5],
           rotationDegrees: [90.3, -0.1, -450.4],
@@ -336,9 +475,11 @@ const LOCATION_CATALOG = {
         },
       }),
       createIndoorScene('amphitheater', 'Amphitheater', null, {
-        src: './PLYs/Amphitheater/Amphitheater.sog',
-        performanceSources: createSogPerformanceSources('Amphitheater'),
-        streamingSource: createSogStreamingSource('Amphitheater'),
+        src: resolveManifestAsset('amphitheater', 'sog-source', './PLYs/Amphitheater/Amphitheater.sog'),
+        performanceSources: createManifestSogPerformanceSources('amphitheater', 'Amphitheater'),
+        streamingSource: createManifestSogStreamingSource('amphitheater', 'Amphitheater'),
+        fpCollisionSource: resolveManifestAsset('amphitheater', 'collision', './GLBs/Amphitheater_collision.glb'),
+        fpCollisionStrategy: 'mesh',
         manualBox: {
           position: [-0.5, -2.8, -1.1],
           rotationDegrees: [94.3, -0.1, -542.4],
@@ -349,9 +490,11 @@ const LOCATION_CATALOG = {
         },
       }),
       createIndoorScene('geo3-3', 'Geo 3.3', null, {
-        src: './PLYs/3.3/3.3.sog',
-        performanceSources: createSogPerformanceSources('3.3'),
-        streamingSource: createSogStreamingSource('3.3'),
+        src: resolveManifestAsset('geo3-3', 'sog-source', './PLYs/3.3/3.3.sog'),
+        performanceSources: createManifestSogPerformanceSources('geo3-3', '3.3'),
+        streamingSource: createManifestSogStreamingSource('geo3-3', '3.3'),
+        fpCollisionSource: resolveManifestAsset('geo3-3', 'collision', './GLBs/Geo3.3_collision.glb'),
+        fpCollisionStrategy: 'mesh',
         manualBox: {
           position: [-0.1, -2.4, -0.5],
           rotationDegrees: [90.3, -0.1, -540.4],
@@ -362,9 +505,11 @@ const LOCATION_CATALOG = {
         },
       }),
       createIndoorScene('kitchen', 'Kitchen', null, {
-        src: './PLYs/Kitchen/Kitchen.sog',
-        performanceSources: createSogPerformanceSources('Kitchen'),
-        streamingSource: createSogStreamingSource('Kitchen'),
+        src: resolveManifestAsset('kitchen', 'sog-source', './PLYs/Kitchen/Kitchen.sog'),
+        performanceSources: createManifestSogPerformanceSources('kitchen', 'Kitchen'),
+        streamingSource: createManifestSogStreamingSource('kitchen', 'Kitchen'),
+        fpCollisionSource: resolveManifestAsset('kitchen', 'collision', './GLBs/Kitchen_collision.glb'),
+        fpCollisionStrategy: 'mesh',
         manualBox: {
           position: [-0.1, -1.6, -0.1],
           rotationDegrees: [90.3, -0.1, -537.4],
@@ -374,10 +519,12 @@ const LOCATION_CATALOG = {
           cutDepthLockedByFace: { left: true, right: true, front: true, back: true, top: true, bottom: true },
         },
       }),
-      createIndoorScene('main-hall', 'Main Hall', './Indoors.glb', {
-        src: './PLYs/MainHall/MainHall.sog',
-        performanceSources: createSogPerformanceSources('MainHall'),
-        streamingSource: createSogStreamingSource('MainHall'),
+      createIndoorScene('main-hall', 'Main Hall', resolveManifestAsset('main-hall', 'glb', './Indoors.glb'), {
+        src: resolveManifestAsset('main-hall', 'sog-source', './PLYs/MainHall/MainHall.sog'),
+        performanceSources: createManifestSogPerformanceSources('main-hall', 'MainHall'),
+        streamingSource: createManifestSogStreamingSource('main-hall', 'MainHall'),
+        fpCollisionSource: resolveManifestAsset('main-hall', 'collision', './GLBs/MainHall_collision.glb'),
+        fpCollisionStrategy: 'mesh',
         manualBox: {
           position: [-0.1, -11.6, 7.7],
           rotationDegrees: [90.3, -0.1, -537.4],
@@ -397,7 +544,7 @@ const LOCATION_CATALOG = {
       id: 'dit-main',
       label: 'DIT',
       assets: {
-        glb: createGlbAsset('./HuaDITDusk.glb', DIT_VIEW),
+        glb: createGlbAsset(resolveManifestAsset('dit-main', 'glb', './HuaDITDusk.glb'), DIT_VIEW),
       },
     },
   },

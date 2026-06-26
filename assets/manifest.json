@@ -1,0 +1,755 @@
+{
+  "version": 1,
+  "name": "HUA 3D Showcase active asset manifest",
+  "assetBaseUrl": "https://pub-26e8c46e8f574b36bf5d19f65ea85855.r2.dev",
+  "assetBases": {
+    "local": "./dist-r2-assets",
+    "remote": "https://pub-26e8c46e8f574b36bf5d19f65ea85855.r2.dev"
+  },
+  "stagingRoot": "dist-r2-assets",
+  "pilotScenes": [
+    "metabolism",
+    "campus-night",
+    "dit-main"
+  ],
+  "activeScenes": [
+    "campus-day",
+    "campus-dusk",
+    "campus-night",
+    "dit-main",
+    "main-hall",
+    "metabolism",
+    "systasis",
+    "fitness",
+    "classroom-5",
+    "biology-lab",
+    "amphitheater",
+    "geo3-3",
+    "kitchen"
+  ],
+  "scenes": {
+    "campus-day": {
+      "label": "Campus Day",
+      "location": "campus",
+      "environment": "outside",
+      "time": "day",
+      "formats": [
+        "glb",
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "assets": [
+        {
+          "id": "glb-web",
+          "role": "glb-web",
+          "type": "file",
+          "localSource": "HuaDayBest1_web.glb",
+          "assetPath": "assets/outdoors/campus-day/glb/web.glb",
+          "r2Key": "assets/outdoors/campus-day/glb/web.glb"
+        },
+        {
+          "id": "glb-hd",
+          "role": "glb-hd",
+          "type": "file",
+          "localSource": "HuaDayBest1.glb",
+          "assetPath": "assets/outdoors/campus-day/glb/hd.glb",
+          "r2Key": "assets/outdoors/campus-day/glb/hd.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Campus Day/Campus Day.sog",
+          "assetPath": "assets/outdoors/campus-day/sog/source.sog",
+          "r2Key": "assets/outdoors/campus-day/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Campus Day/generated_lods",
+          "assetPath": "assets/outdoors/campus-day/generated_lods",
+          "r2Key": "assets/outdoors/campus-day/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Campus Day/output_lod",
+          "assetPath": "assets/outdoors/campus-day/streamed",
+          "r2Key": "assets/outdoors/campus-day/streamed"
+        }
+      ]
+    },
+    "campus-dusk": {
+      "label": "Campus Dusk",
+      "location": "campus",
+      "environment": "outside",
+      "time": "dusk",
+      "formats": [
+        "glb",
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "assets": [
+        {
+          "id": "glb-web",
+          "role": "glb-web",
+          "type": "file",
+          "localSource": "HuaMainDraco.glb",
+          "assetPath": "assets/outdoors/campus-dusk/glb/web.glb",
+          "r2Key": "assets/outdoors/campus-dusk/glb/web.glb"
+        },
+        {
+          "id": "glb-hd",
+          "role": "glb-hd",
+          "type": "file",
+          "localSource": "NoonHDDraco.glb",
+          "assetPath": "assets/outdoors/campus-dusk/glb/hd.glb",
+          "r2Key": "assets/outdoors/campus-dusk/glb/hd.glb"
+        },
+        {
+          "id": "glb-hd-mobile",
+          "role": "glb-hd-mobile",
+          "type": "file",
+          "localSource": "NoonHDDraco_mobile.glb",
+          "assetPath": "assets/outdoors/campus-dusk/glb/hd-mobile.glb",
+          "r2Key": "assets/outdoors/campus-dusk/glb/hd-mobile.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Campus Dusk/Campus Dusk.sog",
+          "assetPath": "assets/outdoors/campus-dusk/sog/source.sog",
+          "r2Key": "assets/outdoors/campus-dusk/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Campus Dusk/generated_lods",
+          "assetPath": "assets/outdoors/campus-dusk/generated_lods",
+          "r2Key": "assets/outdoors/campus-dusk/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Campus Dusk/output_lod",
+          "assetPath": "assets/outdoors/campus-dusk/streamed",
+          "r2Key": "assets/outdoors/campus-dusk/streamed"
+        }
+      ]
+    },
+    "campus-night": {
+      "label": "Campus Night",
+      "location": "campus",
+      "environment": "outside",
+      "time": "night",
+      "formats": [
+        "glb",
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "assets": [
+        {
+          "id": "glb-web",
+          "role": "glb-web",
+          "type": "file",
+          "localSource": "HuaMainNightDraco.glb",
+          "assetPath": "assets/outdoors/campus-night/glb/web.glb",
+          "r2Key": "assets/outdoors/campus-night/glb/web.glb"
+        },
+        {
+          "id": "glb-hd",
+          "role": "glb-hd",
+          "type": "file",
+          "localSource": "NightHD.glb",
+          "assetPath": "assets/outdoors/campus-night/glb/hd.glb",
+          "r2Key": "assets/outdoors/campus-night/glb/hd.glb"
+        },
+        {
+          "id": "glb-web-mobile",
+          "role": "glb-web-mobile",
+          "type": "file",
+          "localSource": "HuaMainNightDraco_mobile.glb",
+          "assetPath": "assets/outdoors/campus-night/glb/web-mobile.glb",
+          "r2Key": "assets/outdoors/campus-night/glb/web-mobile.glb"
+        },
+        {
+          "id": "glb-hd-mobile",
+          "role": "glb-hd-mobile",
+          "type": "file",
+          "localSource": "NightHD_mobile.glb",
+          "assetPath": "assets/outdoors/campus-night/glb/hd-mobile.glb",
+          "r2Key": "assets/outdoors/campus-night/glb/hd-mobile.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Campus Night/Campus Night.sog",
+          "assetPath": "assets/outdoors/campus-night/sog/source.sog",
+          "r2Key": "assets/outdoors/campus-night/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Campus Night/generated_lods",
+          "assetPath": "assets/outdoors/campus-night/generated_lods",
+          "r2Key": "assets/outdoors/campus-night/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Campus Night/output_lod",
+          "assetPath": "assets/outdoors/campus-night/streamed",
+          "r2Key": "assets/outdoors/campus-night/streamed"
+        }
+      ]
+    },
+    "dit-main": {
+      "label": "DIT",
+      "location": "dit",
+      "environment": "outside",
+      "formats": [
+        "glb"
+      ],
+      "assets": [
+        {
+          "id": "glb-main",
+          "role": "glb",
+          "type": "file",
+          "localSource": "HuaDITDusk.glb",
+          "assetPath": "assets/dit/main/glb/main.glb",
+          "r2Key": "assets/dit/main/glb/main.glb"
+        }
+      ]
+    },
+    "main-hall": {
+      "label": "Main Hall",
+      "location": "campus",
+      "environment": "inside",
+      "building": "main",
+      "space": "main-hall",
+      "formats": [
+        "glb",
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "modes": [
+        "walk",
+        "fly"
+      ],
+      "assets": [
+        {
+          "id": "glb-main",
+          "role": "glb",
+          "type": "file",
+          "localSource": "Indoors.glb",
+          "assetPath": "assets/indoors/main-hall/glb/main.glb",
+          "r2Key": "assets/indoors/main-hall/glb/main.glb"
+        },
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "GLBs/MainHall_collision.glb",
+          "assetPath": "assets/indoors/main-hall/collision/collision.glb",
+          "r2Key": "assets/indoors/main-hall/collision/collision.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/MainHall/MainHall.sog",
+          "assetPath": "assets/indoors/main-hall/sog/source.sog",
+          "r2Key": "assets/indoors/main-hall/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/MainHall/generated_lods",
+          "assetPath": "assets/indoors/main-hall/generated_lods",
+          "r2Key": "assets/indoors/main-hall/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/MainHall/output_lod",
+          "assetPath": "assets/indoors/main-hall/streamed",
+          "r2Key": "assets/indoors/main-hall/streamed"
+        }
+      ]
+    },
+    "metabolism": {
+      "label": "Metabolism",
+      "location": "campus",
+      "environment": "inside",
+      "building": "diet",
+      "space": "metabolism",
+      "formats": [
+        "glb",
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "modes": [
+        "walk",
+        "fly"
+      ],
+      "assets": [
+        {
+          "id": "glb-main",
+          "role": "glb",
+          "type": "file",
+          "localSource": "GLBs/Metabolism.glb",
+          "assetPath": "assets/indoors/metabolism/glb/main.glb",
+          "r2Key": "assets/indoors/metabolism/glb/main.glb"
+        },
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "GLBs/Metabolism_collision.glb",
+          "assetPath": "assets/indoors/metabolism/collision/collision.glb",
+          "r2Key": "assets/indoors/metabolism/collision/collision.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Metabolism/Metabolism.sog",
+          "assetPath": "assets/indoors/metabolism/sog/source.sog",
+          "r2Key": "assets/indoors/metabolism/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Metabolism/generated_lods",
+          "assetPath": "assets/indoors/metabolism/generated_lods",
+          "r2Key": "assets/indoors/metabolism/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Metabolism/output_lod",
+          "assetPath": "assets/indoors/metabolism/streamed",
+          "r2Key": "assets/indoors/metabolism/streamed"
+        }
+      ]
+    },
+    "systasis": {
+      "label": "Systasis",
+      "location": "campus",
+      "environment": "inside",
+      "building": "diet",
+      "space": "systasis",
+      "formats": [
+        "glb",
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "modes": [
+        "walk",
+        "fly"
+      ],
+      "assets": [
+        {
+          "id": "glb-main",
+          "role": "glb",
+          "type": "file",
+          "localSource": "GLBs/Systasis.glb",
+          "assetPath": "assets/indoors/systasis/glb/main.glb",
+          "r2Key": "assets/indoors/systasis/glb/main.glb"
+        },
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "GLBs/Systasis_collision.glb",
+          "assetPath": "assets/indoors/systasis/collision/collision.glb",
+          "r2Key": "assets/indoors/systasis/collision/collision.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Systasis/Systasis.sog",
+          "assetPath": "assets/indoors/systasis/sog/source.sog",
+          "r2Key": "assets/indoors/systasis/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Systasis/generated_lods",
+          "assetPath": "assets/indoors/systasis/generated_lods",
+          "r2Key": "assets/indoors/systasis/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Systasis/output_lod",
+          "assetPath": "assets/indoors/systasis/streamed",
+          "r2Key": "assets/indoors/systasis/streamed"
+        }
+      ]
+    },
+    "fitness": {
+      "label": "Fitness",
+      "location": "campus",
+      "environment": "inside",
+      "building": "geo",
+      "space": "fitness",
+      "formats": [
+        "glb",
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "modes": [
+        "walk",
+        "fly"
+      ],
+      "assets": [
+        {
+          "id": "glb-main",
+          "role": "glb",
+          "type": "file",
+          "localSource": "GLBs/Fitness.glb",
+          "assetPath": "assets/indoors/fitness/glb/main.glb",
+          "r2Key": "assets/indoors/fitness/glb/main.glb"
+        },
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "GLBs/Fitness_collision.glb",
+          "assetPath": "assets/indoors/fitness/collision/collision.glb",
+          "r2Key": "assets/indoors/fitness/collision/collision.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Fitness/Fitness.sog",
+          "assetPath": "assets/indoors/fitness/sog/source.sog",
+          "r2Key": "assets/indoors/fitness/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Fitness/generated_lods",
+          "assetPath": "assets/indoors/fitness/generated_lods",
+          "r2Key": "assets/indoors/fitness/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Fitness/output_lod",
+          "assetPath": "assets/indoors/fitness/streamed",
+          "r2Key": "assets/indoors/fitness/streamed"
+        }
+      ]
+    },
+    "classroom-5": {
+      "label": "Classroom 5",
+      "location": "campus",
+      "environment": "inside",
+      "building": "geo",
+      "space": "classroom-5",
+      "formats": [
+        "glb",
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "modes": [
+        "walk",
+        "fly"
+      ],
+      "assets": [
+        {
+          "id": "glb-main",
+          "role": "glb",
+          "type": "file",
+          "localSource": "GLBs/Classroom 5.glb",
+          "assetPath": "assets/indoors/classroom-5/glb/main.glb",
+          "r2Key": "assets/indoors/classroom-5/glb/main.glb"
+        },
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "GLBs/Classroom 5_collision.glb",
+          "assetPath": "assets/indoors/classroom-5/collision/collision.glb",
+          "r2Key": "assets/indoors/classroom-5/collision/collision.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Classroom 5/Classroom 5.sog",
+          "assetPath": "assets/indoors/classroom-5/sog/source.sog",
+          "r2Key": "assets/indoors/classroom-5/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Classroom 5/generated_lods",
+          "assetPath": "assets/indoors/classroom-5/generated_lods",
+          "r2Key": "assets/indoors/classroom-5/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Classroom 5/output_lod",
+          "assetPath": "assets/indoors/classroom-5/streamed",
+          "r2Key": "assets/indoors/classroom-5/streamed"
+        }
+      ]
+    },
+    "biology-lab": {
+      "label": "Biology Lab",
+      "location": "campus",
+      "environment": "inside",
+      "building": "biology",
+      "space": "biology-lab",
+      "formats": [
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "modes": [
+        "walk",
+        "fly"
+      ],
+      "assets": [
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "GLBs/Biolab_collision.glb",
+          "assetPath": "assets/indoors/biology-lab/collision/collision.glb",
+          "r2Key": "assets/indoors/biology-lab/collision/collision.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/BioLab/BioLab.sog",
+          "assetPath": "assets/indoors/biology-lab/sog/source.sog",
+          "r2Key": "assets/indoors/biology-lab/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/BioLab/generated_lods",
+          "assetPath": "assets/indoors/biology-lab/generated_lods",
+          "r2Key": "assets/indoors/biology-lab/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/BioLab/output_lod",
+          "assetPath": "assets/indoors/biology-lab/streamed",
+          "r2Key": "assets/indoors/biology-lab/streamed"
+        }
+      ]
+    },
+    "amphitheater": {
+      "label": "Amphitheater",
+      "location": "campus",
+      "environment": "inside",
+      "building": "main",
+      "space": "amphitheater",
+      "formats": [
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "modes": [
+        "walk",
+        "fly"
+      ],
+      "assets": [
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "GLBs/Amphitheater_collision.glb",
+          "assetPath": "assets/indoors/amphitheater/collision/collision.glb",
+          "r2Key": "assets/indoors/amphitheater/collision/collision.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Amphitheater/Amphitheater.sog",
+          "assetPath": "assets/indoors/amphitheater/sog/source.sog",
+          "r2Key": "assets/indoors/amphitheater/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Amphitheater/generated_lods",
+          "assetPath": "assets/indoors/amphitheater/generated_lods",
+          "r2Key": "assets/indoors/amphitheater/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Amphitheater/output_lod",
+          "assetPath": "assets/indoors/amphitheater/streamed",
+          "r2Key": "assets/indoors/amphitheater/streamed"
+        }
+      ]
+    },
+    "geo3-3": {
+      "label": "Geo 3.3",
+      "location": "campus",
+      "environment": "inside",
+      "building": "geo",
+      "space": "geo-3-3",
+      "formats": [
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "modes": [
+        "walk",
+        "fly"
+      ],
+      "assets": [
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "GLBs/Geo3.3_collision.glb",
+          "assetPath": "assets/indoors/geo3-3/collision/collision.glb",
+          "r2Key": "assets/indoors/geo3-3/collision/collision.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/3.3/3.3.sog",
+          "assetPath": "assets/indoors/geo3-3/sog/source.sog",
+          "r2Key": "assets/indoors/geo3-3/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/3.3/generated_lods",
+          "assetPath": "assets/indoors/geo3-3/generated_lods",
+          "r2Key": "assets/indoors/geo3-3/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/3.3/output_lod",
+          "assetPath": "assets/indoors/geo3-3/streamed",
+          "r2Key": "assets/indoors/geo3-3/streamed"
+        }
+      ]
+    },
+    "kitchen": {
+      "label": "Kitchen",
+      "location": "campus",
+      "environment": "inside",
+      "building": "diet",
+      "space": "kitchen",
+      "formats": [
+        "sog"
+      ],
+      "engines": [
+        "lod",
+        "streamed"
+      ],
+      "modes": [
+        "walk",
+        "fly"
+      ],
+      "assets": [
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "GLBs/Kitchen_collision.glb",
+          "assetPath": "assets/indoors/kitchen/collision/collision.glb",
+          "r2Key": "assets/indoors/kitchen/collision/collision.glb"
+        },
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Kitchen/Kitchen.sog",
+          "assetPath": "assets/indoors/kitchen/sog/source.sog",
+          "r2Key": "assets/indoors/kitchen/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Kitchen/generated_lods",
+          "assetPath": "assets/indoors/kitchen/generated_lods",
+          "r2Key": "assets/indoors/kitchen/generated_lods"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Kitchen/output_lod",
+          "assetPath": "assets/indoors/kitchen/streamed",
+          "r2Key": "assets/indoors/kitchen/streamed"
+        }
+      ]
+    }
+  }
+}

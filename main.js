@@ -1,6 +1,5 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260610fp21";
-import { SiteSplatViewer } from "./viewer/splatViewer.js?v=20260609f";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260610fp21";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260625fp22";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260625fp22";
 
 let modelViewer = document.getElementById("siteModel");
 const splatViewerMount = document.getElementById("splatViewerMount");
@@ -11,8 +10,24 @@ const statusPill = document.getElementById("statusPill");
 const statusCopy = document.getElementById("statusCopy");
 const viewerStatus = document.getElementById("viewerStatus");
 const fullscreenToggle = document.getElementById("fullscreenToggle");
-const warmCacheToggle = document.getElementById("warmCacheToggle");
 const qualityToggle = document.getElementById("qualityToggle");
+const calibrationToggle = document.getElementById("calibrationToggle");
+const calibrationPanel = document.getElementById("calibrationPanel");
+const calibrationSceneLabel = document.getElementById("calibrationSceneLabel");
+const calibrationHint = document.getElementById("calibrationHint");
+const calibrationClose = document.getElementById("calibrationClose");
+const calibrationReset = document.getElementById("calibrationReset");
+const calibrationSave = document.getElementById("calibrationSave");
+const calibrationCopy = document.getElementById("calibrationCopy");
+const calibrationLodControls = document.getElementById("calibrationLodControls");
+const calibrationFlyCollisionControl = document.getElementById("calibrationFlyCollisionControl");
+const calibrationFlyIgnoreCollision = document.getElementById("calibrationFlyIgnoreCollision");
+const calibrationCollisionPreviewControl = document.getElementById("calibrationCollisionPreviewControl");
+const calibrationShowCollision = document.getElementById("calibrationShowCollision");
+const calibrationGridControl = document.getElementById("calibrationGridControl");
+const calibrationShowGrid = document.getElementById("calibrationShowGrid");
+const calibrationTargetControl = document.getElementById("calibrationTargetControl");
+const calibrationTargetButtons = [...document.querySelectorAll("[data-calib-target]")];
 const timeDial = document.getElementById("timeDial");
 const timeControlGroup = document.getElementById("timeControlGroup");
 const timeStageMarkers = [...document.querySelectorAll(".time-stage-marker")];
@@ -28,6 +43,23 @@ const lodMarkers = document.getElementById("lodMarkers");
 const resetCamera = document.getElementById("resetCamera");
 const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
+const calibrationInputs = {
+  position: [
+    document.getElementById("calibrationPositionX"),
+    document.getElementById("calibrationPositionY"),
+    document.getElementById("calibrationPositionZ"),
+  ],
+  rotationDegrees: [
+    document.getElementById("calibrationRotationX"),
+    document.getElementById("calibrationRotationY"),
+    document.getElementById("calibrationRotationZ"),
+  ],
+  scale: [
+    document.getElementById("calibrationScaleX"),
+    document.getElementById("calibrationScaleY"),
+    document.getElementById("calibrationScaleZ"),
+  ],
+};
 
 const timeStages = ["day", "dusk", "night"];
 const timeLabels = {
@@ -46,7 +78,6 @@ const isMobileDevice =
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const deviceMemory = Number.isFinite(navigator.deviceMemory) ? navigator.deviceMemory : null;
 const hardwareConcurrency = Number.isFinite(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : null;
-const useBlobPreloading = !isMobileDevice;
 
 const SOG_ADAPTIVE_PERFORMANCE = {
   minDpr: 0.65,
@@ -61,14 +92,101 @@ const SOG_ADAPTIVE_PERFORMANCE = {
 };
 
 const SOG_MODE_LABELS = {
-  classic: "TP",
-  streamed: "FP",
+  classic: "LOD",
+  streamed: "Streamed",
 };
 
-const FP_NAV_MODE_LABELS = {
-  walk: "Walk",
-  fly: "Fly",
-};
+const SOG_CALIBRATION_QUERY_PARAM = "sog-calibration";
+const SOG_CALIBRATION_FLAG_KEY = "hua:sog-calibration-ui-enabled";
+const SOG_CALIBRATION_OVERRIDES_KEY = "hua:sog-calibration-overrides:v1";
+const SOG_STREAMED_TRANSFORMS_KEY = "hua:sog-streamed-transforms:v1";
+const streamedTransformsOverrides = loadStreamedTransformsOverrides();
+
+function loadStreamedTransformsOverrides() {
+  const raw = safeLocalStorageGet(SOG_STREAMED_TRANSFORMS_KEY);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_e) {
+    return {};
+  }
+}
+
+function saveStreamedTransformsOverrides() {
+  safeLocalStorageSet(SOG_STREAMED_TRANSFORMS_KEY, JSON.stringify(streamedTransformsOverrides));
+}
+
+function degreesToQuaternion(rotationDegrees = [0, 0, 0]) {
+  const [xDegrees = 0, yDegrees = 0, zDegrees = 0] = rotationDegrees;
+  const halfToRadians = Math.PI / 360;
+  const x = xDegrees * halfToRadians;
+  const y = yDegrees * halfToRadians;
+  const z = zDegrees * halfToRadians;
+
+  const sx = Math.sin(x);
+  const cx = Math.cos(x);
+  const sy = Math.sin(y);
+  const cy = Math.cos(y);
+  const sz = Math.sin(z);
+  const cz = Math.cos(z);
+
+  return [
+    sx * cy * cz + cx * sy * sz,
+    cx * sy * cz - sx * cy * sz,
+    cx * cy * sz + sx * sy * cz,
+    cx * cy * cz - sx * sy * sz,
+  ];
+}
+
+function safeLocalStorageGet(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function safeLocalStorageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function safeLocalStorageRemove(key) {
+  try {
+    window.localStorage.removeItem(key);
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function loadCalibrationOverrides() {
+  const raw = safeLocalStorageGet(SOG_CALIBRATION_OVERRIDES_KEY);
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+const calibrationQueryEnabled =
+  new URLSearchParams(window.location.search).get(SOG_CALIBRATION_QUERY_PARAM) === "1";
+const calibrationUiUnlocked =
+  calibrationQueryEnabled || safeLocalStorageGet(SOG_CALIBRATION_FLAG_KEY) === "1";
+
+if (calibrationQueryEnabled) {
+  safeLocalStorageSet(SOG_CALIBRATION_FLAG_KEY, "1");
+}
 
 let sogPerformanceMonitor = null;
 let sogAdaptiveTierState = {
@@ -608,11 +726,14 @@ function selectStreamingSogAsset(asset) {
     src: asset.streamingSource,
     originalSrc: asset.src,
     rotation: asset.streamingRotation || asset.rotation,
+    // Manual boxes are calibrated in the regular SOG (LOD) coordinate frame.
+    // Keep that frame so the viewer can rebase the box when Streamed uses a
+    // different baked rotation.
+    manualBoxReferenceRotation: asset.rotation,
     streamingEnabled: true,
     streamingSettings: buildStreamingSettings(asset),
-    viewPreset: buildFirstPersonViewPreset(asset),
     autoRotate: false,
-    cutawayEnabled: false,
+    cutawayEnabled: asset.cutawayEnabled !== false,
   };
 }
 
@@ -642,7 +763,6 @@ let activeFormat = "glb";
 let activeSogMode = "classic";
 let activeFpNavigationMode = "walk";
 let hdEnabled = false;
-let warmCacheEnabled = false;
 let clayEnabled = false;
 let turntableEnabled = true;
 let originalMaterials = [];
@@ -653,25 +773,25 @@ let currentActiveAsset = null;
 let activeAssetSwapId = 0;
 let pendingSogModeTransitionOrbitState = null;
 let sogPanIndicatorVisible = false;
+let calibrationPanelOpen = false;
+let calibrationInputSyncSuspended = false;
+// Which target the Streamed Move/Rotate/Scale controls edit: "scene" | "collision"
+let streamedCalibTarget = "scene";
 let dialPointerId = null;
 let dialStartAngle = 0;
 let dialDragged = false;
 let skipNextDialClick = false;
-const preloadedModelUrls = new Map();
-const preloadPromises = new Map();
-const preloadAbortControllers = new Map();
-const preloadLinkElements = new Map();
-const plyViewer = new SiteSplatViewer(splatViewerMount);
 const sogViewer = new PlayCanvasSogViewer(splatViewerMount);
 
 const FORMAT_LABELS = {
   glb: "GLB",
-  splat: "PLY",
   sog: "SOG",
 };
-const FORMAT_PRIORITY = ["sog", "glb", "splat"];
+const FORMAT_PRIORITY = ["sog", "glb"];
 const GITHUB_MEDIA_BASE_URL = "https://media.githubusercontent.com/media/Petrakous/Hua-3D-Showcase/main/";
 const GITHUB_RAW_BASE_URL = "https://raw.githubusercontent.com/Petrakous/Hua-3D-Showcase/main/";
+const calibrationOverrides = loadCalibrationOverrides();
+const calibrationSessionDefaults = new Map();
 
 function encodeUrlPathSegments(path = "") {
   return path
@@ -679,6 +799,107 @@ function encodeUrlPathSegments(path = "") {
     .filter((segment) => segment.length > 0)
     .map((segment) => encodeURIComponent(segment))
     .join("/");
+}
+
+function cloneManualBoxConfig(config) {
+  if (!config) {
+    return null;
+  }
+
+  return {
+    position: [...(config.position || [0, 0, 0])],
+    rotationDegrees: [...(config.rotationDegrees || [0, 0, 0])],
+    scale: [...(config.scale || [1, 1, 1])],
+    cutRatio: Number.isFinite(config.cutRatio) ? config.cutRatio : 0.2,
+    cutFadeWidth: Number.isFinite(config.cutFadeWidth) ? config.cutFadeWidth : undefined,
+    cutDepthByFace: config.cutDepthByFace ? { ...config.cutDepthByFace } : undefined,
+    cutDepthLockedByFace: config.cutDepthLockedByFace ? { ...config.cutDepthLockedByFace } : undefined,
+  };
+}
+
+function saveCalibrationOverrides() {
+  safeLocalStorageSet(SOG_CALIBRATION_OVERRIDES_KEY, JSON.stringify(calibrationOverrides));
+}
+
+function buildSceneCalibrationKey(locationId, sceneId = null, stageId = null) {
+  if (locationId === "outdoors") {
+    return `${locationId}:${stageId || "day"}`;
+  }
+
+  return `${locationId}:${sceneId || "default"}`;
+}
+
+function getCalibrationOverride(asset) {
+  if (!asset?.sceneCalibrationKey) {
+    return null;
+  }
+
+  return cloneManualBoxConfig(calibrationOverrides[asset.sceneCalibrationKey]);
+}
+
+function applyCalibrationOverrideToAsset(asset) {
+  if (!asset || asset.type !== "splat") {
+    return asset;
+  }
+
+  if (asset.streamingEnabled && asset.sceneCalibrationKey) {
+    const streamedOverride = streamedTransformsOverrides[asset.sceneCalibrationKey];
+    if (streamedOverride) {
+      const updatedAsset = { ...asset };
+      if (streamedOverride.scene) {
+        updatedAsset.position = streamedOverride.scene.position;
+        updatedAsset.rotationDegrees = streamedOverride.scene.rotationDegrees;
+        updatedAsset.rotation = degreesToQuaternion(streamedOverride.scene.rotationDegrees);
+        updatedAsset.scale = streamedOverride.scene.scale;
+      }
+      if (streamedOverride.collision) {
+        updatedAsset.collisionPosition = streamedOverride.collision.position;
+        updatedAsset.collisionRotationDegrees = streamedOverride.collision.rotationDegrees;
+        updatedAsset.collisionRotation = degreesToQuaternion(streamedOverride.collision.rotationDegrees);
+        updatedAsset.collisionScale = streamedOverride.collision.scale;
+      }
+      if (streamedOverride.spawn) {
+        updatedAsset.spawnOverride = {
+          position: streamedOverride.spawn.position,
+          rotationDegrees: streamedOverride.spawn.rotationDegrees,
+        };
+      }
+      return updatedAsset;
+    }
+  }
+
+  const override = getCalibrationOverride(asset);
+  if (!override) {
+    return asset;
+  }
+
+  return {
+    ...asset,
+    manualBox: override,
+  };
+}
+
+function setCalibrationOverride(sceneCalibrationKey, config) {
+  if (!sceneCalibrationKey) {
+    return;
+  }
+
+  calibrationOverrides[sceneCalibrationKey] = cloneManualBoxConfig(config);
+  saveCalibrationOverrides();
+}
+
+function clearCalibrationOverride(sceneCalibrationKey) {
+  if (!sceneCalibrationKey || !Object.prototype.hasOwnProperty.call(calibrationOverrides, sceneCalibrationKey)) {
+    return;
+  }
+
+  delete calibrationOverrides[sceneCalibrationKey];
+  if (Object.keys(calibrationOverrides).length === 0) {
+    safeLocalStorageRemove(SOG_CALIBRATION_OVERRIDES_KEY);
+    return;
+  }
+
+  saveCalibrationOverrides();
 }
 const CAMPUS_INDOOR_BUILDINGS = [
   {
@@ -1044,6 +1265,18 @@ function getEffectiveSogMode(asset) {
   return activeSogMode === "streamed" && asset.streamingSource && asset.manualBox ? "streamed" : "classic";
 }
 
+function finalizeSogAsset(asset) {
+  if (!asset || asset.type !== "splat") {
+    return asset;
+  }
+
+  const nextAsset = getEffectiveSogMode(asset) === "streamed"
+    ? selectStreamingSogAsset(asset)
+    : selectPerformanceSogAsset(asset);
+
+  return applyCalibrationOverrideToAsset(nextAsset);
+}
+
 function getActiveAssetDescriptor() {
   syncNavigationState();
   normalizeActiveFormat();
@@ -1057,11 +1290,11 @@ function getActiveAssetDescriptor() {
       label: `${timeLabels[activeTimeStage]}${hdEnabled ? " HD" : ""}`,
       locationId: "outdoors",
       format: activeFormat,
+      sceneCalibrationKey: buildSceneCalibrationKey("outdoors", null, activeTimeStage),
+      sourceManualBox: cloneManualBoxConfig(asset?.manualBox),
     };
 
-    return getEffectiveSogMode(baseAsset) === "streamed"
-      ? selectStreamingSogAsset(baseAsset)
-      : selectPerformanceSogAsset(baseAsset);
+    return finalizeSogAsset(baseAsset);
   }
 
   if (activeSiteId === "dit") {
@@ -1081,11 +1314,11 @@ function getActiveAssetDescriptor() {
       label: scene.label,
       locationId: "dit",
       format: activeFormat,
+      sceneCalibrationKey: buildSceneCalibrationKey("dit", scene.id, activeTimeStage),
+      sourceManualBox: cloneManualBoxConfig(asset?.manualBox),
     };
 
-    return getEffectiveSogMode(baseAsset) === "streamed"
-      ? selectStreamingSogAsset(baseAsset)
-      : selectPerformanceSogAsset(baseAsset);
+    return finalizeSogAsset(baseAsset);
   }
 
   const locationEntry = getCurrentLocationEntry();
@@ -1102,12 +1335,13 @@ function getActiveAssetDescriptor() {
     key: `${locationEntry.id}:${scene.id}:${activeFormat}:${getEffectiveSogMode(asset)}`,
     label: scene.label,
     locationId: locationEntry.id,
+    sceneId: scene.id,
     format: activeFormat,
+    sceneCalibrationKey: buildSceneCalibrationKey(locationEntry.id, scene.id),
+    sourceManualBox: cloneManualBoxConfig(asset?.manualBox),
   };
 
-  return getEffectiveSogMode(baseAsset) === "streamed"
-    ? selectStreamingSogAsset(baseAsset)
-    : selectPerformanceSogAsset(baseAsset);
+  return finalizeSogAsset(baseAsset);
 }
 
 function describeActiveAsset(asset = getActiveAssetDescriptor()) {
@@ -1119,7 +1353,7 @@ function describeActiveAsset(asset = getActiveAssetDescriptor()) {
   const tierName = tierMap[asset.performanceTier] || asset.performanceTier;
   const modeSuffix =
     asset?.type === "splat" && asset?.runtime === "playcanvas" && asset?.fileFormat === "sog"
-      ? (asset.streamingEnabled ? " / FP" : " / TP")
+      ? (asset.streamingEnabled ? ` / ${activeFpNavigationMode === "fly" ? "Fly" : "Walk"}` : " / LOD")
       : "";
 
   if (isCampusOutsideSelected()) {
@@ -1142,7 +1376,7 @@ function describeLoadedAssetStatus(asset = getActiveAssetDescriptor()) {
     return `${base}. Click inside the viewer, then use WASD + mouse. ${activeFpNavigationMode === "fly" ? "Space goes up and Q goes down." : "Space jumps."}`;
   }
 
-  return `${base} in ${FORMAT_LABELS[asset?.format] || "splat"} mode.`;
+  return `${base} in ${FORMAT_LABELS[asset?.format] || "SOG"} mode.`;
 }
 
 function getActiveOverlayViewer() {
@@ -1150,7 +1384,7 @@ function getActiveOverlayViewer() {
     return null;
   }
 
-  return currentActiveAsset?.runtime === "playcanvas" ? sogViewer : plyViewer;
+  return sogViewer;
 }
 
 function createModelViewerElement() {
@@ -1292,30 +1526,7 @@ function revokeObjectUrl(url) {
   }
 }
 
-function clearWarmModelCache() {
-  const protectedUrl = modelViewer?.src || "";
-
-  for (const controller of preloadAbortControllers.values()) {
-    controller.abort();
-  }
-  preloadAbortControllers.clear();
-
-  for (const link of preloadLinkElements.values()) {
-    link.remove();
-  }
-  preloadLinkElements.clear();
-
-  for (const url of preloadedModelUrls.values()) {
-    if (url !== protectedUrl) {
-      revokeObjectUrl(url);
-    }
-  }
-  preloadedModelUrls.clear();
-  preloadPromises.clear();
-}
-
-function releaseActiveViewerResources({ preserveWarmCache = warmCacheEnabled } = {}) {
-  plyViewer.dispose();
+function releaseActiveViewerResources() {
   sogViewer.dispose();
   stopSogPerformanceMonitor();
   replaceModelViewerElement();
@@ -1327,96 +1538,7 @@ function releaseActiveViewerResources({ preserveWarmCache = warmCacheEnabled } =
   document.body.classList.remove("is-error");
   originalMaterials = [];
   currentAssetKey = "";
-
-  if (!preserveWarmCache) {
-    clearWarmModelCache();
-  }
-}
-
-function preloadModel(src) {
-  if (preloadedModelUrls.has(src)) {
-    return Promise.resolve(preloadedModelUrls.get(src));
-  }
-
-  if (preloadPromises.has(src)) {
-    return preloadPromises.get(src);
-  }
-
-  const link = document.createElement("link");
-  link.rel = "preload";
-  link.as = "fetch";
-  link.href = src;
-  link.crossOrigin = "anonymous";
-  document.head.appendChild(link);
-  preloadLinkElements.set(src, link);
-  const controller = new AbortController();
-  preloadAbortControllers.set(src, controller);
-
-  if (!useBlobPreloading) {
-    const preloadPromise = fetch(src, { cache: "force-cache", signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Failed to warm model cache: ${src}`);
-        }
-
-        preloadedModelUrls.set(src, src);
-        return src;
-      })
-      .catch((error) => {
-        if (error?.name === "AbortError") {
-          return null;
-        }
-
-        return src;
-      })
-      .finally(() => {
-        preloadPromises.delete(src);
-        preloadAbortControllers.delete(src);
-        preloadLinkElements.get(src)?.remove?.();
-        preloadLinkElements.delete(src);
-      });
-
-    preloadPromises.set(src, preloadPromise);
-    return preloadPromise;
-  }
-
-  const preloadPromise = fetch(src, { cache: "force-cache", signal: controller.signal })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`Failed to preload model: ${src}`);
-      }
-
-      return response.blob();
-    })
-    .then((blob) => {
-      const objectUrl = URL.createObjectURL(blob);
-      preloadedModelUrls.set(src, objectUrl);
-      return objectUrl;
-    })
-    .catch((error) => {
-      if (error?.name === "AbortError") {
-        return null;
-      }
-
-      return src;
-    })
-    .finally(() => {
-      preloadPromises.delete(src);
-      preloadAbortControllers.delete(src);
-      preloadLinkElements.get(src)?.remove?.();
-      preloadLinkElements.delete(src);
-    });
-
-  preloadPromises.set(src, preloadPromise);
-  return preloadPromise;
-}
-
-async function getModelUrl(src) {
-  if (preloadedModelUrls.has(src)) {
-    return preloadedModelUrls.get(src);
-  }
-
-  return (await preloadModel(src)) || src;
+  setCalibrationPanelOpen(false);
 }
 
 function resolveHostedSogUrl(src) {
@@ -1440,68 +1562,7 @@ function resolveHostedSogUrl(src) {
   return new URL(src, window.location.href).toString();
 }
 
-function collectWarmModelSources() {
-  const sources = new Set();
-  const outdoorCatalog = LOCATION_CATALOG.outdoors;
 
-  for (const stage of timeStages) {
-    const stageAssets = outdoorCatalog.stages?.[stage] || {};
-    for (const formatAssets of Object.values(stageAssets)) {
-      if (formatAssets?.web?.src) {
-        sources.add(formatAssets.web.src);
-      }
-      if (formatAssets?.hd?.src) {
-        sources.add(formatAssets.hd.src);
-      }
-    }
-
-    const mobileStageAssets = outdoorCatalog.mobileStages?.[stage] || {};
-    for (const formatAssets of Object.values(mobileStageAssets)) {
-      if (formatAssets?.web?.src) {
-        sources.add(formatAssets.web.src);
-      }
-      if (formatAssets?.hd?.src) {
-        sources.add(formatAssets.hd.src);
-      }
-    }
-  }
-
-  for (const locationId of Object.keys(LOCATION_CATALOG)) {
-    const locationEntry = LOCATION_CATALOG[locationId];
-    const scenes =
-      locationEntry.kind === "single-scene"
-        ? [locationEntry.scene]
-        : locationEntry.kind === "scene-group"
-          ? locationEntry.scenes || []
-          : [];
-
-    for (const scene of scenes) {
-      for (const asset of Object.values(scene?.assets || {})) {
-        if (asset.type === "glb") {
-          sources.add(asset.src);
-        }
-      }
-    }
-  }
-
-  return [...sources];
-}
-
-function warmModelCache() {
-  if (!warmCacheEnabled) {
-    return;
-  }
-
-  for (const src of collectWarmModelSources()) {
-    preloadModel(src);
-  }
-}
-
-function updateWarmCacheToggle() {
-  warmCacheToggle.setAttribute("aria-pressed", String(warmCacheEnabled));
-  warmCacheToggle.setAttribute("aria-label", warmCacheEnabled ? "Warm Model Cache On" : "Warm Model Cache Off");
-  warmCacheToggle.title = warmCacheEnabled ? "Warm Model Cache On" : "Warm Model Cache Off";
-}
 
 function updateQualityToggle() {
   const hdAvailable =
@@ -1525,6 +1586,349 @@ function updateMaterialToggle() {
   materialToggle.hidden = !isGlb;
   materialToggle.style.display = isGlb ? "inline-flex" : "none";
   materialToggle.disabled = !isGlb;
+}
+
+function getCurrentCalibrationConfig() {
+  if (currentEngineType !== "splat") {
+    return null;
+  }
+
+  return cloneManualBoxConfig(sogViewer.getManualBoxConfig?.() || currentActiveAsset?.manualBox);
+}
+
+function isSogCalibrationAvailable() {
+  return calibrationUiUnlocked && currentEngineType === "splat";
+}
+
+function setCalibrationPanelOpen(open) {
+  calibrationPanelOpen = !!open && isSogCalibrationAvailable();
+  calibrationPanel.hidden = !calibrationPanelOpen;
+  calibrationPanel.setAttribute("aria-hidden", String(!calibrationPanelOpen));
+  calibrationToggle.setAttribute("aria-pressed", String(calibrationPanelOpen));
+  calibrationToggle.setAttribute("aria-expanded", String(calibrationPanelOpen));
+
+  if (sogViewer) {
+    if (calibrationPanelOpen) {
+      sogViewer.setCollisionPreviewVisible?.(calibrationShowCollision.checked);
+      sogViewer.setEditorGuidesVisible?.(calibrationShowGrid.checked);
+    } else {
+      sogViewer.setCollisionPreviewVisible?.(false);
+      sogViewer.setEditorGuidesVisible?.(false);
+      sogViewer.setSpawnMarkerVisible?.(false);
+      streamedCalibTarget = "scene";
+    }
+  }
+}
+
+function setCalibrationInputsDisabled(disabled) {
+  const controls = [
+    ...calibrationInputs.position,
+    ...calibrationInputs.rotationDegrees,
+    ...calibrationInputs.scale,
+    calibrationReset,
+    calibrationSave,
+    calibrationCopy,
+    calibrationClose,
+  ];
+
+  for (const control of controls) {
+    if (control) {
+      control.disabled = !!disabled;
+    }
+  }
+}
+
+function populateCalibrationInputs(config) {
+  calibrationInputSyncSuspended = true;
+
+  for (const [groupKey, inputs] of Object.entries(calibrationInputs)) {
+    const values = config?.[groupKey] || [0, 0, 0];
+    inputs.forEach((input, index) => {
+      input.value = Number(values[index] ?? (groupKey === "scale" ? 1 : 0)).toFixed(3);
+    });
+  }
+
+  calibrationInputSyncSuspended = false;
+}
+
+function updateCalibrationUi() {
+  calibrationToggle.hidden = !calibrationUiUnlocked;
+
+  const available = isSogCalibrationAvailable();
+  calibrationToggle.disabled = !available;
+  calibrationToggle.setAttribute("aria-disabled", String(!available));
+
+  if (!available) {
+    calibrationSceneLabel.textContent = "No active SOG scene";
+    calibrationHint.textContent = calibrationUiUnlocked
+      ? "Switch to a SOG scene to edit its culling box."
+      : "Calibration is locked.";
+    setCalibrationPanelOpen(false);
+    setCalibrationInputsDisabled(true);
+    return;
+  }
+
+  const isStreamed = !!currentActiveAsset?.streamingEnabled;
+  calibrationSave.style.display = isStreamed ? "" : "none";
+  calibrationLodControls.hidden = isStreamed;
+  calibrationFlyCollisionControl.hidden = !isStreamed;
+  calibrationCollisionPreviewControl.hidden = !isStreamed;
+  calibrationGridControl.hidden = !isStreamed;
+  calibrationTargetControl.hidden = !isStreamed;
+  calibrationFlyIgnoreCollision.checked = isStreamed && sogViewer.getFlyCollisionIgnored?.() === true;
+  calibrationShowCollision.checked = isStreamed && sogViewer.getCollisionPreviewVisible?.() === true;
+
+  if (isStreamed) {
+    calibrationSceneLabel.textContent = currentActiveAsset?.label || "Active streamed SOG";
+    calibrationLodControls.hidden = false;
+
+    const editingCollision = streamedCalibTarget === "collision";
+    const editingSpawn = streamedCalibTarget === "spawn";
+    const prefix = editingCollision ? "Collision" : editingSpawn ? "Spawn" : "Scene / SOG";
+    calibrationHint.textContent = editingCollision
+      ? "Editing the green collision mesh. Move, rotate and scale it to match the model."
+      : editingSpawn
+        ? "Orange ball = player spawn. Move = position · Rotate X/Y = look direction. Reset to test."
+        : "Editing the rendered SOG scene. Move, rotate and scale the splat.";
+
+    const labels = calibrationLodControls.querySelectorAll(".calibration-group__label");
+    if (labels[0]) labels[0].textContent = `${prefix} Move`;
+    if (labels[1]) labels[1].textContent = editingSpawn ? "Spawn Look (X=pitch, Y=yaw)" : `${prefix} Rotate`;
+    if (labels[2]) labels[2].textContent = `${prefix} Scale`;
+
+    // Spawn has no scale — hide the scale group when editing spawn
+    const scaleGroup = labels[2]?.closest(".calibration-group");
+    if (scaleGroup) scaleGroup.hidden = editingSpawn;
+
+    // Reflect active target on the buttons
+    for (const btn of calibrationTargetButtons) {
+      btn.dataset.active = String(btn.dataset.calibTarget === streamedCalibTarget);
+    }
+
+    // Show the relevant gizmo for the active target
+    if (editingCollision) {
+      sogViewer.setCollisionPreviewVisible?.(true);
+      calibrationShowCollision.checked = true;
+    }
+    sogViewer.setSpawnMarkerVisible?.(editingSpawn);
+
+    populateCalibrationInputs(getStreamedTargetTransform());
+    setCalibrationInputsDisabled(false);
+    calibrationClose.disabled = false;
+    return;
+  }
+
+  const lodLabels = calibrationLodControls.querySelectorAll(".calibration-group__label");
+  if (lodLabels[0]) lodLabels[0].textContent = "Move";
+  if (lodLabels[1]) lodLabels[1].textContent = "Rotate";
+  if (lodLabels[2]) lodLabels[2].textContent = "Scale";
+
+  const config = getCurrentCalibrationConfig();
+  calibrationSceneLabel.textContent = currentActiveAsset?.label || "Active SOG scene";
+  calibrationHint.textContent = currentActiveAsset?.sceneCalibrationKey
+    ? `Scene key: ${currentActiveAsset.sceneCalibrationKey}`
+    : "Live transform controls for the active SOG cutaway box.";
+  populateCalibrationInputs(config);
+  setCalibrationInputsDisabled(false);
+}
+
+function readCalibrationInputs() {
+  // In streamed mode the inputs represent the scene OR collision transform,
+  // not the manual box, so use the active target transform as the base.
+  const currentConfig = currentActiveAsset?.streamingEnabled
+    ? getStreamedTargetTransform()
+    : getCurrentCalibrationConfig();
+  if (!currentConfig) {
+    return null;
+  }
+
+  const parseInput = (input, fallback) => {
+    const value = Number.parseFloat(input.value);
+    return Number.isFinite(value) ? value : fallback;
+  };
+
+  return {
+    ...currentConfig,
+    position: calibrationInputs.position.map((input, index) => parseInput(input, currentConfig.position?.[index] ?? 0)),
+    rotationDegrees: calibrationInputs.rotationDegrees.map((input, index) => parseInput(input, currentConfig.rotationDegrees?.[index] ?? 0)),
+    scale: calibrationInputs.scale.map((input, index) => Math.max(0.001, parseInput(input, currentConfig.scale?.[index] ?? 1))),
+  };
+}
+
+// Read the transform of whichever target is currently selected in streamed mode.
+function getStreamedTargetTransform() {
+  if (streamedCalibTarget === "collision") {
+    return sogViewer.getCollisionPreviewTransform?.() || {
+      position: [0, 0, 0], rotationDegrees: [0, 0, 0], scale: [1, 1, 1],
+    };
+  }
+  if (streamedCalibTarget === "spawn") {
+    return sogViewer.getSpawnConfig?.() || {
+      position: [0, 1.6, 0], rotationDegrees: [0, 0, 0], scale: [1, 1, 1],
+    };
+  }
+  return sogViewer.getSceneTransform?.() || {
+    position: [0, 0, 0], rotationDegrees: [0, 0, 0], scale: [1, 1, 1],
+  };
+}
+
+function applyCalibrationConfig(config) {
+  if (!config || currentEngineType !== "splat") {
+    return;
+  }
+
+  if (currentActiveAsset?.streamingEnabled) {
+    if (streamedCalibTarget === "collision") {
+      // Ensure the preview is visible so the user can see what they move
+      sogViewer.setCollisionPreviewVisible?.(true);
+      calibrationShowCollision.checked = true;
+      sogViewer.setCollisionPreviewTransform?.({
+        position: config.position,
+        rotationDegrees: config.rotationDegrees,
+        scale: config.scale,
+      });
+      populateCalibrationInputs(sogViewer.getCollisionPreviewTransform?.());
+      setStatus("Collision updated", `${currentActiveAsset?.label || "SOG scene"} collision mesh moved.`);
+      return;
+    }
+
+    if (streamedCalibTarget === "spawn") {
+      sogViewer.setSpawnMarkerVisible?.(true);
+      sogViewer.setSpawnConfig?.({
+        position: config.position,
+        rotationDegrees: config.rotationDegrees,
+      });
+      populateCalibrationInputs(sogViewer.getSpawnConfig?.());
+      setStatus("Spawn updated", "Move = spawn position · Rotate X/Y = look direction. Press Reset to test.");
+      return;
+    }
+
+    sogViewer.setSceneTransform(config);
+    populateCalibrationInputs(sogViewer.getSceneTransform?.());
+    setStatus("Streamed scene updated", `${currentActiveAsset?.label || "SOG scene"} live transform updated.`);
+    return;
+  }
+
+  const nextConfig = cloneManualBoxConfig(config);
+  sogViewer.setManualBoxConfig(nextConfig);
+  currentActiveAsset = {
+    ...currentActiveAsset,
+    manualBox: cloneManualBoxConfig(nextConfig),
+  };
+
+  if (currentActiveAsset?.sceneCalibrationKey) {
+    setCalibrationOverride(currentActiveAsset.sceneCalibrationKey, nextConfig);
+  }
+
+  populateCalibrationInputs(nextConfig);
+  setStatus("Calibration updated", `${currentActiveAsset?.label || "SOG scene"} culling box updated.`);
+  setStatusOverlayState(false);
+  requestAnimationFrame(() => {
+    setStatusOverlayState(true);
+  });
+}
+
+async function copyCalibrationConfig() {
+  const config = getCurrentCalibrationConfig();
+  if (!config) {
+    return;
+  }
+
+  const payload = JSON.stringify({
+    manualBox: config,
+  }, null, 2);
+
+  try {
+    await navigator.clipboard.writeText(payload);
+    setStatus("Calibration copied", "The current manualBox JSON was copied to the clipboard.");
+  } catch (_error) {
+    setStatus("Copy unavailable", "Clipboard access is blocked in this browser context.");
+  }
+
+  setStatusOverlayState(false);
+  requestAnimationFrame(() => {
+    setStatusOverlayState(true);
+  });
+}
+
+function saveCurrentStreamedTransforms() {
+  if (!currentActiveAsset?.sceneCalibrationKey || !currentActiveAsset?.streamingEnabled) return;
+  
+  const sceneTransform = sogViewer.getSceneTransform?.();
+  const collisionTransform = sogViewer.getCollisionPreviewTransform?.();
+  
+  if (!streamedTransformsOverrides[currentActiveAsset.sceneCalibrationKey]) {
+    streamedTransformsOverrides[currentActiveAsset.sceneCalibrationKey] = {};
+  }
+  
+  if (sceneTransform) {
+    streamedTransformsOverrides[currentActiveAsset.sceneCalibrationKey].scene = {
+      position: sceneTransform.position,
+      rotationDegrees: sceneTransform.rotationDegrees,
+      scale: sceneTransform.scale
+    };
+  }
+
+  if (collisionTransform) {
+    streamedTransformsOverrides[currentActiveAsset.sceneCalibrationKey].collision = {
+      position: collisionTransform.position,
+      rotationDegrees: collisionTransform.rotationDegrees,
+      scale: collisionTransform.scale
+    };
+  }
+
+  const spawnConfig = sogViewer.getSpawnConfig?.();
+  if (spawnConfig) {
+    streamedTransformsOverrides[currentActiveAsset.sceneCalibrationKey].spawn = {
+      position: spawnConfig.position,
+      rotationDegrees: spawnConfig.rotationDegrees,
+    };
+  }
+
+  saveStreamedTransformsOverrides();
+  setStatus("Calibration Saved", `Saved transforms for ${currentActiveAsset.label || "SOG scene"} to local storage.`);
+  
+  setStatusOverlayState(false);
+  requestAnimationFrame(() => {
+    setStatusOverlayState(true);
+  });
+}
+
+function resetCalibrationConfig() {
+  if (!currentActiveAsset?.sceneCalibrationKey) {
+    return;
+  }
+
+  if (currentActiveAsset.streamingEnabled) {
+    if (streamedTransformsOverrides[currentActiveAsset.sceneCalibrationKey]) {
+      delete streamedTransformsOverrides[currentActiveAsset.sceneCalibrationKey];
+      saveStreamedTransformsOverrides();
+    }
+    reloadSogAsset(currentActiveAsset, { silent: true });
+    setStatus("Calibration Reset", `Reset transforms for ${currentActiveAsset.label || "SOG scene"} to defaults.`);
+    return;
+  }
+
+  const fallbackConfig =
+    cloneManualBoxConfig(calibrationSessionDefaults.get(currentActiveAsset.sceneCalibrationKey)) ||
+    cloneManualBoxConfig(currentActiveAsset.sourceManualBox);
+
+  if (!fallbackConfig) {
+    return;
+  }
+
+  clearCalibrationOverride(currentActiveAsset.sceneCalibrationKey);
+  sogViewer.setManualBoxConfig(fallbackConfig);
+  currentActiveAsset = {
+    ...currentActiveAsset,
+    manualBox: cloneManualBoxConfig(fallbackConfig),
+  };
+  populateCalibrationInputs(fallbackConfig);
+  setStatus("Calibration reset", `${currentActiveAsset?.label || "SOG scene"} culling box restored.`);
+  setStatusOverlayState(false);
+  requestAnimationFrame(() => {
+    setStatusOverlayState(true);
+  });
 }
 
 function renderSogModeMarkers() {
@@ -1596,16 +2000,16 @@ function renderFpNavMarkers() {
     .map((mode) => `
       <button
         class="location-stage-marker"
-        data-fp-nav-mode="${mode}"
+        data-fp-navigation-mode="${mode}"
         data-active="${String(mode === activeFpNavigationMode)}"
         type="button"
-      >${FP_NAV_MODE_LABELS[mode]}</button>
+      >${mode === "walk" ? "Walk" : "Fly"}</button>
     `)
     .join("");
 
   for (const button of fpNavMarkers.querySelectorAll(".location-stage-marker")) {
     button.addEventListener("click", () => {
-      const mode = button.dataset.fpNavMode;
+      const mode = button.dataset.fpNavigationMode;
       if (!mode || mode === activeFpNavigationMode) {
         return;
       }
@@ -1899,6 +2303,8 @@ function setControlsBusy(isBusy) {
   for (const marker of lodMarkers.querySelectorAll(".location-stage-marker")) {
     marker.disabled = isBusy;
   }
+  calibrationToggle.disabled = isBusy || !isSogCalibrationAvailable();
+  setCalibrationInputsDisabled(isBusy || !isSogCalibrationAvailable());
 
   if (isBusy) {
     qualityToggle.disabled = true;
@@ -1909,6 +2315,7 @@ function setControlsBusy(isBusy) {
     renderSogModeMarkers();
     renderFpNavMarkers();
     updateLodToggle();
+    updateCalibrationUi();
   }
 }
 
@@ -1928,12 +2335,14 @@ function applyTurntableState() {
 }
 
 async function activateGlbAsset(asset, swapId) {
-  const resolvedSource = warmCacheEnabled ? await getModelUrl(asset.src) : asset.src;
+  const resolvedSource = asset.src;
   if (swapId !== activeAssetSwapId) {
     return;
   }
 
-  plyViewer.dispose();
+  turntableEnabled = true;
+  updateTurntableUi();
+
   sogViewer.dispose();
   currentEngineType = "glb";
   currentActiveAsset = asset;
@@ -1946,9 +2355,7 @@ async function activateGlbAsset(asset, swapId) {
 }
 
 async function activateSplatAsset(asset, swapId, options = {}) {
-  const resolvedSource = asset.runtime === "playcanvas"
-    ? resolveHostedSogUrl(asset.src)
-    : asset.src;
+  const resolvedSource = resolveHostedSogUrl(asset.src);
   const targetSplatProfile = {
     maxDpr: asset.streamingEnabled
       ? Math.min(asset.streamingSettings?.maxDpr || autoPerformanceProfile.maxDpr, window.devicePixelRatio || 1)
@@ -1958,10 +2365,16 @@ async function activateSplatAsset(asset, swapId, options = {}) {
     return;
   }
 
-  const viewer = asset.runtime === "playcanvas" ? sogViewer : plyViewer;
-  const inactiveViewer = viewer === sogViewer ? plyViewer : sogViewer;
+  if (asset.streamingEnabled) {
+    turntableEnabled = false;
+  } else {
+    turntableEnabled = true;
+  }
+  updateTurntableUi();
 
-  inactiveViewer.dispose();
+  if (currentEngineType !== "splat" || currentAssetKey !== asset.key) {
+    sogViewer.dispose();
+  }
 
   if (currentAssetKey && currentAssetKey !== asset.key) {
     resetSogAdaptiveTierState(asset.key);
@@ -1975,13 +2388,13 @@ async function activateSplatAsset(asset, swapId, options = {}) {
     setProgress(0.22);
   }
 
-  await viewer.load(
+  await sogViewer.load(
     {
       ...asset,
       src: resolvedSource,
       autoRotate: turntableEnabled,
       transitionOrbitState:
-        asset.runtime === "playcanvas" && !asset.streamingEnabled
+        !asset.streamingEnabled
           ? pendingSogModeTransitionOrbitState
           : null,
     },
@@ -2005,17 +2418,28 @@ async function activateSplatAsset(asset, swapId, options = {}) {
     return;
   }
 
-  if (asset.runtime === "playcanvas" && Number.isFinite(options.targetDpr)) {
+  const liveManualBox = cloneManualBoxConfig(sogViewer.getManualBoxConfig?.());
+  currentActiveAsset = {
+    ...asset,
+    manualBox: liveManualBox || cloneManualBoxConfig(asset.manualBox),
+  };
+
+  if (currentActiveAsset.sceneCalibrationKey && !calibrationSessionDefaults.has(currentActiveAsset.sceneCalibrationKey)) {
+    calibrationSessionDefaults.set(
+      currentActiveAsset.sceneCalibrationKey,
+      cloneManualBoxConfig(currentActiveAsset.sourceManualBox || currentActiveAsset.manualBox)
+    );
+  }
+
+  if (Number.isFinite(options.targetDpr)) {
     sogViewer.setMaxDpr(options.targetDpr);
   }
 
-  if (asset.runtime === "playcanvas" && asset.streamingEnabled) {
+  if (asset.streamingEnabled) {
     sogViewer.setFirstPersonNavigationMode(activeFpNavigationMode);
   }
 
-  if (asset.runtime === "playcanvas") {
-    pendingSogModeTransitionOrbitState = null;
-  }
+  pendingSogModeTransitionOrbitState = null;
 
   if (!options.silent) {
     document.body.classList.add("is-loaded");
@@ -2032,13 +2456,12 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   renderSogModeMarkers();
   renderFpNavMarkers();
   updateLodToggle();
+  updateCalibrationUi();
 
-  if (asset.runtime === "playcanvas") {
-    startSogPerformanceMonitor(
-      asset,
-      Number.isFinite(options.targetDpr) ? options.targetDpr : null
-    );
-  }
+  startSogPerformanceMonitor(
+    asset,
+    Number.isFinite(options.targetDpr) ? options.targetDpr : null
+  );
 }
 
 async function applyActiveAssetSelection() {
@@ -2054,6 +2477,7 @@ async function applyActiveAssetSelection() {
     updateQualityToggle();
     renderFpNavMarkers();
     updateLodToggle();
+    updateCalibrationUi();
     return;
   }
 
@@ -2066,6 +2490,7 @@ async function applyActiveAssetSelection() {
     updateQualityToggle();
     renderFpNavMarkers();
     updateLodToggle();
+    updateCalibrationUi();
     return;
   }
 
@@ -2092,6 +2517,7 @@ async function applyActiveAssetSelection() {
       });
     } else {
       await activateGlbAsset(nextAsset, swapId);
+      updateCalibrationUi();
     }
   } catch (error) {
     if (swapId !== activeAssetSwapId) {
@@ -2109,6 +2535,7 @@ async function applyActiveAssetSelection() {
       renderSogModeMarkers();
       renderFpNavMarkers();
       updateLodToggle();
+      updateCalibrationUi();
     }
   }
 }
@@ -2349,17 +2776,6 @@ fullscreenToggle.addEventListener("click", async () => {
   await hero.requestFullscreen();
 });
 
-warmCacheToggle.addEventListener("click", () => {
-  warmCacheEnabled = !warmCacheEnabled;
-  updateWarmCacheToggle();
-  if (warmCacheEnabled) {
-    warmModelCache();
-    return;
-  }
-
-  clearWarmModelCache();
-});
-
 qualityToggle.addEventListener("click", async () => {
   if (!isCampusOutsideSelected()) {
     return;
@@ -2503,16 +2919,100 @@ splatViewerMount.addEventListener("fp-user-interaction", () => {
   updateTurntableUi();
 });
 
+calibrationToggle.addEventListener("click", () => {
+  if (!isSogCalibrationAvailable()) {
+    return;
+  }
+
+  updateCalibrationUi();
+  setCalibrationPanelOpen(!calibrationPanelOpen);
+});
+
+calibrationClose.addEventListener("click", () => {
+  setCalibrationPanelOpen(false);
+});
+
+calibrationReset.addEventListener("click", () => {
+  resetCalibrationConfig();
+});
+
+calibrationSave.addEventListener("click", () => {
+  saveCurrentStreamedTransforms();
+});
+
+calibrationCopy.addEventListener("click", async () => {
+  await copyCalibrationConfig();
+});
+
+calibrationFlyIgnoreCollision.addEventListener("change", () => {
+  if (!currentActiveAsset?.streamingEnabled) return;
+
+  sogViewer.setFlyCollisionIgnored?.(calibrationFlyIgnoreCollision.checked);
+  setStatus(
+    "Fly collision updated",
+    calibrationFlyIgnoreCollision.checked
+      ? "Fly now passes through collision. Walk remains collision-enabled."
+      : "Fly collision is enabled again."
+  );
+  setStatusOverlayState(false);
+  requestAnimationFrame(() => setStatusOverlayState(true));
+});
+
+calibrationShowCollision.addEventListener("change", () => {
+  if (!currentActiveAsset?.streamingEnabled) return;
+  sogViewer.setCollisionPreviewVisible?.(calibrationShowCollision.checked);
+});
+
+calibrationShowGrid.addEventListener("change", () => {
+  sogViewer.setEditorGuidesVisible?.(calibrationShowGrid.checked);
+});
+
+// Scene / Collision / Spawn target switch (streamed mode only)
+for (const btn of calibrationTargetButtons) {
+  btn.addEventListener("click", () => {
+    if (!currentActiveAsset?.streamingEnabled) return;
+    const nextTarget = btn.dataset.calibTarget;
+    if (nextTarget === streamedCalibTarget) return;
+
+    streamedCalibTarget = nextTarget;
+    if (streamedCalibTarget === "collision") {
+      sogViewer.setCollisionPreviewVisible?.(true);
+      calibrationShowCollision.checked = true;
+    } else if (streamedCalibTarget === "spawn") {
+      sogViewer.setSpawnMarkerVisible?.(true);
+    }
+    updateCalibrationUi();
+  });
+}
+
+for (const input of [
+  ...calibrationInputs.position,
+  ...calibrationInputs.rotationDegrees,
+  ...calibrationInputs.scale,
+]) {
+  input.addEventListener("change", () => {
+    if (calibrationInputSyncSuspended || !isSogCalibrationAvailable()) {
+      return;
+    }
+
+    const nextConfig = readCalibrationInputs();
+    if (!nextConfig) {
+      return;
+    }
+
+    applyCalibrationConfig(nextConfig);
+  });
+}
+
 bindModelViewerEvents(modelViewer);
 syncNavigationState();
-updateWarmCacheToggle();
 updateLocationUi();
 updateQualityToggle();
 updateMaterialToggle();
+updateCalibrationUi();
 updateTimeUi();
 updateTurntableUi();
 setStatusOverlayState(false);
-warmModelCache();
 applyTurntableState();
 
 setProgress(0.08);

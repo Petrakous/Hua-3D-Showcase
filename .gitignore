@@ -1,7 +1,32 @@
 Thumbs.db
 .DS_Store
-# Large local source/intermediate splat files
-PLYs/**/*.ply
-PLYs/**/*.ssproj
-PLYs/**/output_lod/
+
+# Local-only staged R2 payloads
+dist-r2-assets/
+
+# Large local source/runtime asset payloads served from Cloudflare R2
+PLYs/
+GLBs/
+*.sog
+*.ply
+*.glb
+
+# Splat project/intermediate files
+*.ssproj
+
+# Local secrets and cloud credentials
+.env
+.env.*
+!.env.example
+R2_KEYS_DO_NOT_SHARE.txt
+.rclone.conf
+rclone.conf
+aws-credentials
+aws-config
+credentials
+credentials.json
+token.json
+*.pem
+*.key
+*.p12
 

@@ -1,6 +1,6 @@
-import { computeAutoCutaway } from "./autoCutaway.js?v=20260610fp21";
-import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb } from "./fpCollision.js?v=20260610fp21";
-import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260610fp21";
+import { computeAutoCutaway } from "./autoCutaway.js?v=20260625fp22";
+import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
+import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260625fp22";
 
 const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas/+esm";
 const ORBIT_DAMPING_DECAY_MS = 140;
@@ -446,8 +446,20 @@ class PlayCanvasSogViewer {
     this.frameReadyHandler = null;
     this.currentCutawayBoxConfig = null;
     this.fpCollision = null;
+    this.collisionPreviewEntity = null;
+    this.collisionPreviewAsset = null;
+    this.collisionPreviewTransform = null;
+    this.sceneTransform = null;
+    this.collisionPreviewVisible = false;
+    this._collisionRebuildTimer = null;
+    // Spawn point editor state
+    this.spawnEditConfig = null;       // { cameraPosition:[x,y,z], yaw:deg, pitch:deg, fov }
+    this._spawnMarkerEntity = null;    // visible orange sphere
+    this.spawnMarkerVisible = false;
+    this.editorGuidesVisible = true;
     this.fpNavigationController = null;
     this.fpNavigationMode = "walk";
+    this.flyCollisionIgnored = false;
     this.firstPersonActive = false;
     this.firstPersonTransitionPending = false;
     this.fpInteractionCommitted = false;
@@ -475,6 +487,26 @@ class PlayCanvasSogViewer {
     return worldPoint;
   }
 
+  getManualBoxParentWorldMatrix(pc) {
+    const referenceRotation = this.currentAsset?.manualBoxReferenceRotation;
+    if (!referenceRotation) {
+      return this.splatEntity.getWorldTransform();
+    }
+
+    const asset = this.currentAsset;
+    return new pc.Mat4().setTRS(
+      new pc.Vec3(...(asset.position || [0, 0, 0])),
+      new pc.Quat(...referenceRotation),
+      new pc.Vec3(...(asset.scale || [1, 1, 1]))
+    );
+  }
+
+  transformManualBoxPointToWorld(pc, point) {
+    const worldPoint = point?.clone?.() || new pc.Vec3(0, 0, 0);
+    this.getManualBoxParentWorldMatrix(pc).transformPoint(worldPoint, worldPoint);
+    return worldPoint;
+  }
+
   resolveOrbitStateFromCamera(pc, target, cameraPosition) {
     const offsetX = cameraPosition.x - target.x;
     const offsetY = cameraPosition.y - target.y;
@@ -493,12 +525,20 @@ class PlayCanvasSogViewer {
 
   resolveOrbitState(pc, asset, entity, localBoundsCenter, boundsRadius) {
     const viewPreset = asset.viewPreset || {};
+    const manualBox = asset.streamingEnabled ? asset.manualBox : null;
+    const useManualBoxAnchor = !!manualBox && !viewPreset.target && !viewPreset.cameraPosition;
+    const orbitAnchor = useManualBoxAnchor
+      ? new pc.Vec3(...(manualBox.position || [0, 0, 0]))
+      : localBoundsCenter;
+    const toWorld = asset.manualBoxReferenceRotation
+      ? (point) => this.transformManualBoxPointToWorld(pc, point)
+      : (point) => this.transformPointToWorld(pc, entity, point);
     const target = viewPreset.target
-      ? this.transformPointToWorld(pc, entity, new pc.Vec3(...viewPreset.target))
-      : this.transformPointToWorld(pc, entity, localBoundsCenter);
+      ? toWorld(new pc.Vec3(...viewPreset.target))
+      : toWorld(orbitAnchor);
 
     if (viewPreset.cameraPosition) {
-      const cameraPosition = this.transformPointToWorld(pc, entity, new pc.Vec3(...viewPreset.cameraPosition));
+      const cameraPosition = toWorld(new pc.Vec3(...viewPreset.cameraPosition));
       return this.resolveOrbitStateFromCamera(pc, target, cameraPosition);
     }
 
@@ -541,6 +581,378 @@ class PlayCanvasSogViewer {
     }
   }
 
+  setFlyCollisionIgnored(ignored) {
+    this.flyCollisionIgnored = ignored === true;
+    this.fpNavigationController?.setFlyCollisionIgnored(this.flyCollisionIgnored);
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  getFlyCollisionIgnored() {
+    return this.flyCollisionIgnored;
+  }
+
+  getSceneTransform() {
+    if (this.sceneTransform) return this.sceneTransform;
+    if (!this.splatEntity) return null;
+    const position = this.splatEntity.getLocalPosition();
+    const rotation = this.splatEntity.getLocalEulerAngles();
+    const scale = this.splatEntity.getLocalScale();
+    return {
+      position: [position.x, position.y, position.z],
+      rotationDegrees: [rotation.x, rotation.y, rotation.z],
+      scale: [scale.x, scale.y, scale.z],
+    };
+  }
+
+  setSceneTransform(transform) {
+    this.sceneTransform = transform;
+    if (!this.splatEntity || !transform) return;
+    this.splatEntity.setLocalPosition(...(transform.position || [0, 0, 0]));
+    this.splatEntity.setLocalEulerAngles(...(transform.rotationDegrees || [0, 0, 0]));
+    this.splatEntity.setLocalScale(...(transform.scale || [1, 1, 1]));
+    this.splatEntity.syncHierarchy();
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  async loadCollisionPreview(asset = this.currentAsset) {
+    if (!asset?.streamingEnabled || !asset.fpCollisionSource || !this.app || !this.pc) return;
+    if (this.collisionPreviewEntity) this.collisionPreviewEntity.destroy();
+    if (this.collisionPreviewAsset) {
+      this.app.assets.remove(this.collisionPreviewAsset);
+      this.collisionPreviewAsset.unload();
+    }
+
+    const previewAsset = new this.pc.Asset("Collision preview", "container", { url: asset.fpCollisionSource });
+    await new Promise((resolve, reject) => {
+      previewAsset.once("load", resolve);
+      previewAsset.once("error", reject);
+      this.app.assets.add(previewAsset);
+      this.app.assets.load(previewAsset);
+    });
+    if (!this.app || !previewAsset.resource) return;
+
+    const entity = previewAsset.resource.instantiateRenderEntity();
+    entity.name = "CollisionPreview";
+
+    // Initialise the collision preview so it starts overlapping the rendered SOG.
+    // We reuse a previously saved collision transform if one exists, otherwise we
+    // seed it from the splat entity's current local transform so the mesh appears
+    // right on top of the model and the user can fine-tune from there.
+    const seedTransform = this.collisionPreviewTransform || (asset.collisionPosition ? {
+      position: asset.collisionPosition,
+      rotationDegrees: asset.collisionRotationDegrees || [0, 0, 0],
+      scale: asset.collisionScale || [1, 1, 1]
+    } : null) || this.getSceneTransform() || {
+      position: asset.position || [0, 0, 0],
+      rotationDegrees: [0, 0, 0],
+      scale: asset.scale || [1, 1, 1],
+    };
+    entity.setLocalPosition(...(seedTransform.position || [0, 0, 0]));
+    entity.setLocalEulerAngles(...(seedTransform.rotationDegrees || [0, 0, 0]));
+    entity.setLocalScale(...(seedTransform.scale || [1, 1, 1]));
+
+    // Bright collision overlay material. CRITICAL: depthTest = false so the mesh
+    // ALWAYS draws on top of the splat cloud. Without this, the mesh sits inside
+    // the transparent gaussian cloud and depth-sorting makes it flicker/vanish.
+    const overlayMaterial = new this.pc.StandardMaterial();
+    overlayMaterial.useLighting = false;
+    overlayMaterial.diffuse = new this.pc.Color(0, 0, 0);
+    overlayMaterial.emissive = new this.pc.Color(0.15, 1.0, 0.45);
+    overlayMaterial.opacity = 0.55;
+    overlayMaterial.blendType = this.pc.BLEND_NORMAL;
+    overlayMaterial.depthTest = false;
+    overlayMaterial.depthWrite = false;
+    overlayMaterial.cull = this.pc.CULLFACE_NONE;
+    overlayMaterial.update();
+    const applyOverlay = (node) => {
+      for (const meshInstance of node.render?.meshInstances || []) {
+        meshInstance.material = overlayMaterial;
+        // Force the overlay to render after the splat cloud within its layer.
+        meshInstance.drawOrder = 1e6;
+      }
+      for (const child of node.children || []) applyOverlay(child);
+    };
+    applyOverlay(entity);
+    entity.enabled = this.collisionPreviewVisible;
+    this.app.root.addChild(entity);
+    this.collisionPreviewEntity = entity;
+    this.collisionPreviewAsset = previewAsset;
+    this.collisionPreviewTransform = seedTransform;
+    if (this.app) this.app.renderNextFrame = true;
+
+    // The visible mesh becomes the real physics collision — what you see blocks you.
+    this.rebuildCollisionFromPreview();
+  }
+
+  setCollisionPreviewVisible(visible) {
+    this.collisionPreviewVisible = visible === true;
+    if (this.collisionPreviewEntity) this.collisionPreviewEntity.enabled = this.collisionPreviewVisible;
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  getCollisionPreviewVisible() {
+    return this.collisionPreviewVisible;
+  }
+
+  getCollisionPreviewTransform() {
+    if (this.collisionPreviewTransform) return this.collisionPreviewTransform;
+    if (!this.collisionPreviewEntity) return null;
+    const p = this.collisionPreviewEntity.getLocalPosition();
+    const r = this.collisionPreviewEntity.getLocalEulerAngles();
+    const s = this.collisionPreviewEntity.getLocalScale();
+    return { position: [p.x, p.y, p.z], rotationDegrees: [r.x, r.y, r.z], scale: [s.x, s.y, s.z] };
+  }
+
+  setCollisionPreviewTransform(transform) {
+    this.collisionPreviewTransform = transform;
+    if (!this.collisionPreviewEntity || !transform) return;
+    this.collisionPreviewEntity.setLocalPosition(...transform.position);
+    this.collisionPreviewEntity.setLocalEulerAngles(...transform.rotationDegrees);
+    this.collisionPreviewEntity.setLocalScale(...transform.scale);
+    this.collisionPreviewEntity.syncHierarchy();
+    if (this.app) this.app.renderNextFrame = true;
+    // Rebuild the actual physics collision so what you SEE is what blocks you.
+    this.scheduleCollisionRebuild();
+  }
+
+  // Rebuild the physics collision (used by Walk/Fly) from the live preview mesh,
+  // so it matches exactly what is rendered. Debounced to avoid rebuilding the
+  // spatial hash on every keystroke.
+  scheduleCollisionRebuild() {
+    if (this._collisionRebuildTimer) {
+      clearTimeout(this._collisionRebuildTimer);
+    }
+    this._collisionRebuildTimer = setTimeout(() => {
+      this._collisionRebuildTimer = null;
+      this.rebuildCollisionFromPreview();
+    }, 220);
+  }
+
+  rebuildCollisionFromPreview() {
+    if (!this.pc || !this.collisionPreviewEntity || !this.currentAsset?.streamingEnabled) {
+      return;
+    }
+    try {
+      const collision = buildMeshCollisionFromEntity(this.pc, this.collisionPreviewEntity);
+      if (collision) {
+        this.fpCollision = collision;
+        this.fpNavigationController?.setCollision?.(collision);
+      }
+    } catch (error) {
+      console.warn("Collision rebuild from preview failed:", error);
+    }
+  }
+
+  setEditorGuidesVisible(visible) {
+    this.editorGuidesVisible = visible === true;
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  drawEditorGuides(pc) {
+    if (!this.editorGuidesVisible || !this.app?.drawLine || !this.currentAsset?.streamingEnabled) return;
+    const size = 24;
+    const step = 2;
+    const gridColor = new pc.Color(0.16, 0.72, 0.7, 0.32);
+    const xAxisColor = new pc.Color(1, 0.28, 0.28, 0.9);
+    const yAxisColor = new pc.Color(0.35, 1, 0.42, 0.9);
+    const zAxisColor = new pc.Color(0.35, 0.58, 1, 0.9);
+    for (let value = -size; value <= size; value += step) {
+      this.app.drawLine(new pc.Vec3(-size, 0, value), new pc.Vec3(size, 0, value), gridColor);
+      this.app.drawLine(new pc.Vec3(value, 0, -size), new pc.Vec3(value, 0, size), gridColor);
+    }
+    this.app.drawLine(new pc.Vec3(-size, 0, 0), new pc.Vec3(size, 0, 0), xAxisColor);
+    this.app.drawLine(new pc.Vec3(0, -size * 0.25, 0), new pc.Vec3(0, size * 0.25, 0), yAxisColor);
+    this.app.drawLine(new pc.Vec3(0, 0, -size), new pc.Vec3(0, 0, size), zAxisColor);
+  }
+
+  // ===========================================================================
+  // SPAWN POINT EDITOR
+  // ===========================================================================
+
+  // Look direction from yaw/pitch (matches fpNavigation.forwardFromAngles).
+  _forwardFromAngles(yawDeg, pitchDeg) {
+    const yaw = (yawDeg * Math.PI) / 180;
+    const pitch = (pitchDeg * Math.PI) / 180;
+    return {
+      x: -Math.cos(pitch) * Math.sin(yaw),
+      y: -Math.sin(pitch),
+      z: -Math.cos(pitch) * Math.cos(yaw),
+    };
+  }
+
+  // Initialise spawn config from the asset's fpViewPreset (cameraPosition + target).
+  initSpawnConfig(asset = this.currentAsset) {
+    // Prefer a saved spawn override (from localStorage via applyCalibrationOverrideToAsset)
+    if (asset?.spawnOverride?.position) {
+      const [x, y, z] = asset.spawnOverride.position;
+      const pitch = asset.spawnOverride.rotationDegrees?.[0] ?? 0;
+      const yaw = asset.spawnOverride.rotationDegrees?.[1] ?? 0;
+      const fov = asset?.fpViewPreset?.fov ?? 90;
+      this.spawnEditConfig = { cameraPosition: [x, y, z], yaw, pitch, fov };
+      return this.spawnEditConfig;
+    }
+
+    const preset = asset?.resolvedFpViewPreset || asset?.fpViewPreset || asset?.viewPreset || {};
+    const cameraPosition = [...(preset.cameraPosition || [0, 1.6, 0])];
+    const target = preset.target || [cameraPosition[0], cameraPosition[1], cameraPosition[2] - 1];
+    const fov = Number.isFinite(preset.fov) ? preset.fov : 90;
+
+    const dx = target[0] - cameraPosition[0];
+    const dy = target[1] - cameraPosition[1];
+    const dz = target[2] - cameraPosition[2];
+    const len = Math.hypot(dx, dy, dz) || 1;
+    const ny = dy / len;
+    const pitch = -Math.asin(Math.max(-1, Math.min(1, ny))) * 180 / Math.PI;
+    const yaw = Math.atan2(-dx, -dz) * 180 / Math.PI;
+
+    this.spawnEditConfig = { cameraPosition, yaw, pitch, fov };
+    return this.spawnEditConfig;
+  }
+
+  // Expose to the panel as position + rotationDegrees ([pitch, yaw, 0]).
+  getSpawnConfig() {
+    if (!this.spawnEditConfig) this.initSpawnConfig();
+    const c = this.spawnEditConfig;
+    return {
+      position: [...c.cameraPosition],
+      rotationDegrees: [c.pitch, c.yaw, 0],
+      scale: [1, 1, 1],
+    };
+  }
+
+  setSpawnConfig(transform) {
+    if (!transform) return;
+    if (!this.spawnEditConfig) this.initSpawnConfig();
+    if (transform.position) {
+      this.spawnEditConfig.cameraPosition = [...transform.position];
+    }
+    if (transform.rotationDegrees) {
+      this.spawnEditConfig.pitch = transform.rotationDegrees[0] || 0;
+      this.spawnEditConfig.yaw = transform.rotationDegrees[1] || 0;
+    }
+    this._updateSpawnMarker();
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  _ensureSpawnMarker() {
+    if (this._spawnMarkerEntity || !this.pc || !this.app) return;
+    const pc = this.pc;
+    const marker = new pc.Entity("SpawnMarker");
+    marker.addComponent("render", { type: "sphere" });
+    const mat = new pc.StandardMaterial();
+    mat.useLighting = false;
+    mat.diffuse = new pc.Color(0, 0, 0);
+    mat.emissive = new pc.Color(1.0, 0.55, 0.1); // orange
+    mat.opacity = 0.85;
+    mat.blendType = pc.BLEND_NORMAL;
+    mat.depthTest = false;
+    mat.depthWrite = false;
+    mat.update();
+    for (const mi of marker.render.meshInstances || []) {
+      mi.material = mat;
+      mi.drawOrder = 1e6;
+    }
+    marker.setLocalScale(0.3, 0.3, 0.3);
+    this.app.root.addChild(marker);
+    this._spawnMarkerEntity = marker;
+    this._updateSpawnMarker();
+  }
+
+  _updateSpawnMarker() {
+    if (!this._spawnMarkerEntity || !this.spawnEditConfig) return;
+    const [x, y, z] = this.spawnEditConfig.cameraPosition;
+    this._spawnMarkerEntity.setLocalPosition(x, y, z);
+  }
+
+  setSpawnMarkerVisible(visible) {
+    this.spawnMarkerVisible = visible === true;
+    if (this.spawnMarkerVisible) {
+      if (!this.spawnEditConfig) this.initSpawnConfig();
+      this._ensureSpawnMarker();
+    }
+    if (this._spawnMarkerEntity) {
+      this._spawnMarkerEntity.enabled = this.spawnMarkerVisible;
+    }
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  // Draw the look-direction arrow each frame when the marker is visible.
+  drawSpawnMarker(pc) {
+    if (!this.spawnMarkerVisible || !this.app?.drawLine || !this.spawnEditConfig) return;
+    const c = this.spawnEditConfig;
+    const origin = new pc.Vec3(c.cameraPosition[0], c.cameraPosition[1], c.cameraPosition[2]);
+    const fwd = this._forwardFromAngles(c.yaw, c.pitch);
+    const length = 1.6;
+    const tip = new pc.Vec3(
+      origin.x + fwd.x * length,
+      origin.y + fwd.y * length,
+      origin.z + fwd.z * length
+    );
+    const dirColor = new pc.Color(1.0, 0.7, 0.15, 1);
+    this.app.drawLine(origin, tip, dirColor);
+
+    // Small arrowhead: two short lines back from the tip
+    const back = { x: -fwd.x, y: -fwd.y, z: -fwd.z };
+    const side = { x: -fwd.z, y: 0, z: fwd.x }; // perpendicular on XZ
+    const sideLen = Math.hypot(side.x, side.z) || 1;
+    side.x /= sideLen; side.z /= sideLen;
+    const headLen = 0.28;
+    this.app.drawLine(tip, new pc.Vec3(
+      tip.x + (back.x + side.x) * headLen,
+      tip.y + back.y * headLen,
+      tip.z + (back.z + side.z) * headLen
+    ), dirColor);
+    this.app.drawLine(tip, new pc.Vec3(
+      tip.x + (back.x - side.x) * headLen,
+      tip.y + back.y * headLen,
+      tip.z + (back.z - side.z) * headLen
+    ), dirColor);
+  }
+
+  // Teleport the player to the current spawn config (used by Reset while in FP).
+  applySpawnToPlayer() {
+    if (!this.firstPersonActive || !this.fpNavigationController || !this.pc || !this.spawnEditConfig) {
+      return false;
+    }
+    const c = this.spawnEditConfig;
+    const orbitState = {
+      target: new this.pc.Vec3(c.cameraPosition[0], c.cameraPosition[1], c.cameraPosition[2]),
+      distance: 0.001,
+      yaw: c.yaw,
+      pitch: c.pitch,
+    };
+    if (this.camera?.camera && Number.isFinite(c.fov)) {
+      this.camera.camera.fov = c.fov;
+    }
+    this.fpNavigationController.setPreservePresetSpawn(true);
+    this.fpNavigationController.enterFromOrbitState(orbitState, c.fov ?? 90);
+    if (this.app) this.app.renderNextFrame = true;
+    return true;
+  }
+
+  ensureOrbitController(viewPreset = this.currentAsset?.viewPreset) {
+    if (!this.canvas || !this.goalOrbitState) {
+      return null;
+    }
+
+    if (!this.orbitController) {
+      this.orbitController = new SimpleOrbitController(this.canvas, {
+        getFieldOfView: () => this.camera?.camera?.fov ?? viewPreset?.fov ?? 60,
+        onChange: () => {
+          if (this.app) {
+            this.app.renderNextFrame = true;
+          }
+        },
+        onPanStateChange: (visible) => {
+          this.setPanIndicatorVisible(visible);
+        },
+      });
+    }
+
+    this.orbitController.bind(this.goalOrbitState);
+    return this.orbitController;
+  }
+
   isOrbitSettled() {
     if (!this.orbitState || !this.goalOrbitState) {
       return true;
@@ -576,6 +988,7 @@ class PlayCanvasSogViewer {
       });
     } else {
       this.fpNavigationController.setCollision(this.fpCollision);
+      this.fpNavigationController.setFlyCollisionIgnored(this.flyCollisionIgnored);
       this.fpNavigationController.setPreservePresetSpawn(!!this.currentAsset?.fpViewPreset?.cameraPosition);
       this.fpNavigationController.setMode(this.fpNavigationMode);
     }
@@ -588,12 +1001,45 @@ class PlayCanvasSogViewer {
       return;
     }
 
+    if (this.orbitController) {
+      this.orbitController.dispose();
+      this.orbitController = null;
+    }
+
     const controller = this.ensureFirstPersonNavigation(pc);
     if (!controller) {
       return;
     }
 
-    controller.enterFromOrbitState(this.orbitState || this.goalOrbitState, this.camera.camera?.fov ?? 90);
+    const fpViewPreset =
+      this.currentAsset?.resolvedFpViewPreset ||
+      this.currentAsset?.fpViewPreset ||
+      this.currentAsset?.viewPreset;
+    if (fpViewPreset?.fov && this.camera?.camera) {
+      this.camera.camera.fov = fpViewPreset.fov;
+    }
+
+    // Spawn the player at the edited spawn config if available, otherwise fall
+    // back to the orbit-derived entry pose.
+    if (!this.spawnEditConfig) {
+      this.initSpawnConfig();
+    }
+    if (this.spawnEditConfig) {
+      const c = this.spawnEditConfig;
+      const spawnOrbitState = {
+        target: new pc.Vec3(c.cameraPosition[0], c.cameraPosition[1], c.cameraPosition[2]),
+        distance: 0.001,
+        yaw: c.yaw,
+        pitch: c.pitch,
+      };
+      if (this.camera?.camera && Number.isFinite(c.fov)) {
+        this.camera.camera.fov = c.fov;
+      }
+      controller.setPreservePresetSpawn(true);
+      controller.enterFromOrbitState(spawnOrbitState, c.fov ?? 90);
+    } else {
+      controller.enterFromOrbitState(this.orbitState || this.goalOrbitState, this.camera.camera?.fov ?? 90);
+    }
     this.firstPersonActive = true;
     this.firstPersonTransitionPending = false;
     this.fpInteractionCommitted = false;
@@ -633,9 +1079,9 @@ class PlayCanvasSogViewer {
 
     try {
       const collision = await loadMeshCollisionFromGlb(this.app, this.pc, asset.fpCollisionSource, {
-        position: asset.position,
-        rotation: asset.rotation,
-        scale: asset.scale,
+        position: asset.collisionPosition || asset.position,
+        rotation: asset.collisionRotation || asset.rotation,
+        scale: asset.collisionScale || asset.scale,
       });
       this.fpCollision = collision;
       if (!collision) {
@@ -648,9 +1094,9 @@ class PlayCanvasSogViewer {
 
       return {
         ...asset,
-        viewPreset: buildCollisionAdjustedViewPreset(
+        resolvedFpViewPreset: buildCollisionAdjustedViewPreset(
           collision,
-          asset.viewPreset || {},
+          asset.fpViewPreset || asset.viewPreset || {},
           asset.manualBox?.position || [0, 0, 0]
         ),
       };
@@ -673,6 +1119,7 @@ class PlayCanvasSogViewer {
       cutRatio: Number.isFinite(config.cutRatio) ? config.cutRatio : 0.2,
       cutFadeWidth: Number.isFinite(config.cutFadeWidth) ? config.cutFadeWidth : undefined,
       cutDepthByFace: config.cutDepthByFace ? { ...config.cutDepthByFace } : undefined,
+      cutDepthLockedByFace: config.cutDepthLockedByFace ? { ...config.cutDepthLockedByFace } : undefined,
     };
   }
 
@@ -794,7 +1241,7 @@ class PlayCanvasSogViewer {
 
   createBoxWorldMatrix(pc, boxConfig) {
     const localBoxMatrix = this.createBoxLocalMatrix(pc, boxConfig);
-    return new pc.Mat4().mul2(this.splatEntity.getWorldTransform(), localBoxMatrix);
+    return new pc.Mat4().mul2(this.getManualBoxParentWorldMatrix(pc), localBoxMatrix);
   }
 
   createFallbackBoxCollision(pc, entity, boxConfig) {
@@ -1131,17 +1578,40 @@ class PlayCanvasSogViewer {
     return inverseWorldBoxMatrix.transformPoint(worldCameraPosition.clone(), new pc.Vec3());
   }
 
+  isCameraOutsideBox(cameraPositionInBoxSpace) {
+    if (!cameraPositionInBoxSpace) {
+      return false;
+    }
+
+    // Auto cutaway has a meaningful "camera side" only outside the box.
+    return Math.max(
+      Math.abs(cameraPositionInBoxSpace.x),
+      Math.abs(cameraPositionInBoxSpace.y),
+      Math.abs(cameraPositionInBoxSpace.z)
+    ) > 0.5 + 0.001;
+  }
+
+  shouldApplyCutaway() {
+    if (!this.cutawayEnabled) {
+      return false;
+    }
+
+    return !this.currentAsset?.streamingEnabled;
+  }
+
   getEffectiveCutawayBoxConfig(pc, boxConfig = this.activeManualBoxConfig) {
     if (!boxConfig) {
       return null;
     }
 
-    if (!this.cutawayEnabled) {
+    if (!this.shouldApplyCutaway()) {
       return boxConfig;
     }
 
     const cameraPositionInBoxSpace = this.getCameraPositionInBoxSpace(pc, boxConfig);
-    if (!cameraPositionInBoxSpace) {
+    if (!this.isCameraOutsideBox(cameraPositionInBoxSpace)) {
+      // Preserve the calibrated bounding box, but do not invent a cut face
+      // from an inside-camera position (for example immediately after FP).
       return boxConfig;
     }
 
@@ -1213,7 +1683,7 @@ class PlayCanvasSogViewer {
     const immediate = !!options.immediate;
     const deltaMs = Math.max((options.deltaSeconds || 0) * 1000, 0);
 
-    if (!this.cutawayEnabled || !this.activeManualBoxConfig) {
+    if (!this.activeManualBoxConfig || !this.shouldApplyCutaway()) {
       this.currentCutawayBoxConfig = null;
       this.setCutawayParameters(pc, gsplat, null, false);
       if (this.app) {
@@ -1493,6 +1963,12 @@ class PlayCanvasSogViewer {
       }, 200);
 
       this.currentAsset = asset;
+      const r = splatEntity.getLocalEulerAngles();
+      this.sceneTransform = {
+        position: asset.position || [0, 0, 0],
+        rotationDegrees: asset.rotationDegrees || [r.x, r.y, r.z],
+        scale: asset.scale || [1, 1, 1],
+      };
       this.cutawayModifierInstalled = false;
       this.autoRotate = !!asset.autoRotate;
       this.cutawayEnabled = asset.cutawayEnabled !== false;
@@ -1570,6 +2046,8 @@ class PlayCanvasSogViewer {
         }
       }
       this.syncCutawayState(pc, { deltaSeconds });
+      this.drawEditorGuides(pc);
+      this.drawSpawnMarker(pc);
     });
 
     this.app = app;
@@ -1656,6 +2134,13 @@ class PlayCanvasSogViewer {
     app.root.addChild(splatEntity);
     this.splatEntity = splatEntity;
 
+    const r = splatEntity.getLocalEulerAngles();
+    this.sceneTransform = {
+      position: preparedAsset.position || [0, 0, 0],
+      rotationDegrees: preparedAsset.rotationDegrees || [r.x, r.y, r.z],
+      scale: preparedAsset.scale || [1, 1, 1],
+    };
+
     const aabb = splatEntity.gsplat?.customAabb || splatEntity.gsplat?.aabb || splatAsset.resource?.aabb;
     const center = aabb?.center?.clone?.() || new pc.Vec3(0, 0, 0);
     const halfExtents = aabb?.halfExtents?.clone?.() || new pc.Vec3(1, 1, 1);
@@ -1668,6 +2153,9 @@ class PlayCanvasSogViewer {
     this.fpCollision = preparedAsset.streamingEnabled
       ? (this.fpCollision || this.createFallbackBoxCollision(pc, splatEntity, this.activeFpCollisionBoxConfig || this.activeManualBoxConfig))
       : null;
+    if (preparedAsset.streamingEnabled) {
+      this.loadCollisionPreview(preparedAsset).catch((error) => console.warn("Collision preview failed:", error));
+    }
 
     const radius = Math.max(halfExtents.length(), 1);
     this.goalOrbitState = this.resolveOrbitState(pc, preparedAsset, splatEntity, center, radius);
@@ -1688,18 +2176,7 @@ class PlayCanvasSogViewer {
       this.firstPersonTransitionPending = false;
       this.startFirstPersonNavigation(pc);
     } else {
-      this.orbitController = new SimpleOrbitController(canvas, {
-        getFieldOfView: () => this.camera?.camera?.fov ?? preparedAsset.viewPreset?.fov ?? 60,
-        onChange: () => {
-          if (this.app) {
-            this.app.renderNextFrame = true;
-          }
-        },
-        onPanStateChange: (visible) => {
-          this.setPanIndicatorVisible(visible);
-        },
-      });
-      this.orbitController.bind(this.goalOrbitState);
+      this.ensureOrbitController(preparedAsset.viewPreset);
     }
 
     if (this.autoRotate && !preparedAsset.streamingEnabled) {
@@ -1720,6 +2197,10 @@ class PlayCanvasSogViewer {
     if (this.app && this.splatEntity && this.pc) {
       this.syncCutawayState(this.pc, { immediate: true });
     }
+  }
+
+  getManualBoxConfig() {
+    return this.cloneManualBoxConfig(this.activeManualBoxConfig);
   }
 
   setCutawayEnabled(enabled) {
@@ -1752,6 +2233,11 @@ class PlayCanvasSogViewer {
 
   resetView() {
     if (this.firstPersonActive && this.fpNavigationController && this.camera) {
+      // Prefer respawning at the (possibly edited) spawn config so Reset doubles
+      // as a "go to spawn point" / test button while calibrating.
+      if (this.applySpawnToPlayer()) {
+        return;
+      }
       if (this.fpNavigationController.reset(this.camera) && this.app) {
         this.app.renderNextFrame = true;
       }
@@ -1786,11 +2272,31 @@ class PlayCanvasSogViewer {
     this.activeFpCollisionBoxConfig = null;
     this.currentAsset = null;
     this.fpCollision = null;
+    if (this._collisionRebuildTimer) {
+      clearTimeout(this._collisionRebuildTimer);
+      this._collisionRebuildTimer = null;
+    }
+    // Reset stored collision transform so the next scene seeds fresh
+    this.collisionPreviewTransform = null;
+    this.sceneTransform = null;
+    if (this.collisionPreviewEntity) this.collisionPreviewEntity.destroy();
+    this.collisionPreviewEntity = null;
+    // Spawn marker cleanup
+    if (this._spawnMarkerEntity) this._spawnMarkerEntity.destroy();
+    this._spawnMarkerEntity = null;
+    this.spawnMarkerVisible = false;
+    this.spawnEditConfig = null;
+    if (this.collisionPreviewAsset && this.app) {
+      this.app.assets.remove(this.collisionPreviewAsset);
+      this.collisionPreviewAsset.unload();
+    }
+    this.collisionPreviewAsset = null;
     this.cutawayModifierInstalled = false;
     this.cutawayEnabled = true;
     this.defaultOrbitState = null;
     this.streamingState = null;
     this.fpNavigationMode = "walk";
+    this.flyCollisionIgnored = false;
 
     if (this.app) {
       this.app.destroy();

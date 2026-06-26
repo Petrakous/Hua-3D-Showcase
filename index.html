@@ -22,8 +22,7 @@
     <script type="importmap">
       {
         "imports": {
-          "three": "./vendor/three.module.js",
-          "@mkkellogg/gaussian-splats-3d": "./vendor/gaussian-splats-3d.module.js"
+          "three": "./vendor/three.module.js"
         }
       }
     </script>
@@ -44,18 +43,17 @@
     </header>
 
     <div class="header-actions">
-      <button class="header-button icon-button" id="warmCacheToggle" type="button" aria-pressed="false" aria-label="Warm Model Cache" title="Warm Model Cache">
-        <span class="control-icon" aria-hidden="false">
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 6.5h7"></path>
-            <path d="M8 10h7"></path>
-            <path d="M5 13.5h7"></path>
-            <path d="M12.5 4.5l2.8 2.8-2.8 2.8"></path>
-          </svg>
-        </span>
-      </button>
       <button class="header-button icon-button" id="qualityToggle" type="button" aria-pressed="false" aria-label="HD" title="HD">
         <span class="control-icon control-icon--hd" aria-hidden="true">HD</span>
+      </button>
+      <button class="header-button icon-button" id="calibrationToggle" type="button" aria-pressed="false" aria-expanded="false" aria-controls="calibrationPanel" aria-label="Calibration" title="Calibration" hidden disabled>
+        <span class="control-icon" aria-hidden="true">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="10" cy="10" r="3"></circle>
+            <path d="M10 2v2M10 16v2M2 10h2M16 10h2"></path>
+            <path d="M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M14.4 4.2l-1.4 1.4M5.6 14.4l-1.4 1.4"></path>
+          </svg>
+        </span>
       </button>
       <button class="header-button icon-button" id="fullscreenToggle" type="button" aria-label="Fullscreen" title="Fullscreen">
         <span class="control-icon control-icon--fullscreen" aria-hidden="true">
@@ -74,7 +72,6 @@
         <div class="hero-media">
           <model-viewer
             id="siteModel"
-            src="./HuaDayBest1_web.glb"
             alt="3D model of the campus"
             camera-controls
             auto-rotate
@@ -142,17 +139,17 @@
           </div>
 
           <div class="location-control location-subcontrol" id="sogModeControl" hidden>
-            <span class="time-label">Mode</span>
+            <span class="time-label">Engine</span>
             <div class="location-stage-markers" id="sogModeMarkers" role="group" aria-label="Choose SOG runtime mode"></div>
           </div>
 
           <div class="location-control location-subcontrol" id="fpNavControl" hidden>
-            <span class="time-label">FP Nav</span>
+            <span class="time-label">Mode</span>
             <div class="location-stage-markers" id="fpNavMarkers" role="group" aria-label="Choose first-person navigation mode"></div>
           </div>
 
           <div class="location-control location-subcontrol" id="lodControl" hidden>
-            <span class="time-label">LOD</span>
+            <span class="time-label">Detail</span>
             <div class="location-stage-markers" id="lodMarkers" role="group" aria-label="Choose level of detail"></div>
           </div>
         </div>
@@ -197,11 +194,83 @@
               Preparing the 3D viewer and connecting the Draco-compressed GLB.
             </p>
           </div>
+
+          <aside class="calibration-panel" id="calibrationPanel" hidden aria-hidden="true">
+            <div class="calibration-panel__header">
+              <div>
+                <p class="calibration-panel__eyebrow">SOG Calibration</p>
+                <h2 class="calibration-panel__title">Culling Box</h2>
+                <p class="calibration-panel__scene" id="calibrationSceneLabel">No active scene</p>
+              </div>
+              <button class="calibration-panel__close" id="calibrationClose" type="button" aria-label="Close calibration panel">×</button>
+            </div>
+
+            <p class="calibration-panel__hint" id="calibrationHint">
+              Live transform controls for the active SOG cutaway box.
+            </p>
+
+            <label class="calibration-toggle" id="calibrationFlyCollisionControl" hidden>
+              <input id="calibrationFlyIgnoreCollision" type="checkbox" />
+              <span>Fly ignores collision</span>
+            </label>
+            <label class="calibration-toggle" id="calibrationCollisionPreviewControl" hidden>
+              <input id="calibrationShowCollision" type="checkbox" />
+              <span>Show Collision GLB</span>
+            </label>
+            <label class="calibration-toggle" id="calibrationGridControl" hidden>
+              <input id="calibrationShowGrid" type="checkbox" checked />
+              <span>Show alignment grid and axes</span>
+            </label>
+
+            <div class="calibration-target" id="calibrationTargetControl" hidden>
+              <span class="calibration-target__label">Editing</span>
+              <div class="calibration-target__options" role="group" aria-label="Choose calibration target">
+                <button class="calibration-target__btn" data-calib-target="scene" data-active="true" type="button">Scene / SOG</button>
+                <button class="calibration-target__btn" data-calib-target="collision" data-active="false" type="button">Collision</button>
+                <button class="calibration-target__btn" data-calib-target="spawn" data-active="false" type="button">Spawn</button>
+              </div>
+            </div>
+
+            <div id="calibrationLodControls">
+            <div class="calibration-group">
+              <span class="calibration-group__label">Move</span>
+              <div class="calibration-grid">
+                <label class="calibration-field"><span>X</span><input id="calibrationPositionX" type="number" step="0.1" inputmode="decimal" /></label>
+                <label class="calibration-field"><span>Y</span><input id="calibrationPositionY" type="number" step="0.1" inputmode="decimal" /></label>
+                <label class="calibration-field"><span>Z</span><input id="calibrationPositionZ" type="number" step="0.1" inputmode="decimal" /></label>
+              </div>
+            </div>
+
+            <div class="calibration-group">
+              <span class="calibration-group__label">Rotate</span>
+              <div class="calibration-grid">
+                <label class="calibration-field"><span>X</span><input id="calibrationRotationX" type="number" step="0.1" inputmode="decimal" /></label>
+                <label class="calibration-field"><span>Y</span><input id="calibrationRotationY" type="number" step="0.1" inputmode="decimal" /></label>
+                <label class="calibration-field"><span>Z</span><input id="calibrationRotationZ" type="number" step="0.1" inputmode="decimal" /></label>
+              </div>
+            </div>
+
+            <div class="calibration-group">
+              <span class="calibration-group__label">Scale</span>
+              <div class="calibration-grid">
+                <label class="calibration-field"><span>X</span><input id="calibrationScaleX" type="number" step="0.1" min="0.001" inputmode="decimal" /></label>
+                <label class="calibration-field"><span>Y</span><input id="calibrationScaleY" type="number" step="0.1" min="0.001" inputmode="decimal" /></label>
+                <label class="calibration-field"><span>Z</span><input id="calibrationScaleZ" type="number" step="0.1" min="0.001" inputmode="decimal" /></label>
+              </div>
+            </div>
+
+            <div class="calibration-panel__actions">
+              <button class="calibration-action" id="calibrationReset" type="button">Reset</button>
+              <button class="calibration-action" id="calibrationSave" type="button" style="display: none;">Save</button>
+              <button class="calibration-action" id="calibrationCopy" type="button">Copy JSON</button>
+            </div>
+            </div>
+          </aside>
         </div>
 
       </section>
     </main>
 
-    <script type="module" src="./main.js?v=20260610fp21"></script>
+    <script type="module" src="./main.js?v=20260625fp22"></script>
   </body>
 </html>
