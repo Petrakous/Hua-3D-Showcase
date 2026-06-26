@@ -1,5 +1,6 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260625fp22";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260625fp22";
+import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 
 let modelViewer = document.getElementById("siteModel");
 const splatViewerMount = document.getElementById("splatViewerMount");
@@ -100,7 +101,22 @@ const SOG_CALIBRATION_QUERY_PARAM = "sog-calibration";
 const SOG_CALIBRATION_FLAG_KEY = "hua:sog-calibration-ui-enabled";
 const SOG_CALIBRATION_OVERRIDES_KEY = "hua:sog-calibration-overrides:v1";
 const SOG_STREAMED_TRANSFORMS_KEY = "hua:sog-streamed-transforms:v1";
-const streamedTransformsOverrides = loadStreamedTransformsOverrides();
+const calibrationQueryEnabled =
+  new URLSearchParams(window.location.search).get(SOG_CALIBRATION_QUERY_PARAM) === "1";
+const calibrationFlagEnabled =
+  safeLocalStorageGet(SOG_CALIBRATION_FLAG_KEY) === "1" ||
+  safeLocalStorageGet(SOG_CALIBRATION_FLAG_KEY) === "true";
+const calibrationUiUnlocked = calibrationQueryEnabled || calibrationFlagEnabled;
+
+if (calibrationQueryEnabled) {
+  safeLocalStorageSet(SOG_CALIBRATION_FLAG_KEY, "1");
+}
+
+installSceneCalibrationExportHelper();
+
+const streamedTransformsDefaults = SCENE_CALIBRATION_DEFAULTS.streamedTransforms || {};
+const manualBoxDefaults = SCENE_CALIBRATION_DEFAULTS.manualBoxOverrides || {};
+const streamedTransformsOverrides = calibrationUiUnlocked ? loadStreamedTransformsOverrides() : {};
 
 function loadStreamedTransformsOverrides() {
   const raw = safeLocalStorageGet(SOG_STREAMED_TRANSFORMS_KEY);
@@ -177,15 +193,6 @@ function loadCalibrationOverrides() {
   } catch (_error) {
     return {};
   }
-}
-
-const calibrationQueryEnabled =
-  new URLSearchParams(window.location.search).get(SOG_CALIBRATION_QUERY_PARAM) === "1";
-const calibrationUiUnlocked =
-  calibrationQueryEnabled || safeLocalStorageGet(SOG_CALIBRATION_FLAG_KEY) === "1";
-
-if (calibrationQueryEnabled) {
-  safeLocalStorageSet(SOG_CALIBRATION_FLAG_KEY, "1");
 }
 
 let sogPerformanceMonitor = null;
@@ -790,7 +797,7 @@ const FORMAT_LABELS = {
 const FORMAT_PRIORITY = ["sog", "glb"];
 const GITHUB_MEDIA_BASE_URL = "https://media.githubusercontent.com/media/Petrakous/Hua-3D-Showcase/main/";
 const GITHUB_RAW_BASE_URL = "https://raw.githubusercontent.com/Petrakous/Hua-3D-Showcase/main/";
-const calibrationOverrides = loadCalibrationOverrides();
+const calibrationOverrides = calibrationUiUnlocked ? loadCalibrationOverrides() : {};
 const calibrationSessionDefaults = new Map();
 
 function encodeUrlPathSegments(path = "") {
@@ -817,6 +824,35 @@ function cloneManualBoxConfig(config) {
   };
 }
 
+function cloneTransformConfig(config) {
+  if (!config) {
+    return null;
+  }
+
+  return {
+    position: [...(config.position || [0, 0, 0])],
+    rotationDegrees: [...(config.rotationDegrees || [0, 0, 0])],
+    scale: [...(config.scale || [1, 1, 1])],
+  };
+}
+
+function cloneStreamedTransformConfig(config) {
+  if (!config) {
+    return null;
+  }
+
+  return {
+    ...(config.scene ? { scene: cloneTransformConfig(config.scene) } : {}),
+    ...(config.collision ? { collision: cloneTransformConfig(config.collision) } : {}),
+    ...(config.spawn ? {
+      spawn: {
+        position: [...(config.spawn.position || [0, 0, 0])],
+        rotationDegrees: [...(config.spawn.rotationDegrees || [0, 0, 0])],
+      },
+    } : {}),
+  };
+}
+
 function saveCalibrationOverrides() {
   safeLocalStorageSet(SOG_CALIBRATION_OVERRIDES_KEY, JSON.stringify(calibrationOverrides));
 }
@@ -834,7 +870,21 @@ function getCalibrationOverride(asset) {
     return null;
   }
 
-  return cloneManualBoxConfig(calibrationOverrides[asset.sceneCalibrationKey]);
+  return (
+    cloneManualBoxConfig(calibrationOverrides[asset.sceneCalibrationKey]) ||
+    cloneManualBoxConfig(manualBoxDefaults[asset.sceneCalibrationKey])
+  );
+}
+
+function getStreamedTransformOverride(asset) {
+  if (!asset?.sceneCalibrationKey) {
+    return null;
+  }
+
+  return (
+    cloneStreamedTransformConfig(streamedTransformsOverrides[asset.sceneCalibrationKey]) ||
+    cloneStreamedTransformConfig(streamedTransformsDefaults[asset.sceneCalibrationKey])
+  );
 }
 
 function applyCalibrationOverrideToAsset(asset) {
@@ -843,7 +893,7 @@ function applyCalibrationOverrideToAsset(asset) {
   }
 
   if (asset.streamingEnabled && asset.sceneCalibrationKey) {
-    const streamedOverride = streamedTransformsOverrides[asset.sceneCalibrationKey];
+    const streamedOverride = getStreamedTransformOverride(asset);
     if (streamedOverride) {
       const updatedAsset = { ...asset };
       if (streamedOverride.scene) {
