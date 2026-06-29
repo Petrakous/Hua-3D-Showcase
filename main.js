@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260625fp22";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260625fp22";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260629touch1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 
 let modelViewer = document.getElementById("siteModel");

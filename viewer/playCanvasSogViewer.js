@@ -1,6 +1,6 @@
 import { computeAutoCutaway } from "./autoCutaway.js?v=20260625fp22";
 import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
-import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260625fp22";
+import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629touch1";
 
 const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas/+esm";
 const ORBIT_DAMPING_DECAY_MS = 140;

@@ -1,4 +1,5 @@
 const POINTER_LOOK_SENSITIVITY = 0.11;
+const TOUCH_LOOK_SENSITIVITY = 0.16;
 const MAX_PITCH = 89;
 const MIN_MOVE_EPSILON = 1e-6;
 const MAX_LOOK_DELTA_PER_EVENT = 40;
@@ -131,9 +132,15 @@ class FirstPersonInput {
     this.mouseDeltaY = 0;
     this.lastClientX = 0;
     this.lastClientY = 0;
+    this.touchPointerId = null;
+    this.mobileMovePointers = new Map();
+    this.mobileMoveX = 0;
+    this.mobileMoveZ = 0;
+    this.mobileControls = null;
     this.userInteracted = false;
     this.boundHandlers = [];
     this.bind();
+    this.createMobileControls();
   }
 
   bind() {
@@ -156,7 +163,10 @@ class FirstPersonInput {
       this.lastClientX = event.clientX;
       this.lastClientY = event.clientY;
       this.canvas.focus?.();
-      if (document.pointerLockElement !== this.canvas) {
+      if (event.pointerType === "touch") {
+        this.touchPointerId = event.pointerId;
+        this.canvas.setPointerCapture?.(event.pointerId);
+      } else if (document.pointerLockElement !== this.canvas) {
         try {
           this.canvas.requestPointerLock?.({ unadjustedMovement: true });
         } catch {
@@ -177,7 +187,28 @@ class FirstPersonInput {
       }
     };
 
+    const onPointerMove = (event) => {
+      if (event.pointerType !== "touch" || event.pointerId !== this.touchPointerId || !this.dragging) {
+        return;
+      }
+
+      const movementX = clamp(event.clientX - this.lastClientX, -MAX_LOOK_DELTA_PER_EVENT, MAX_LOOK_DELTA_PER_EVENT);
+      const movementY = clamp(event.clientY - this.lastClientY, -MAX_LOOK_DELTA_PER_EVENT, MAX_LOOK_DELTA_PER_EVENT);
+      this.lastClientX = event.clientX;
+      this.lastClientY = event.clientY;
+      this.mouseDeltaX += movementX * (TOUCH_LOOK_SENSITIVITY / POINTER_LOOK_SENSITIVITY);
+      this.mouseDeltaY += movementY * (TOUCH_LOOK_SENSITIVITY / POINTER_LOOK_SENSITIVITY);
+      event.preventDefault();
+    };
+
     const onPointerUp = (event) => {
+      if (event.pointerType === "touch") {
+        if (event.pointerId === this.touchPointerId) {
+          this.dragging = false;
+          this.touchPointerId = null;
+        }
+        return;
+      }
       releaseLook(event.button);
     };
 
@@ -214,6 +245,9 @@ class FirstPersonInput {
     const onBlur = () => {
       this.keys.clear();
       this.dragging = false;
+      this.touchPointerId = null;
+      this.mobileMovePointers.clear();
+      this.updateMobileMovement();
       this.mouseDeltaX = 0;
       this.mouseDeltaY = 0;
     };
@@ -225,6 +259,7 @@ class FirstPersonInput {
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("pointerlockchange", onPointerLockChange);
     this.canvas.addEventListener("pointerdown", onPointerDown);
+    this.canvas.addEventListener("pointermove", onPointerMove, { passive: false });
     this.canvas.addEventListener("pointerup", onPointerUp);
     this.canvas.addEventListener("pointercancel", onPointerUp);
     this.canvas.addEventListener("contextmenu", onContextMenu);
@@ -236,14 +271,73 @@ class FirstPersonInput {
     this.boundHandlers.push(() => document.removeEventListener("mousemove", onMouseMove));
     this.boundHandlers.push(() => document.removeEventListener("pointerlockchange", onPointerLockChange));
     this.boundHandlers.push(() => this.canvas.removeEventListener("pointerdown", onPointerDown));
+    this.boundHandlers.push(() => this.canvas.removeEventListener("pointermove", onPointerMove));
     this.boundHandlers.push(() => this.canvas.removeEventListener("pointerup", onPointerUp));
     this.boundHandlers.push(() => this.canvas.removeEventListener("pointercancel", onPointerUp));
     this.boundHandlers.push(() => this.canvas.removeEventListener("contextmenu", onContextMenu));
   }
 
-  readFrame() {
+  createMobileControls() {
+    const host = this.canvas.closest?.(".hero-media") || this.canvas.parentElement;
+    if (!host) {
+      return;
+    }
+
+    const controls = document.createElement("div");
+    controls.className = "fp-mobile-controls";
+    controls.setAttribute("role", "group");
+    controls.setAttribute("aria-label", "First-person movement");
+    controls.innerHTML = `
+      <button class="fp-mobile-control fp-mobile-control--forward" type="button" data-move-x="0" data-move-z="1" aria-label="Move forward">W</button>
+      <button class="fp-mobile-control fp-mobile-control--left" type="button" data-move-x="-1" data-move-z="0" aria-label="Strafe left">A</button>
+      <button class="fp-mobile-control fp-mobile-control--back" type="button" data-move-x="0" data-move-z="-1" aria-label="Move backward">S</button>
+      <button class="fp-mobile-control fp-mobile-control--right" type="button" data-move-x="1" data-move-z="0" aria-label="Strafe right">D</button>
+    `;
+
+    for (const button of controls.querySelectorAll("button")) {
+      const startMove = (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        button.setPointerCapture?.(event.pointerId);
+        this.mobileMovePointers.set(event.pointerId, {
+          x: Number(button.dataset.moveX) || 0,
+          z: Number(button.dataset.moveZ) || 0,
+        });
+        this.userInteracted = true;
+        this.updateMobileMovement();
+      };
+      const stopMove = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.mobileMovePointers.delete(event.pointerId);
+        this.updateMobileMovement();
+      };
+      button.addEventListener("pointerdown", startMove);
+      button.addEventListener("pointerup", stopMove);
+      button.addEventListener("pointercancel", stopMove);
+      button.addEventListener("lostpointercapture", stopMove);
+    }
+
+    host.appendChild(controls);
+    this.mobileControls = controls;
+  }
+
+  updateMobileMovement() {
     let moveX = 0;
     let moveZ = 0;
+    for (const movement of this.mobileMovePointers.values()) {
+      moveX += movement.x;
+      moveZ += movement.z;
+    }
+    const normalized = normalize2D(moveX, moveZ);
+    this.mobileMoveX = normalized.x;
+    this.mobileMoveZ = normalized.z;
+  }
+
+  readFrame() {
+    let moveX = this.mobileMoveX;
+    let moveZ = this.mobileMoveZ;
 
     if (this.keys.has("KeyA")) moveX -= 1;
     if (this.keys.has("KeyD")) moveX += 1;
@@ -289,6 +383,9 @@ class FirstPersonInput {
         dispose();
       } catch {}
     }
+    this.mobileMovePointers.clear();
+    this.mobileControls?.remove();
+    this.mobileControls = null;
   }
 }
 
