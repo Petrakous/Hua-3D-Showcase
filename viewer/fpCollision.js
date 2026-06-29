@@ -9,6 +9,27 @@ const COLLISION_EPSILON = 1e-5;
 const COLLISION_LOAD_TIMEOUT_MS = 15000;
 
 const collisionCache = new Map();
+const MAX_COLLISION_CACHE_ENTRIES = 4;
+const DEBUG_COLLISION = false;
+
+function debugCollision(...args) {
+  if (DEBUG_COLLISION) console.log(...args);
+}
+
+function getCachedCollision(url) {
+  const cached = collisionCache.get(url);
+  if (!cached) return null;
+  collisionCache.delete(url);
+  collisionCache.set(url, cached);
+  return cached;
+}
+
+function cacheCollision(url, loadPromise) {
+  collisionCache.set(url, loadPromise);
+  while (collisionCache.size > MAX_COLLISION_CACHE_ENTRIES) {
+    collisionCache.delete(collisionCache.keys().next().value);
+  }
+}
 
 function getVectorLength(x, y, z) {
   return Math.hypot(x, y, z);
@@ -513,7 +534,7 @@ class MeshCollision {
   }
 
   findCameraSpawnNear(origin, options = {}) {
-    console.log("[Collision debug] findCameraSpawnNear called with origin:", origin, "bounds:", this.bounds);
+    debugCollision("[Collision debug] findCameraSpawnNear called with origin:", origin, "bounds:", this.bounds);
     const searchRadius = options.searchRadius ?? DEFAULT_SEARCH_RADIUS;
     const headClearance = options.headClearance ?? DEFAULT_HEAD_CLEARANCE;
     const step = options.step ?? Math.max(this.voxelResolution, 0.1);
@@ -524,7 +545,7 @@ class MeshCollision {
       this.bounds.minY + 0.5,
       this.bounds.maxY - 0.05
     );
-    console.log("[Collision debug] rayStartY calculated:", rayStartY);
+    debugCollision("[Collision debug] rayStartY calculated:", rayStartY);
     const sphereRadius = options.radius ?? DEFAULT_SPAWN_SPHERE_RADIUS;
     let bestSpawn = null;
     let bestDistanceSq = Infinity;
@@ -570,7 +591,7 @@ class MeshCollision {
       }
     }
 
-    console.log("[Collision debug] bestSpawn found:", bestSpawn);
+    debugCollision("[Collision debug] bestSpawn found:", bestSpawn);
     return bestSpawn;
   }
 }
@@ -580,9 +601,8 @@ async function loadMeshCollisionFromGlb(app, pc, url, transformOptions = {}) {
     return null;
   }
 
-  if (collisionCache.has(url)) {
-    return collisionCache.get(url);
-  }
+  const cachedCollision = getCachedCollision(url);
+  if (cachedCollision) return cachedCollision;
 
   const loadPromise = new Promise((resolve, reject) => {
     const asset = new pc.Asset(url, "container", { url });
@@ -738,7 +758,7 @@ async function loadMeshCollisionFromGlb(app, pc, url, transformOptions = {}) {
     app.assets.load(asset);
   });
 
-  collisionCache.set(url, loadPromise);
+  cacheCollision(url, loadPromise);
   return loadPromise;
 }
 

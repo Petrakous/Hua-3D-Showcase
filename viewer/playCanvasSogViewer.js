@@ -2,7 +2,7 @@ import { computeAutoCutaway } from "./autoCutaway.js?v=20260625fp22";
 import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
 import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629tap1";
 
-const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas/+esm";
+const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas@2.20.1/+esm";
 const ORBIT_DAMPING_DECAY_MS = 140;
 const CUTAWAY_DAMPING_DECAY_MS = 110;
 const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
@@ -463,6 +463,12 @@ class PlayCanvasSogViewer {
     this.firstPersonActive = false;
     this.firstPersonTransitionPending = false;
     this.fpInteractionCommitted = false;
+    this.loadGeneration = 0;
+    this.disposed = true;
+  }
+
+  isLoadCurrent(generation) {
+    return !this.disposed && generation === this.loadGeneration;
   }
 
   setPanIndicatorVisible(visible) {
@@ -614,8 +620,9 @@ class PlayCanvasSogViewer {
     if (this.app) this.app.renderNextFrame = true;
   }
 
-  async loadCollisionPreview(asset = this.currentAsset) {
+  async loadCollisionPreview(asset = this.currentAsset, generation = this.loadGeneration) {
     if (!asset?.streamingEnabled || !asset.fpCollisionSource || !this.app || !this.pc) return;
+    const app = this.app;
     if (this.collisionPreviewEntity) this.collisionPreviewEntity.destroy();
     if (this.collisionPreviewAsset) {
       this.app.assets.remove(this.collisionPreviewAsset);
@@ -629,7 +636,11 @@ class PlayCanvasSogViewer {
       this.app.assets.add(previewAsset);
       this.app.assets.load(previewAsset);
     });
-    if (!this.app || !previewAsset.resource) return;
+    if (!this.isLoadCurrent(generation) || this.app !== app || !previewAsset.resource) {
+      app.assets.remove(previewAsset);
+      previewAsset.unload();
+      return;
+    }
 
     const entity = previewAsset.resource.instantiateRenderEntity();
     entity.name = "CollisionPreview";
@@ -1101,7 +1112,7 @@ class PlayCanvasSogViewer {
     }
   }
 
-  async prepareFirstPersonAsset(asset, onState) {
+  async prepareFirstPersonAsset(asset, onState, generation = this.loadGeneration) {
     if (
       !asset?.streamingEnabled ||
       !asset?.fpCollisionSource ||
@@ -1125,6 +1136,7 @@ class PlayCanvasSogViewer {
         rotation: asset.collisionRotation || asset.rotation,
         scale: asset.collisionScale || asset.scale,
       });
+      if (!this.isLoadCurrent(generation)) return asset;
       this.fpCollision = collision;
       if (!collision) {
         return asset;
@@ -1942,6 +1954,9 @@ class PlayCanvasSogViewer {
 
   async load(asset, profile = { maxDpr: 1.05 }, onState) {
     if (this.app && this.pc && this.splatEntity && this.currentAsset?.key === asset.key) {
+      const generation = ++this.loadGeneration;
+      this.disposed = false;
+      const app = this.app;
       this.stopFirstPersonNavigation();
       const splatAsset = new this.pc.Asset(asset.label || "Scene", "gsplat", {
         url: asset.src,
@@ -1953,7 +1968,7 @@ class PlayCanvasSogViewer {
             return;
           }
 
-          onState?.({
+          if (this.isLoadCurrent(generation)) onState?.({
             status: "loading",
             title: "Loading SOG",
             message: `${asset.label || "SOG scene"} loading (${Math.round((received / total) * 100)}%)`,
@@ -1973,7 +1988,9 @@ class PlayCanvasSogViewer {
         this.app.assets.load(splatAsset);
       });
 
-      if (!this.app || !this.splatEntity) {
+      if (!this.isLoadCurrent(generation) || this.app !== app || !this.splatEntity) {
+        app.assets.remove(splatAsset);
+        splatAsset.unload();
         return;
       }
 
@@ -1994,7 +2011,7 @@ class PlayCanvasSogViewer {
       oldEntity.enabled = false;
 
       setTimeout(() => {
-        if (!this.app) return;
+        if (this.app !== app) return;
         try {
           oldEntity.destroy();
           if (oldAsset) {
@@ -2034,6 +2051,8 @@ class PlayCanvasSogViewer {
     }
 
     this.dispose();
+    const generation = ++this.loadGeneration;
+    this.disposed = false;
 
     if (!supportsPlayCanvasSogViewer()) {
       throw new Error("This browser or device cannot run the PlayCanvas SOG viewer.");
@@ -2047,6 +2066,7 @@ class PlayCanvasSogViewer {
     });
 
     const pc = await import(PLAYCANVAS_CDN);
+    if (!this.isLoadCurrent(generation)) return;
     const canvas = document.createElement("canvas");
     canvas.className = "viewer-canvas playcanvas-sog-canvas";
     this.container.appendChild(canvas);
@@ -2096,7 +2116,10 @@ class PlayCanvasSogViewer {
 
     this.app = app;
     this.pc = pc;
-    const preparedAsset = await this.prepareFirstPersonAsset(asset, onState);
+    const preparedAsset = await this.prepareFirstPersonAsset(asset, (state) => {
+      if (this.isLoadCurrent(generation)) onState?.(state);
+    }, generation);
+    if (!this.isLoadCurrent(generation) || this.app !== app) return;
 
     const camera = new pc.Entity("Camera");
     camera.addComponent("camera", {
@@ -2148,7 +2171,7 @@ class PlayCanvasSogViewer {
           return;
         }
 
-        onState?.({
+        if (this.isLoadCurrent(generation)) onState?.({
           status: "loading",
           title: "Loading SOG",
           message: `${preparedAsset.label || "SOG scene"} loading (${Math.round((received / total) * 100)}%)`,
@@ -2167,6 +2190,12 @@ class PlayCanvasSogViewer {
       app.assets.add(splatAsset);
       app.assets.load(splatAsset);
     });
+
+    if (!this.isLoadCurrent(generation) || this.app !== app) {
+      app.assets.remove(splatAsset);
+      splatAsset.unload();
+      return;
+    }
 
     const splatEntity = new pc.Entity(preparedAsset.label || "SOG");
     splatEntity.setLocalPosition(...(preparedAsset.position || [0, 0, 0]));
@@ -2200,7 +2229,9 @@ class PlayCanvasSogViewer {
       ? (this.fpCollision || this.createFallbackBoxCollision(pc, splatEntity, this.activeFpCollisionBoxConfig || this.activeManualBoxConfig))
       : null;
     if (preparedAsset.streamingEnabled) {
-      this.loadCollisionPreview(preparedAsset).catch((error) => console.warn("Collision preview failed:", error));
+      this.loadCollisionPreview(preparedAsset, generation).catch((error) => {
+        if (this.isLoadCurrent(generation)) console.warn("Collision preview failed:", error);
+      });
     }
 
     const radius = Math.max(halfExtents.length(), 1);
@@ -2229,7 +2260,7 @@ class PlayCanvasSogViewer {
       this.startAutoRotate(pc);
     }
 
-    onState?.({
+    if (this.isLoadCurrent(generation)) onState?.({
       status: "ready",
       title: "SOG ready",
       message: `${preparedAsset.label || "SOG scene"} loaded successfully.`,
@@ -2301,6 +2332,8 @@ class PlayCanvasSogViewer {
   }
 
   dispose() {
+    this.loadGeneration += 1;
+    this.disposed = true;
     this.stopAutoRotate();
     this.stopFirstPersonNavigation();
     this.setPanIndicatorVisible(false);

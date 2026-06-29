@@ -12,6 +12,7 @@ const progressMeta = document.getElementById("progressMeta");
 const statusPill = document.getElementById("statusPill");
 const statusCopy = document.getElementById("statusCopy");
 const viewerStatus = document.getElementById("viewerStatus");
+const statusRetry = document.getElementById("statusRetry");
 const sceneSelection = document.getElementById("sceneSelection");
 const sceneCardGrid = document.getElementById("sceneCardGrid");
 const viewerBackButton = document.getElementById("viewerBackButton");
@@ -1027,6 +1028,8 @@ function setStatus(title, text) {
   statusCopy.textContent = /^Fetching\s+https?:|^Fetching\s+\.\//i.test(text || "")
     ? "Connecting to the 3D scene and preparing its details."
     : text;
+  statusRetry.hidden = title !== "Asset issue";
+  statusRetry.disabled = false;
 }
 
 function setStatusOverlayState(isIdle) {
@@ -2678,7 +2681,7 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   );
 }
 
-async function applyActiveAssetSelection() {
+async function applyActiveAssetSelection({ forceReload = false } = {}) {
   const nextAsset = getActiveAssetDescriptor();
   if (!nextAsset) {
     ++activeAssetSwapId;
@@ -2697,7 +2700,7 @@ async function applyActiveAssetSelection() {
 
   const swapId = ++activeAssetSwapId;
 
-  if (nextAsset.key === currentAssetKey && nextAsset.type === currentEngineType) {
+  if (!forceReload && nextAsset.key === currentAssetKey && nextAsset.type === currentEngineType) {
     setStatusOverlayState(false);
     setStatus("Scene ready", `${describeActiveAsset(nextAsset)} is already active.`);
     updateMaterialToggle();
@@ -2982,6 +2985,12 @@ resetCamera.addEventListener("click", () => {
 });
 
 viewerBackButton.addEventListener("click", exitViewerMode);
+
+statusRetry.addEventListener("click", async () => {
+  if (!isViewerMode || statusRetry.disabled) return;
+  statusRetry.disabled = true;
+  await applyActiveAssetSelection({ forceReload: true });
+});
 
 fullscreenToggle.addEventListener("click", async () => {
   const hero = document.querySelector(".hero");

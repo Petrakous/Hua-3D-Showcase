@@ -7,6 +7,11 @@ const TOUCH_TAP_MAX_TRAVEL = 8;
 const NAVIGATION_STOP_DISTANCE = 0.3;
 const NAVIGATION_BLOCKED_TIMEOUT = 0.75;
 const NAVIGATION_MAX_DISTANCE = 40;
+const DEBUG_FP_NAVIGATION = false;
+
+function debugFpNavigation(...args) {
+  if (DEBUG_FP_NAVIGATION) console.log(...args);
+}
 
 const DEFAULT_FLY_SPEED = 4.0;
 const DEFAULT_FLY_SPRINT_MULTIPLIER = 1.8;
@@ -150,6 +155,16 @@ class FirstPersonInput {
   }
 
   bind() {
+    const resetPointerLockState = () => {
+      this.pointerLocked = false;
+      this.dragging = false;
+      this.keys.clear();
+      this.lastClientX = 0;
+      this.lastClientY = 0;
+      this.mouseDeltaX = 0;
+      this.mouseDeltaY = 0;
+    };
+
     const onKeyDown = (event) => {
       this.keys.add(event.code);
       this.userInteracted = true;
@@ -175,9 +190,15 @@ class FirstPersonInput {
         this.canvas.setPointerCapture?.(event.pointerId);
       } else if (document.pointerLockElement !== this.canvas) {
         try {
-          this.canvas.requestPointerLock?.({ unadjustedMovement: true });
+          const request = this.canvas.requestPointerLock?.({ unadjustedMovement: true });
+          request?.catch?.(resetPointerLockState);
         } catch {
-          this.canvas.requestPointerLock?.();
+          try {
+            const request = this.canvas.requestPointerLock?.();
+            request?.catch?.(resetPointerLockState);
+          } catch {
+            resetPointerLockState();
+          }
         }
       }
       event.preventDefault();
@@ -251,6 +272,10 @@ class FirstPersonInput {
       this.mouseDeltaY = 0;
     };
 
+    const onPointerLockError = () => {
+      resetPointerLockState();
+    };
+
     const onContextMenu = (event) => {
       event.preventDefault();
     };
@@ -272,6 +297,7 @@ class FirstPersonInput {
     window.addEventListener("mouseup", onMouseUp);
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("pointerlockchange", onPointerLockChange);
+    document.addEventListener("pointerlockerror", onPointerLockError);
     this.canvas.addEventListener("pointerdown", onPointerDown);
     this.canvas.addEventListener("pointermove", onPointerMove, { passive: false });
     this.canvas.addEventListener("pointerup", onPointerUp);
@@ -284,6 +310,7 @@ class FirstPersonInput {
     this.boundHandlers.push(() => window.removeEventListener("mouseup", onMouseUp));
     this.boundHandlers.push(() => document.removeEventListener("mousemove", onMouseMove));
     this.boundHandlers.push(() => document.removeEventListener("pointerlockchange", onPointerLockChange));
+    this.boundHandlers.push(() => document.removeEventListener("pointerlockerror", onPointerLockError));
     this.boundHandlers.push(() => this.canvas.removeEventListener("pointerdown", onPointerDown));
     this.boundHandlers.push(() => this.canvas.removeEventListener("pointermove", onPointerMove));
     this.boundHandlers.push(() => this.canvas.removeEventListener("pointerup", onPointerUp));
@@ -484,7 +511,7 @@ class FlyController {
     this.pitch = pose.pitch;
     this.fov = pose.fov || this.fov;
 
-    console.log("[FlyController enter] initial position:", { ...this.position }, "allowSpawnAdjustment:", allowSpawnAdjustment);
+    debugFpNavigation("[FlyController enter] initial position:", { ...this.position }, "allowSpawnAdjustment:", allowSpawnAdjustment);
 
     if (this.collision && allowSpawnAdjustment) {
       const collidedAtPreset = this.collision.querySphere?.(
@@ -494,32 +521,32 @@ class FlyController {
         this.radius,
         this.mover.pushOut
       );
-      console.log("[FlyController enter] collidedAtPreset:", collidedAtPreset, "pushOut:", { ...this.mover.pushOut });
+      debugFpNavigation("[FlyController enter] collidedAtPreset:", collidedAtPreset, "pushOut:", { ...this.mover.pushOut });
 
       if (collidedAtPreset) {
         const cameraSpawn = this.collision.findCameraSpawnNear?.([this.position.x, this.position.y, this.position.z], {
           radius: this.radius,
           headClearance: 1.25,
         });
-        console.log("[FlyController enter] cameraSpawn found:", cameraSpawn);
+        debugFpNavigation("[FlyController enter] cameraSpawn found:", cameraSpawn);
         if (cameraSpawn) {
           this.position = { x: cameraSpawn.x, y: cameraSpawn.y, z: cameraSpawn.z };
         } else {
           const spawn = this.collision.findSphereSpawnNear?.([this.position.x, this.position.y, this.position.z], {
             radius: this.radius,
           });
-          console.log("[FlyController enter] sphereSpawn found:", spawn);
+          debugFpNavigation("[FlyController enter] sphereSpawn found:", spawn);
           if (spawn) {
             this.position = { x: spawn.x, y: spawn.y, z: spawn.z };
           } else {
             this.mover.resolve(this.position);
-            console.log("[FlyController enter] mover resolved to position:", { ...this.position });
+            debugFpNavigation("[FlyController enter] mover resolved to position:", { ...this.position });
           }
         }
       }
     }
 
-    console.log("[FlyController enter] final position set:", { ...this.position });
+    debugFpNavigation("[FlyController enter] final position set:", { ...this.position });
     this.spawnPose = createPose(this.position, this.yaw, this.pitch, this.fov);
   }
 
@@ -599,7 +626,7 @@ class WalkController {
     this.jumping = false;
     this.referenceFloorY = null;
 
-    console.log("[WalkController enter] initial position:", { ...this.position }, "allowSpawnAdjustment:", allowSpawnAdjustment);
+    debugFpNavigation("[WalkController enter] initial position:", { ...this.position }, "allowSpawnAdjustment:", allowSpawnAdjustment);
 
     if (this.collision && allowSpawnAdjustment) {
       const collidedAtPreset = this.collision.querySphere?.(
@@ -609,14 +636,14 @@ class WalkController {
         this.radius,
         this.pushOut
       );
-      console.log("[WalkController enter] collidedAtPreset:", collidedAtPreset, "pushOut:", { ...this.pushOut });
+      debugFpNavigation("[WalkController enter] collidedAtPreset:", collidedAtPreset, "pushOut:", { ...this.pushOut });
 
       if (collidedAtPreset) {
         const spawn = this.collision.findCameraSpawnNear?.([this.position.x, this.position.y, this.position.z], {
           radius: this.radius,
           headClearance: this.eyeHeight,
         });
-        console.log("[WalkController enter] cameraSpawn found:", spawn);
+        debugFpNavigation("[WalkController enter] cameraSpawn found:", spawn);
         if (spawn) {
           this.position = { x: spawn.x, y: spawn.y, z: spawn.z };
           this.referenceFloorY = Number.isFinite(spawn.floorY) ? spawn.floorY : (this.position.y - this.eyeHeight);
@@ -624,7 +651,7 @@ class WalkController {
           const sphereSpawn = this.collision.findSphereSpawnNear?.([this.position.x, this.position.y, this.position.z], {
             radius: this.radius,
           });
-          console.log("[WalkController enter] sphereSpawn found:", sphereSpawn);
+          debugFpNavigation("[WalkController enter] sphereSpawn found:", sphereSpawn);
           if (sphereSpawn) {
             this.position = { x: sphereSpawn.x, y: sphereSpawn.y, z: sphereSpawn.z };
             this.referenceFloorY = this.position.y - this.eyeHeight;
@@ -642,7 +669,7 @@ class WalkController {
       this.referenceFloorY = this.position.y - this.eyeHeight;
     }
 
-    console.log("[WalkController enter] final position set:", { ...this.position }, "referenceFloorY:", this.referenceFloorY);
+    debugFpNavigation("[WalkController enter] final position set:", { ...this.position }, "referenceFloorY:", this.referenceFloorY);
     this.spawnPose = createPose(this.position, this.yaw, this.pitch, this.fov);
   }
 
@@ -759,7 +786,7 @@ class WalkController {
 
     const targetFloorY = guardedDetectedY !== null ? guardedDetectedY : referenceFloorY;
 
-    console.log("[WalkController snapToGround] position.y:", this.position.y, "startY:", startY, "bestGroundHit:", bestGroundHit, "referenceFloorY:", referenceFloorY, "detectedGroundY:", detectedGroundY, "guardedDetectedY:", guardedDetectedY, "targetFloorY:", targetFloorY);
+    debugFpNavigation("[WalkController snapToGround] position.y:", this.position.y, "startY:", startY, "bestGroundHit:", bestGroundHit, "referenceFloorY:", referenceFloorY, "detectedGroundY:", detectedGroundY, "guardedDetectedY:", guardedDetectedY, "targetFloorY:", targetFloorY);
 
     if (targetFloorY === null) {
       this.grounded = false;
@@ -777,7 +804,7 @@ class WalkController {
       this.grounded = true;
       this.jumping = false;
       this.referenceFloorY = targetFloorY;
-      console.log("[WalkController snapToGround] SNAPPED to targetEyeY:", targetEyeY);
+      debugFpNavigation("[WalkController snapToGround] SNAPPED to targetEyeY:", targetEyeY);
       return;
     }
 
@@ -907,7 +934,7 @@ class FirstPersonNavigationController {
       );
       if (groundHit && groundHit.ny >= 0.4) {
         pose.position.y = groundHit.y + this.walkController.eyeHeight;
-        console.log("[FirstPersonNavigationController setMode] Snapped from fly to walk floor at Y:", groundHit.y);
+        debugFpNavigation("[FirstPersonNavigationController setMode] Snapped from fly to walk floor at Y:", groundHit.y);
       }
     }
 

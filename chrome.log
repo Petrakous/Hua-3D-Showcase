@@ -1,0 +1,7 @@
+
+DevTools listening on ws://127.0.0.1:9222/devtools/browser/8f2d0cc4-1c38-41b3-94ef-27259d98f02a
+[23960:10688:0629/155952.333:ERROR:google_apis\gcm\engine\registration_request.cc:291] Registration response error message: PHONE_REGISTRATION_ERROR
+[23960:10688:0629/155952.333:ERROR:google_apis\gcm\engine\registration_request.cc:291] Registration response error message: PHONE_REGISTRATION_ERROR
+[23960:10688:0629/155952.336:ERROR:google_apis\gcm\engine\registration_request.cc:291] Registration response error message: PHONE_REGISTRATION_ERROR
+Created TensorFlow Lite XNNPACK delegate for CPU.
+[23960:10688:0629/160015.231:ERROR:google_apis\gcm\engine\registration_request.cc:291] Registration response error message: DEPRECATED_ENDPOINT
