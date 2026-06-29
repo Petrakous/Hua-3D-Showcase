@@ -386,6 +386,13 @@ function stopSogPerformanceMonitor() {
   if (sogPerformanceMonitor?.frameRequestId) {
     cancelAnimationFrame(sogPerformanceMonitor.frameRequestId);
   }
+  if (sogPerformanceMonitor?.cleanup) {
+    try {
+      sogPerformanceMonitor.cleanup();
+    } catch (e) {
+      console.warn("Monitor cleanup warning:", e);
+    }
+  }
   sogPerformanceMonitor = null;
 }
 
@@ -453,29 +460,63 @@ function startSogPerformanceMonitor(asset, initialDpr = null) {
     stableHighSince: null,
     stableLowSince: null,
     currentDpr: Number.isFinite(initialDpr) ? initialDpr : getCurrentSogDpr(),
+    frameRequestId: null,
+    cleanup: null,
   };
   sogPerformanceMonitor = monitor;
 
-  const tick = (timestamp) => {
-    if (!sogPerformanceMonitor || sogPerformanceMonitor.assetKey !== asset.key) {
-      return;
-    }
+  // We measure frame intervals (FPS) on the CPU-side render loop.
+  // Note: GPU-exclusive hardware timers are generally blocked or unavailable in general browsers
+  // for security reasons. Measuring CPU-side PlayCanvas frame intervals captures all main-thread update
+  // and WebGL draw call dispatch overhead, providing a reliable proxy for render-loop performance.
+  if (sogViewer && sogViewer.app) {
+    const pcApp = sogViewer.app;
+    const onPcPostRender = () => {
+      if (!sogPerformanceMonitor || sogPerformanceMonitor.assetKey !== asset.key) {
+        pcApp.off("postrender", onPcPostRender);
+        return;
+      }
 
-    monitor.sampleFrames += 1;
-    monitor.lastTimestamp = timestamp;
-    const elapsed = timestamp - monitor.sampleStart;
+      const timestamp = performance.now();
+      monitor.sampleFrames += 1;
+      monitor.lastTimestamp = timestamp;
+      const elapsed = timestamp - monitor.sampleStart;
 
-    if (elapsed >= SOG_ADAPTIVE_PERFORMANCE.sampleIntervalMs) {
-      const fps = Math.max(0, Math.round((monitor.sampleFrames * 1000) / elapsed));
-      monitor.sampleFrames = 0;
-      monitor.sampleStart = timestamp;
-      evaluateSogPerformance(asset, fps, timestamp, monitor);
-    }
+      if (elapsed >= SOG_ADAPTIVE_PERFORMANCE.sampleIntervalMs) {
+        const fps = Math.max(0, Math.round((monitor.sampleFrames * 1000) / elapsed));
+        monitor.sampleFrames = 0;
+        monitor.sampleStart = timestamp;
+        evaluateSogPerformance(asset, fps, timestamp, monitor);
+      }
+    };
+
+    pcApp.on("postrender", onPcPostRender);
+    monitor.cleanup = () => {
+      pcApp.off("postrender", onPcPostRender);
+    };
+  } else {
+    // Fallback to requestAnimationFrame if PlayCanvas is not initialized yet
+    const tick = (timestamp) => {
+      if (!sogPerformanceMonitor || sogPerformanceMonitor.assetKey !== asset.key) {
+        return;
+      }
+
+      monitor.sampleFrames += 1;
+      monitor.lastTimestamp = timestamp;
+      const elapsed = timestamp - monitor.sampleStart;
+
+      if (elapsed >= SOG_ADAPTIVE_PERFORMANCE.sampleIntervalMs) {
+        const fps = Math.max(0, Math.round((monitor.sampleFrames * 1000) / elapsed));
+        monitor.sampleFrames = 0;
+        monitor.sampleStart = timestamp;
+        evaluateSogPerformance(asset, fps, timestamp, monitor);
+      }
+
+      monitor.frameRequestId = requestAnimationFrame(tick);
+    };
 
     monitor.frameRequestId = requestAnimationFrame(tick);
-  };
-
-  monitor.frameRequestId = requestAnimationFrame(tick);
+  }
 }
 
 function adjustStreamingQuality(direction) {
@@ -591,15 +632,29 @@ function evaluateSogPerformance(asset, fps, timestamp, monitor) {
     monitor.stableLowSince = null;
   }
 
+  // To prevent aggressive adjustments from short performance spikes,
+  // we only change the resolution (DPR) tier if the performance has been stable
+  // for the holding duration.
   if (fps < SOG_ADAPTIVE_PERFORMANCE.lowFpsThreshold) {
-    targetDpr = Math.max(SOG_ADAPTIVE_PERFORMANCE.minDpr, monitor.currentDpr - SOG_ADAPTIVE_PERFORMANCE.dprStep);
+    if (monitor.stableLowSince && (timestamp - monitor.stableLowSince >= SOG_ADAPTIVE_PERFORMANCE.downgradeHoldMs)) {
+      targetDpr = Math.max(SOG_ADAPTIVE_PERFORMANCE.minDpr, monitor.currentDpr - SOG_ADAPTIVE_PERFORMANCE.dprStep);
+      // Reset tracker so we hold at the new tier
+      monitor.stableLowSince = timestamp;
+    }
   } else if (fps > SOG_ADAPTIVE_PERFORMANCE.highFpsThreshold) {
-    targetDpr = Math.min(maxDpr, monitor.currentDpr + SOG_ADAPTIVE_PERFORMANCE.dprStep);
+    if (monitor.stableHighSince && (timestamp - monitor.stableHighSince >= SOG_ADAPTIVE_PERFORMANCE.upgradeHoldMs)) {
+      targetDpr = Math.min(maxDpr, monitor.currentDpr + SOG_ADAPTIVE_PERFORMANCE.dprStep);
+      // Reset tracker so we hold at the new tier
+      monitor.stableHighSince = timestamp;
+    }
   }
 
   if (targetDpr !== monitor.currentDpr) {
     monitor.currentDpr = targetDpr;
     sogViewer.setMaxDpr(targetDpr);
+    // Clear stable states to re-evaluate on the new resolution tier
+    monitor.stableLowSince = null;
+    monitor.stableHighSince = null;
   }
 
   const isAtMinDpr = monitor.currentDpr <= SOG_ADAPTIVE_PERFORMANCE.minDpr + 0.01;

@@ -3,6 +3,10 @@ import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCo
 import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629tap1";
 
 const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas@2.20.1/+esm";
+const CANVAS_PIXEL_BUDGET = {
+  desktop: 2073600, // Max 1920 * 1080 pixels (Full HD)
+  mobile: 1024000,  // Max 1280 * 800 pixels (HD-ish)
+};
 const ORBIT_DAMPING_DECAY_MS = 140;
 const CUTAWAY_DAMPING_DECAY_MS = 110;
 const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
@@ -463,12 +467,29 @@ class PlayCanvasSogViewer {
     this.firstPersonActive = false;
     this.firstPersonTransitionPending = false;
     this.fpInteractionCommitted = false;
+    this.targetMaxDpr = null;
     this.loadGeneration = 0;
     this.disposed = true;
   }
 
   isLoadCurrent(generation) {
     return !this.disposed && generation === this.loadGeneration;
+  }
+
+  updateMaxPixelRatio(width, height) {
+    if (!this.app || !this.app.graphicsDevice) {
+      return;
+    }
+    const area = width * height;
+    const isMobileOrTablet =
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const budget = isMobileOrTablet ? CANVAS_PIXEL_BUDGET.mobile : CANVAS_PIXEL_BUDGET.desktop;
+    const budgetRatio = Math.sqrt(budget / area);
+    let pixelRatio = Math.min(window.devicePixelRatio || 1, this.targetMaxDpr || 1.05);
+    pixelRatio = Math.min(pixelRatio, budgetRatio);
+    pixelRatio = Math.max(0.5, pixelRatio);
+    this.app.graphicsDevice.maxPixelRatio = pixelRatio;
   }
 
   setPanIndicatorVisible(visible) {
@@ -2083,10 +2104,8 @@ class PlayCanvasSogViewer {
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
     app.start();
     app.scene.ambientLight = new pc.Color(0.55, 0.57, 0.62);
-    app.graphicsDevice.maxPixelRatio = Math.max(
-      0.5,
-      Math.min(window.devicePixelRatio || 1, profile.maxDpr || 1.05)
-    );
+    this.targetMaxDpr = profile.maxDpr || 1.05;
+    this.updateMaxPixelRatio(Math.max(1, this.container.clientWidth || 800), Math.max(1, this.container.clientHeight || 600));
     canvas.tabIndex = 0;
     app.on("update", (deltaSeconds) => {
       if (this.firstPersonActive && this.fpNavigationController && this.camera) {
@@ -2153,6 +2172,7 @@ class PlayCanvasSogViewer {
       const height = Math.max(1, this.container.clientHeight || 600);
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
+      this.updateMaxPixelRatio(width, height);
       app.resizeCanvas(width, height);
       app.renderNextFrame = true;
     };
@@ -2260,11 +2280,43 @@ class PlayCanvasSogViewer {
       this.startAutoRotate(pc);
     }
 
-    if (this.isLoadCurrent(generation)) onState?.({
-      status: "ready",
-      title: "SOG ready",
-      message: `${preparedAsset.label || "SOG scene"} loaded successfully.`,
-    });
+    const triggerReady = () => {
+      if (this.isLoadCurrent(generation)) {
+        onState?.({
+          status: "ready",
+          title: "SOG ready",
+          message: `${preparedAsset.label || "SOG scene"} loaded successfully.`,
+        });
+      }
+    };
+
+    if (preparedAsset.streamingEnabled) {
+      let frameCount = 0;
+      const onPostRender = () => {
+        if (!this.isLoadCurrent(generation) || this.app !== app) {
+          app.off("postrender", onPostRender);
+          return;
+        }
+        frameCount++;
+        if (frameCount >= 1) {
+          app.off("postrender", onPostRender);
+          clearTimeout(fallbackTimeout);
+          triggerReady();
+        }
+      };
+
+      const fallbackTimeout = setTimeout(() => {
+        if (this.isLoadCurrent(generation) && this.app === app) {
+          app.off("postrender", onPostRender);
+          triggerReady();
+        }
+      }, 1000); // 1-second fallback timeout
+
+      app.on("postrender", onPostRender);
+      app.renderNextFrame = true;
+    } else {
+      triggerReady();
+    }
   }
 
   setManualBoxConfig(config) {
@@ -2288,22 +2340,13 @@ class PlayCanvasSogViewer {
   }
 
   setMaxDpr(maxDpr) {
-    if (!this.app || !this.app.graphicsDevice) {
+    this.targetMaxDpr = maxDpr;
+    if (!this.app || !this.app.graphicsDevice || !this.container) {
       return;
     }
-
-    const nextPixelRatio = Math.max(
-      0.5,
-      Math.min(maxDpr || 1, window.devicePixelRatio || 1)
-    );
-
-    if (this.app.graphicsDevice.maxPixelRatio === nextPixelRatio) {
-      return;
-    }
-
-    this.app.graphicsDevice.maxPixelRatio = nextPixelRatio;
     const width = Math.max(1, this.container.clientWidth || 800);
     const height = Math.max(1, this.container.clientHeight || 600);
+    this.updateMaxPixelRatio(width, height);
     this.app.resizeCanvas(width, height);
     this.app.renderNextFrame = true;
   }
