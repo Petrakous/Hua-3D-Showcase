@@ -18,7 +18,8 @@ const sceneSelection = document.getElementById("sceneSelection");
 const sceneCardGrid = document.getElementById("sceneCardGrid");
 const viewerBackButton = document.getElementById("viewerBackButton");
 const fullscreenToggle = document.getElementById("fullscreenToggle");
-const qualityToggle = document.getElementById("qualityToggle");
+const glbQualityControl = document.getElementById("glbQualityControl");
+const glbQualityMarkers = document.getElementById("glbQualityMarkers");
 const calibrationToggle = document.getElementById("calibrationToggle");
 const calibrationPanel = document.getElementById("calibrationPanel");
 const calibrationSceneLabel = document.getElementById("calibrationSceneLabel");
@@ -51,6 +52,7 @@ const lodMarkers = document.getElementById("lodMarkers");
 const resetCamera = document.getElementById("resetCamera");
 const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
+const performanceToast = document.getElementById("performanceToast");
 const calibrationInputs = {
   position: [
     document.getElementById("calibrationPositionX"),
@@ -851,6 +853,8 @@ let dialStartAngle = 0;
 let dialDragged = false;
 let skipNextDialClick = false;
 let isViewerMode = false;
+let performanceToastTimer = null;
+const performanceNoticeKeys = new Set();
 const sogViewer = new PlayCanvasSogViewer(splatViewerMount);
 
 const FORMAT_LABELS = {
@@ -1115,6 +1119,27 @@ function setStatusOverlayState(isIdle) {
   const shouldHide = isIdle || !isViewerMode;
   viewerStatus.hidden = shouldHide;
   viewerStatus.setAttribute("aria-hidden", String(shouldHide));
+}
+
+function showPerformanceNotice(key, message) {
+  if (!performanceToast || !key || performanceNoticeKeys.has(key)) {
+    return;
+  }
+
+  performanceNoticeKeys.add(key);
+  performanceToast.textContent = message;
+  performanceToast.hidden = false;
+  performanceToast.setAttribute("aria-hidden", "false");
+  performanceToast.classList.add("is-visible");
+
+  if (performanceToastTimer) {
+    clearTimeout(performanceToastTimer);
+  }
+
+  performanceToastTimer = setTimeout(() => {
+    performanceToast.classList.remove("is-visible");
+    performanceToast.setAttribute("aria-hidden", "true");
+  }, 4600);
 }
 
 function escapeHtml(value) {
@@ -1874,25 +1899,58 @@ function resolveHostedSogUrl(src) {
 function updateQualityToggle() {
   const hdAvailable =
     isCampusOutsideSelected() &&
+    activeFormat === "glb" &&
     !!getOutdoorAsset(activeTimeStage, "hd", activeFormat);
   if (!hdAvailable) {
     hdEnabled = false;
   }
 
-  qualityToggle.hidden = !hdAvailable;
-  qualityToggle.style.display = hdAvailable ? "inline-flex" : "none";
-  qualityToggle.setAttribute("aria-pressed", String(hdEnabled));
-  qualityToggle.setAttribute("aria-label", "HD");
-  qualityToggle.title = "HD";
-  qualityToggle.disabled = !hdAvailable;
+  glbQualityControl.hidden = !hdAvailable;
+  if (!hdAvailable) {
+    glbQualityMarkers.innerHTML = "";
+    return;
+  }
+
+  glbQualityMarkers.innerHTML = ["normal", "hd"]
+    .map((quality) => `
+      <button
+        class="location-stage-marker quality-stage-marker"
+        data-glb-quality="${quality}"
+        data-active="${String((quality === "hd") === hdEnabled)}"
+        type="button"
+      >${quality === "hd" ? "High Definition" : "Normal"}</button>
+    `)
+    .join("");
+
+  for (const button of glbQualityMarkers.querySelectorAll("[data-glb-quality]")) {
+    button.addEventListener("click", async () => {
+      const nextHdEnabled = button.dataset.glbQuality === "hd";
+      if (nextHdEnabled === hdEnabled) {
+        return;
+      }
+
+      hdEnabled = nextHdEnabled;
+      updateQualityToggle();
+      if (hdEnabled) {
+        showPerformanceNotice(
+          `glb-hd:${activeTimeStage}`,
+          "High Definition may take longer to load on mobile or slower connections."
+        );
+      }
+      await applyActiveAssetSelection();
+    });
+  }
 }
 
 function updateMaterialToggle() {
-  const activeAsset = getActiveAssetDescriptor();
-  const isGlb = activeAsset?.type === "glb";
-  materialToggle.hidden = !isGlb;
-  materialToggle.style.display = isGlb ? "inline-flex" : "none";
-  materialToggle.disabled = !isGlb;
+  clayEnabled = false;
+  if (!materialToggle) {
+    return;
+  }
+
+  materialToggle.hidden = true;
+  materialToggle.style.display = "none";
+  materialToggle.disabled = true;
 }
 
 function getCurrentCalibrationConfig() {
@@ -2300,6 +2358,7 @@ function renderFpNavMarkers() {
     asset?.type === "splat" &&
     asset?.runtime === "playcanvas" &&
     asset?.fileFormat === "sog" &&
+    asset?.streamingEnabled &&
     (hasWalk || hasFly);
 
   fpNavControl.hidden = !shouldShowFpNavControl;
@@ -2366,21 +2425,22 @@ function renderLodMarkers() {
   }
 
   const tierLabels = {
-    lod0: "LOD0",
-    lod1: "LOD1",
-    lod2: "LOD2",
-    lod3: "LOD3",
-    lod4: "LOD4",
+    lod0: "Max",
+    lod1: "High",
+    lod2: "Balanced",
+    lod3: "Light",
+    lod4: "Fast",
   };
 
   lodMarkers.innerHTML = availableTiers
     .map((tier) => `
       <button
-        class="location-stage-marker"
+        class="location-stage-marker detail-stage-marker"
         data-lod-tier="${tier}"
         data-active="${String(tier === currentActiveAsset?.performanceTier)}"
+        aria-label="${tier.toUpperCase()} detail"
         type="button"
-      >${tierLabels[tier]}</button>
+      ><span>${tierLabels[tier]}</span><small>${tier.toUpperCase()}</small></button>
     `)
     .join("");
 
@@ -2436,6 +2496,7 @@ function renderFormatMarkers() {
 function updateSceneAndFormatUi() {
   renderNavigationUi();
   renderFormatMarkers();
+  updateQualityToggle();
   renderSogModeMarkers();
   renderFpNavMarkers();
   updateLodToggle();
@@ -2620,12 +2681,19 @@ function setControlsBusy(isBusy) {
   for (const marker of lodMarkers.querySelectorAll(".location-stage-marker")) {
     marker.disabled = isBusy;
   }
+  for (const marker of glbQualityMarkers.querySelectorAll(".location-stage-marker")) {
+    marker.disabled = isBusy;
+  }
   calibrationToggle.disabled = isBusy || !isSogCalibrationAvailable();
   setCalibrationInputsDisabled(isBusy || !isSogCalibrationAvailable());
 
   if (isBusy) {
-    qualityToggle.disabled = true;
-    materialToggle.disabled = true;
+    for (const marker of glbQualityMarkers.querySelectorAll(".location-stage-marker")) {
+      marker.disabled = true;
+    }
+    if (materialToggle) {
+      materialToggle.disabled = true;
+    }
   } else {
     updateQualityToggle();
     updateMaterialToggle();
@@ -2637,6 +2705,10 @@ function setControlsBusy(isBusy) {
 }
 
 function updateTurntableUi() {
+  const shouldShowTurntable =
+    isViewerMode &&
+    !(currentEngineType === "splat" && currentActiveAsset?.streamingEnabled);
+  turntableToggle.hidden = !shouldShowTurntable;
   turntableToggle.setAttribute("aria-pressed", String(turntableEnabled));
   turntableToggle.setAttribute("aria-label", turntableEnabled ? "Rotate on" : "Rotate off");
   turntableToggle.title = turntableEnabled ? "Rotate on" : "Rotate off";
@@ -2664,6 +2736,7 @@ async function activateGlbAsset(asset, swapId) {
   currentEngineType = "glb";
   currentActiveAsset = asset;
   currentAssetKey = asset.key;
+  updateTurntableUi();
   updateViewerLayerVisibility("glb");
   modelViewer.autoRotate = turntableEnabled;
   applyGlbView(asset);
@@ -2700,6 +2773,7 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   currentEngineType = "splat";
   currentActiveAsset = asset;
   currentAssetKey = asset.key;
+  updateTurntableUi();
   updateViewerLayerVisibility("splat");
   if (!options.silent) {
     setProgress(0.22);
@@ -3003,6 +3077,13 @@ async function setActiveLodTier(tier) {
     return;
   }
 
+  if (tier === "lod0") {
+    showPerformanceNotice(
+      `sog-max:${currentActiveAsset.sceneId || currentActiveAsset.key}`,
+      "Maximum detail is best on desktop or a strong Wi-Fi connection."
+    );
+  }
+
   stopSogPerformanceMonitor();
   await reloadSogAsset(nextAsset, { silent: false });
   updateLodToggle();
@@ -3104,42 +3185,10 @@ fullscreenToggle.addEventListener("click", async () => {
   await hero.requestFullscreen();
 });
 
-qualityToggle.addEventListener("click", async () => {
-  if (!isCampusOutsideSelected()) {
-    return;
-  }
-
-  const outdoorCatalog = LOCATION_CATALOG.outdoors;
-  if (!outdoorCatalog.qualityAvailability?.[activeTimeStage]) {
-    return;
-  }
-
-  hdEnabled = !hdEnabled;
-  updateQualityToggle();
-  await applyActiveAssetSelection();
-});
-
 turntableToggle.addEventListener("click", () => {
   turntableEnabled = !turntableEnabled;
   updateTurntableUi();
   applyTurntableState();
-});
-
-materialToggle.addEventListener("click", () => {
-  if (currentEngineType !== "glb") {
-    return;
-  }
-
-  clayEnabled = !clayEnabled;
-  materialToggle.setAttribute("aria-pressed", String(clayEnabled));
-  materialToggle.setAttribute("aria-label", clayEnabled ? "Textured View" : "Clay View");
-  materialToggle.title = clayEnabled ? "Textured View" : "Clay View";
-
-  if (clayEnabled) {
-    applyClayMaterials();
-  } else {
-    restoreMaterials();
-  }
 });
 
 timeDial.addEventListener("click", (event) => {
