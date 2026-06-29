@@ -518,6 +518,124 @@ async function validateManifestAndCrossSource(manifest, manifestPath, rows, miss
     });
   }
 
+  // 9. Cross-check viewer/sceneExperience.js
+  try {
+    const experienceUrl = pathToFileURL(path.resolve(root, "viewer/sceneExperience.js")).href;
+    const { SCENE_EXPERIENCES } = await import(experienceUrl);
+
+    if (SCENE_EXPERIENCES) {
+      const activeScenesSet = new Set(manifest.activeScenes || []);
+      const pilotScenesSet = new Set(manifest.pilotScenes || []);
+      const allActiveAndPilot = new Set([...activeScenesSet, ...pilotScenesSet]);
+
+      // Verify every active scene has an experience entry
+      for (const sceneId of allActiveAndPilot) {
+        if (!SCENE_EXPERIENCES[sceneId]) {
+          errors.push({
+            type: "experience-check",
+            sceneId,
+            message: `Active/pilot scene '${sceneId}' is missing experience metadata in viewer/sceneExperience.js.`
+          });
+        }
+      }
+
+      // Validate each experience entry
+      const validCategories = ["outdoor", "indoor", "lab"];
+      for (const [expId, exp] of Object.entries(SCENE_EXPERIENCES)) {
+        if (exp.id !== expId) {
+          errors.push({
+            type: "experience-check",
+            sceneId: expId,
+            message: `Experience key '${expId}' does not match experience ID '${exp.id}'.`
+          });
+        }
+
+        // Must exist in catalog
+        if (catalogSceneIds.size > 0 && !catalogSceneIds.has(expId)) {
+          errors.push({
+            type: "experience-check",
+            sceneId: expId,
+            message: `Scene experience ID '${expId}' does not exist in viewer/sceneCatalog.js.`
+          });
+        }
+
+        // Category is valid
+        if (exp.category && !validCategories.includes(exp.category)) {
+          errors.push({
+            type: "experience-check",
+            sceneId: expId,
+            message: `Experience category '${exp.category}' is invalid. Expected one of: ${validCategories.join(", ")}`
+          });
+        }
+
+        // Defaults checks
+        if (exp.defaults) {
+          if (exp.defaults.format && !["glb", "sog", "splat"].includes(exp.defaults.format)) {
+            errors.push({
+              type: "experience-check",
+              sceneId: expId,
+              message: `Experience preferred format '${exp.defaults.format}' is invalid.`
+            });
+          }
+          if (exp.defaults.sogRuntime && !["playcanvas", "luma"].includes(exp.defaults.sogRuntime)) {
+            errors.push({
+              type: "experience-check",
+              sceneId: expId,
+              message: `Experience SOG runtime '${exp.defaults.sogRuntime}' is invalid.`
+            });
+          }
+        }
+
+        // Navigation check (must be boolean flags)
+        if (exp.navigation) {
+          for (const [navKey, val] of Object.entries(exp.navigation)) {
+            if (navKey !== "defaultMode" && typeof val !== "boolean") {
+              errors.push({
+                type: "experience-check",
+                sceneId: expId,
+                message: `Navigation flag '${navKey}' must be a boolean.`
+              });
+            }
+          }
+        }
+
+        // Fallbacks checks
+        if (exp.fallbacks) {
+          if (exp.fallbacks.preferredOrder && !Array.isArray(exp.fallbacks.preferredOrder)) {
+            errors.push({
+              type: "experience-check",
+              sceneId: expId,
+              message: `Fallbacks preferredOrder must be an array.`
+            });
+          }
+        }
+
+        // Future hooks structure
+        if (exp.future) {
+          if (exp.future.hotspots && !Array.isArray(exp.future.hotspots)) {
+            errors.push({
+              type: "experience-check",
+              sceneId: expId,
+              message: `Future hotspot hook must be an array.`
+            });
+          }
+          if (exp.future.portals && !Array.isArray(exp.future.portals)) {
+            errors.push({
+              type: "experience-check",
+              sceneId: expId,
+              message: `Future portals hook must be an array.`
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    errors.push({
+      type: "experience-check",
+      message: `Failed to load or validate viewer/sceneExperience.js: ${err.message}`
+    });
+  }
+
   return { errors, warnings };
 }
 

@@ -1,6 +1,7 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260625fp22";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260629tap1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
+import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260629exp1";
 
 let modelViewer = document.getElementById("siteModel");
 const splatViewerMount = document.getElementById("splatViewerMount");
@@ -1079,10 +1080,32 @@ function setStatus(title, text) {
     "3D hero active": "Ready to explore",
     "Asset issue": "We couldn't open this space",
   };
-  statusPill.textContent = friendlyTitles[title] || title;
-  statusCopy.textContent = /^Fetching\s+https?:|^Fetching\s+\.\//i.test(text || "")
-    ? "Connecting to the 3D scene and preparing its details."
-    : text;
+
+  const asset = currentActiveAsset || getActiveAssetDescriptor();
+  const sceneId = asset?.sceneId || (asset?.locationId === "outdoors" ? `campus-${activeTimeStage}` : null);
+  const exp = sceneId ? resolveSceneExperience(sceneId) : null;
+
+  let finalTitle = friendlyTitles[title] || title;
+  let finalCopy = text;
+
+  if (exp) {
+    if (title === "Loading SOG" || title === "Loading scene" || title === "Switching scene") {
+      finalTitle = exp.loading.title;
+      if (/^Fetching\s+https?:|^Fetching\s+\.\//i.test(text || "")) {
+        finalCopy = exp.performance.weight === "heavy" && exp.loading.heavyMessage
+          ? exp.loading.heavyMessage
+          : exp.loading.message;
+      }
+    } else if (title === "Scene ready" || title === "SOG ready" || title === "3D hero active") {
+      finalTitle = "Ready to explore";
+      if (exp.loading.readyMessage) {
+        finalCopy = exp.loading.readyMessage;
+      }
+    }
+  }
+
+  statusPill.textContent = finalTitle;
+  statusCopy.textContent = finalCopy;
   statusRetry.hidden = title !== "Asset issue";
   statusRetry.disabled = false;
 }
@@ -1104,11 +1127,14 @@ function escapeHtml(value) {
 }
 
 function getSceneCardEntries() {
+  const campusExp = resolveSceneExperience("campus-day");
+  const ditExp = resolveSceneExperience("dit-main");
+
   const cards = [
     {
       id: "campus-outside",
-      title: "Campus",
-      context: "Outdoor campus",
+      title: campusExp.title.split(" ")[0], // Campus
+      context: campusExp.subtitle,
       description: "Explore the university grounds across day, dusk and night.",
       formats: Object.keys(LOCATION_CATALOG.outdoors?.stages?.day || {}),
       selection: { site: "campus", environment: "outside", stage: "day" },
@@ -1116,9 +1142,9 @@ function getSceneCardEntries() {
     },
     {
       id: "dit-outside",
-      title: LOCATION_CATALOG.dit?.scene?.label || "DIT",
-      context: "University building",
-      description: "View the Department of Informatics and Telematics in 3D.",
+      title: ditExp.title,
+      context: ditExp.subtitle,
+      description: ditExp.description,
       formats: Object.keys(LOCATION_CATALOG.dit?.scene?.assets || {}),
       selection: { site: "dit", environment: "outside", stage: "dusk" },
       thumbnail: LOCATION_CATALOG.dit?.scene?.thumbnail || null,
@@ -1129,11 +1155,12 @@ function getSceneCardEntries() {
     for (const space of building.spaces) {
       const scene = getCampusIndoorSceneById(space.sceneId);
       if (!scene) continue;
+      const exp = resolveSceneExperience(scene.id);
       cards.push({
         id: `indoor-${scene.id}`,
-        title: scene.label,
-        context: `${building.label} building`,
-        description: "Step inside and inspect this university space in detail.",
+        title: exp.title,
+        context: `${building.label} - ${getCategoryLabel(exp.category)}`,
+        description: exp.description,
         formats: Object.keys(scene.assets || {}),
         selection: { site: "campus", environment: "inside", building: building.id, scene: scene.id },
         thumbnail: scene.thumbnail || null,
@@ -1310,7 +1337,17 @@ function getCurrentContextLabel() {
 }
 
 function getPreferredFormat(scene) {
-  return sortFormats(Object.keys(scene?.assets || {}))[0] || "glb";
+  const sceneId = scene?.id || (activeLocationStage === "outdoors" ? `campus-${activeTimeStage}` : null);
+  const exp = sceneId ? resolveSceneExperience(sceneId) : null;
+  const preferredOrder = exp?.fallbacks?.preferredOrder || ["sog", "glb"];
+
+  const formats = Object.keys(scene?.assets || {});
+  for (const fmt of preferredOrder) {
+    if (formats.includes(fmt)) {
+      return fmt;
+    }
+  }
+  return sortFormats(formats)[0] || "glb";
 }
 
 function getCurrentLocationEntry() {
@@ -2252,12 +2289,18 @@ function renderSogModeMarkers() {
 
 function renderFpNavMarkers() {
   const asset = currentActiveAsset?.type === "splat" ? currentActiveAsset : getActiveAssetDescriptor();
+  const sceneId = asset?.sceneId || (asset?.locationId === "outdoors" ? `campus-${activeTimeStage}` : null);
+  const exp = sceneId ? resolveSceneExperience(sceneId) : null;
+
+  const hasWalk = exp ? exp.navigation.walk : !!asset?.streamingEnabled;
+  const hasFly = exp ? exp.navigation.fly : !!asset?.streamingEnabled;
+
   const shouldShowFpNavControl =
     currentEngineType === "splat" &&
     asset?.type === "splat" &&
     asset?.runtime === "playcanvas" &&
     asset?.fileFormat === "sog" &&
-    !!asset?.streamingEnabled;
+    (hasWalk || hasFly);
 
   fpNavControl.hidden = !shouldShowFpNavControl;
 
@@ -2266,7 +2309,11 @@ function renderFpNavMarkers() {
     return;
   }
 
-  fpNavMarkers.innerHTML = ["walk", "fly"]
+  const modes = [];
+  if (hasWalk) modes.push("walk");
+  if (hasFly) modes.push("fly");
+
+  fpNavMarkers.innerHTML = modes
     .map((mode) => `
       <button
         class="location-stage-marker"
