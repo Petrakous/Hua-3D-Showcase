@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const DEFAULT_MANIFEST_PATH = "assets/manifest.json";
 
@@ -169,7 +170,9 @@ async function expandManifestAssets({ manifestPath = DEFAULT_MANIFEST_PATH, scen
 
   rows.sort((a, b) => a.sceneId.localeCompare(b.sceneId) || a.assetPath.localeCompare(b.assetPath));
 
-  return { manifest, rows, missing };
+  const { errors, warnings } = await validateManifestAndCrossSource(manifest, manifestPath, rows, missing);
+
+  return { manifest, rows, missing, errors, warnings };
 }
 
 function parseArgs(argv) {
@@ -219,6 +222,300 @@ function summarizeRows(rows) {
     ...entry,
     size: formatBytes(entry.bytes),
   }));
+}
+
+async function validateManifestAndCrossSource(manifest, manifestPath, rows, missing) {
+  const errors = [];
+  const warnings = [];
+
+  // 1. Validate top-level schema
+  if (!manifest) {
+    errors.push({ type: "schema", message: "Manifest is empty or invalid JSON." });
+    return { errors, warnings };
+  }
+
+  if (typeof manifest.version !== "number") {
+    errors.push({ type: "schema", message: "Top-level 'version' is missing or not a number." });
+  }
+  if (typeof manifest.name !== "string") {
+    errors.push({ type: "schema", message: "Top-level 'name' is missing or not a string." });
+  }
+
+  const hasBaseUrl = typeof manifest.assetBaseUrl === "string";
+  const hasBases = manifest.assetBases &&
+                    typeof manifest.assetBases.local === "string" &&
+                    typeof manifest.assetBases.remote === "string";
+  if (!hasBaseUrl && !hasBases) {
+    errors.push({ type: "schema", message: "Manifest must define 'assetBaseUrl' or 'assetBases' with local and remote bases." });
+  }
+
+  if (typeof manifest.stagingRoot !== "string") {
+    errors.push({ type: "schema", message: "Top-level 'stagingRoot' is missing or not a string." });
+  }
+
+  if (!Array.isArray(manifest.activeScenes)) {
+    errors.push({ type: "schema", message: "Top-level 'activeScenes' is missing or not an array." });
+  }
+
+  if (!manifest.scenes || typeof manifest.scenes !== "object" || Array.isArray(manifest.scenes)) {
+    errors.push({ type: "schema", message: "Top-level 'scenes' is missing or not an object." });
+  }
+
+  // 2. Validate duplicate scene IDs in activeScenes / pilotScenes
+  if (Array.isArray(manifest.activeScenes)) {
+    const seenActive = new Set();
+    for (const id of manifest.activeScenes) {
+      if (typeof id !== "string") {
+        errors.push({ type: "schema", message: `activeScenes contains a non-string value: ${id}` });
+        continue;
+      }
+      if (seenActive.has(id)) {
+        errors.push({ type: "duplicate-scene", id, message: `Duplicate scene ID '${id}' in activeScenes.` });
+      }
+      seenActive.add(id);
+    }
+  }
+  if (Array.isArray(manifest.pilotScenes)) {
+    const seenPilot = new Set();
+    for (const id of manifest.pilotScenes) {
+      if (typeof id !== "string") {
+        errors.push({ type: "schema", message: `pilotScenes contains a non-string value: ${id}` });
+        continue;
+      }
+      if (seenPilot.has(id)) {
+        errors.push({ type: "duplicate-scene", id, message: `Duplicate scene ID '${id}' in pilotScenes.` });
+      }
+      seenPilot.add(id);
+    }
+  }
+
+  // 3. Unsafe path checks helper
+  const checkUnsafePath = (pathVal, fieldName, context) => {
+    if (!pathVal) {
+      errors.push({ type: "unsafe-path", ...context, message: `Path field '${fieldName}' is empty.` });
+      return;
+    }
+    // Absolute paths
+    if (pathVal.startsWith("/") || pathVal.startsWith("\\") || /^[a-zA-Z]:/.test(pathVal)) {
+      errors.push({ type: "unsafe-path", ...context, message: `Path field '${fieldName}' ('${pathVal}') is absolute.` });
+    }
+    // Traversal
+    if (pathVal.includes("..")) {
+      errors.push({ type: "unsafe-path", ...context, message: `Path field '${fieldName}' ('${pathVal}') contains parent traversal '..'.` });
+    }
+  };
+
+  // Malformed remote key checks
+  const checkRemoteKey = (keyVal, fieldName, context) => {
+    if (!keyVal) {
+      errors.push({ type: "malformed-remote-key", ...context, message: `Remote key '${fieldName}' is empty.` });
+      return;
+    }
+    if (keyVal.startsWith("/")) {
+      errors.push({ type: "malformed-remote-key", ...context, message: `Remote key '${fieldName}' ('${keyVal}') starts with a slash.` });
+    }
+    if (keyVal.includes("\\")) {
+      errors.push({ type: "malformed-remote-key", ...context, message: `Remote key '${fieldName}' ('${keyVal}') contains backslashes.` });
+    }
+  };
+
+  // 4. Validate scenes and assets properties
+  const manifestSceneIds = manifest.scenes ? Object.keys(manifest.scenes) : [];
+  if (manifest.scenes) {
+    for (const [sceneId, scene] of Object.entries(manifest.scenes)) {
+      if (!scene || typeof scene !== "object" || Array.isArray(scene)) {
+        errors.push({ type: "schema", sceneId, message: `Scene '${sceneId}' is not a valid object.` });
+        continue;
+      }
+      if (typeof scene.label !== "string") {
+        errors.push({ type: "schema", sceneId, message: `Scene '${sceneId}' is missing 'label' or label is not a string.` });
+      }
+      if (!Array.isArray(scene.assets)) {
+        errors.push({ type: "schema", sceneId, message: `Scene '${sceneId}' 'assets' is missing or not an array.` });
+        continue;
+      }
+
+      // Check duplicate assets in this scene
+      const seenAssetIds = new Set();
+      for (const asset of scene.assets) {
+        if (!asset || typeof asset !== "object") {
+          errors.push({ type: "schema", sceneId, message: "Asset entry is not an object." });
+          continue;
+        }
+
+        // Validate required fields
+        if (typeof asset.id !== "string") {
+          errors.push({ type: "schema", sceneId, message: "Asset is missing 'id' or id is not a string." });
+        } else {
+          if (seenAssetIds.has(asset.id)) {
+            errors.push({ type: "duplicate-asset", sceneId, assetId: asset.id, message: `Duplicate asset ID '${asset.id}' in scene '${sceneId}'.` });
+          }
+          seenAssetIds.add(asset.id);
+        }
+
+        if (typeof asset.role !== "string") {
+          errors.push({ type: "schema", sceneId, assetId: asset.id, message: "Asset is missing 'role' or role is not a string." });
+        }
+        if (asset.type !== "file" && asset.type !== "tree") {
+          errors.push({ type: "schema", sceneId, assetId: asset.id, message: `Asset type must be 'file' or 'tree', got '${asset.type}'.` });
+        }
+        if (typeof asset.localSource !== "string") {
+          errors.push({ type: "schema", sceneId, assetId: asset.id, message: "Asset is missing 'localSource' or localSource is not a string." });
+        } else {
+          checkUnsafePath(asset.localSource, "localSource", { sceneId, assetId: asset.id });
+        }
+
+        const assetPath = asset.assetPath || asset.r2Key;
+        if (typeof assetPath !== "string") {
+          errors.push({ type: "schema", sceneId, assetId: asset.id, message: "Asset is missing both 'assetPath' and 'r2Key'." });
+        } else {
+          checkRemoteKey(asset.assetPath || asset.r2Key, "assetPath/r2Key", { sceneId, assetId: asset.id });
+        }
+      }
+    }
+  }
+
+  // 5. Detect duplicate R2 keys / remote keys
+  const r2KeyToAssets = new Map();
+  for (const row of rows) {
+    if (!row.r2Key) continue;
+    const key = row.r2Key;
+    const current = r2KeyToAssets.get(key) || [];
+    current.push(row);
+    r2KeyToAssets.set(key, current);
+  }
+  for (const [key, assets] of r2KeyToAssets.entries()) {
+    if (assets.length > 1) {
+      const descriptions = assets.map(a => `${a.sceneId}:${a.assetId || "unnamed"} (${a.sourcePath})`).join(", ");
+      errors.push({
+        type: "duplicate-r2-key",
+        key,
+        message: `Duplicate staging destination R2 key '${key}' maps to multiple assets: ${descriptions}`
+      });
+    }
+  }
+
+  const root = process.cwd();
+
+  // 6. Cross-check manifest active scenes against sceneCatalog.js
+  let catalogSceneIds = new Set();
+  const originalFetch = globalThis.fetch;
+  try {
+    // Stub global fetch to prevent relative URL parse errors in Node.js
+    globalThis.fetch = async (url) => {
+      try {
+        const raw = await fs.readFile(path.resolve(root, "assets/manifest.json"), "utf8");
+        return {
+          ok: true,
+          json: async () => JSON.parse(raw)
+        };
+      } catch (e) {
+        return { ok: false, status: 404 };
+      }
+    };
+
+    // Suppress console info output of sceneCatalog.js during import
+    const originalInfo = console.info;
+    console.info = () => {};
+    const catalogUrl = pathToFileURL(path.resolve(root, "viewer/sceneCatalog.js")).href;
+    const { LOCATION_CATALOG } = await import(catalogUrl);
+    console.info = originalInfo;
+
+    if (LOCATION_CATALOG) {
+      for (const loc of Object.values(LOCATION_CATALOG)) {
+        if (loc.stages) {
+          catalogSceneIds.add("campus-day");
+          catalogSceneIds.add("campus-dusk");
+          catalogSceneIds.add("campus-night");
+        }
+        if (loc.scenes && Array.isArray(loc.scenes)) {
+          for (const scene of loc.scenes) {
+            if (scene.id) catalogSceneIds.add(scene.id);
+          }
+        }
+        if (loc.scene && loc.scene.id) {
+          catalogSceneIds.add(loc.scene.id);
+        }
+      }
+    }
+  } catch (err) {
+    warnings.push({ type: "catalog-check", message: `Could not load viewer/sceneCatalog.js for cross-checking: ${err.message}` });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  if (catalogSceneIds.size > 0) {
+    const activeScenesSet = new Set(manifest.activeScenes || []);
+    const pilotScenesSet = new Set(manifest.pilotScenes || []);
+
+    // Catalog scenes missing from activeScenes
+    for (const catId of catalogSceneIds) {
+      if (!activeScenesSet.has(catId)) {
+        if (pilotScenesSet.has(catId)) {
+          // Intentionally pilot/inactive
+        } else {
+          warnings.push({
+            type: "catalog-check",
+            sceneId: catId,
+            message: `Catalog scene '${catId}' is missing from manifest's activeScenes (and not marked as pilot).`
+          });
+        }
+      }
+    }
+
+    // Active scenes missing from catalog
+    for (const actId of activeScenesSet) {
+      if (!catalogSceneIds.has(actId)) {
+        errors.push({
+          type: "catalog-check",
+          sceneId: actId,
+          message: `Manifest active scene '${actId}' does not exist in viewer/sceneCatalog.js.`
+        });
+      }
+    }
+  }
+
+  // 7. Cross-check viewer/sceneCalibrations.js
+  try {
+    const calibrationsUrl = pathToFileURL(path.resolve(root, "viewer/sceneCalibrations.js")).href;
+    const { SCENE_CALIBRATION_DEFAULTS } = await import(calibrationsUrl);
+    if (SCENE_CALIBRATION_DEFAULTS) {
+      const validateCalibrationKeys = (sectionName, sectionObj) => {
+        if (!sectionObj) return;
+        for (const key of Object.keys(sectionObj)) {
+          const parts = key.split(":");
+          const sceneId = parts[parts.length - 1];
+          // Check if this scene ID exists in catalog or manifest
+          const existsInCatalog = catalogSceneIds.has(sceneId);
+          const existsInManifest = manifestSceneIds.includes(sceneId);
+          if (catalogSceneIds.size > 0 && !existsInCatalog && !existsInManifest) {
+            warnings.push({
+              type: "calibration-check",
+              key,
+              message: `Calibration key '${key}' in SCENE_CALIBRATION_DEFAULTS.${sectionName} refers to non-existent scene ID '${sceneId}'.`
+            });
+          }
+        }
+      };
+
+      validateCalibrationKeys("streamedTransforms", SCENE_CALIBRATION_DEFAULTS.streamedTransforms);
+      validateCalibrationKeys("manualBoxOverrides", SCENE_CALIBRATION_DEFAULTS.manualBoxOverrides);
+    }
+  } catch (err) {
+    warnings.push({ type: "calibration-check", message: `Could not load viewer/sceneCalibrations.js for cross-checking: ${err.message}` });
+  }
+
+  // 8. Add local source file errors from `missing` array
+  for (const m of missing) {
+    errors.push({
+      type: "source-missing",
+      sceneId: m.sceneId,
+      assetId: m.assetId,
+      message: `Local source path is missing or of incorrect type: ${m.sourcePath || m.sceneId} (${m.reason})`
+    });
+  }
+
+  return { errors, warnings };
 }
 
 export {
