@@ -1,6 +1,6 @@
 import { computeAutoCutaway } from "./autoCutaway.js?v=20260625fp22";
 import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
-import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629touch1";
+import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629tap1";
 
 const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas/+esm";
 const ORBIT_DAMPING_DECAY_MS = 140;
@@ -979,6 +979,7 @@ class PlayCanvasSogViewer {
       this.fpNavigationController = new FirstPersonNavigationController(this.canvas, this.fpCollision, {
         mode: this.fpNavigationMode,
         preservePresetSpawn: !!this.currentAsset?.fpViewPreset?.cameraPosition,
+        onTouchTap: (tap) => this.handleFirstPersonTap(tap),
         walk: {
           fov: this.camera?.camera?.fov ?? 90,
         },
@@ -994,6 +995,47 @@ class PlayCanvasSogViewer {
     }
 
     return this.fpNavigationController;
+  }
+
+  handleFirstPersonTap(tap) {
+    if (
+      !this.firstPersonActive ||
+      !this.currentAsset?.streamingEnabled ||
+      !this.fpCollision ||
+      !this.fpNavigationController ||
+      !this.camera?.camera ||
+      !this.canvas ||
+      !this.pc
+    ) {
+      return false;
+    }
+
+    const rect = this.canvas.getBoundingClientRect();
+    const offsetX = tap.clientX - rect.left;
+    const offsetY = tap.clientY - rect.top;
+    if (offsetX < 0 || offsetY < 0 || offsetX > rect.width || offsetY > rect.height) {
+      return false;
+    }
+    const screenX = offsetX * (this.canvas.clientWidth / Math.max(rect.width, 1));
+    const screenY = offsetY * (this.canvas.clientHeight / Math.max(rect.height, 1));
+
+    const origin = this.camera.getPosition();
+    const worldPoint = this.camera.camera.screenToWorld(screenX, screenY, 1, new this.pc.Vec3());
+    const direction = worldPoint.sub(origin).normalize();
+    const hit = this.fpCollision.queryRay(
+      origin.x,
+      origin.y,
+      origin.z,
+      direction.x,
+      direction.y,
+      direction.z,
+      60
+    );
+    if (!hit || hit.ny < 0.45) {
+      return false;
+    }
+
+    return this.fpNavigationController.navigateToFloor(hit);
   }
 
   startFirstPersonNavigation(pc) {
@@ -1915,6 +1957,8 @@ class PlayCanvasSogViewer {
             status: "loading",
             title: "Loading SOG",
             message: `${asset.label || "SOG scene"} loading (${Math.round((received / total) * 100)}%)`,
+            received,
+            total,
           });
         });
         splatAsset.on("load", resolve);
@@ -2108,6 +2152,8 @@ class PlayCanvasSogViewer {
           status: "loading",
           title: "Loading SOG",
           message: `${preparedAsset.label || "SOG scene"} loading (${Math.round((received / total) * 100)}%)`,
+          received,
+          total,
         });
       });
       splatAsset.on("load", resolve);

@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260625fp22";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260629touch1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260629tap1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 
 let modelViewer = document.getElementById("siteModel");
@@ -7,9 +7,14 @@ const splatViewerMount = document.getElementById("splatViewerMount");
 const orbitTargetIndicator = document.getElementById("orbitTargetIndicator");
 const siteHeader = document.getElementById("siteHeader");
 const progressBar = document.getElementById("progressBar");
+const progressTrack = progressBar.closest("[role='progressbar']");
+const progressMeta = document.getElementById("progressMeta");
 const statusPill = document.getElementById("statusPill");
 const statusCopy = document.getElementById("statusCopy");
 const viewerStatus = document.getElementById("viewerStatus");
+const sceneSelection = document.getElementById("sceneSelection");
+const sceneCardGrid = document.getElementById("sceneCardGrid");
+const viewerBackButton = document.getElementById("viewerBackButton");
 const fullscreenToggle = document.getElementById("fullscreenToggle");
 const qualityToggle = document.getElementById("qualityToggle");
 const calibrationToggle = document.getElementById("calibrationToggle");
@@ -788,6 +793,7 @@ let dialPointerId = null;
 let dialStartAngle = 0;
 let dialDragged = false;
 let skipNextDialClick = false;
+let isViewerMode = false;
 const sogViewer = new PlayCanvasSogViewer(splatViewerMount);
 
 const FORMAT_LABELS = {
@@ -985,17 +991,173 @@ const DIT_INSIDE_SPACES = [
   { id: "pc-lab", label: "PC Lab", sceneId: null },
 ];
 
-function setProgress(value) {
-  progressBar.style.width = `${Math.max(0, Math.min(100, Math.round(value * 100)))}%`;
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return "";
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 1 : 2)} MB`;
+}
+
+function setProgress(value, details = null) {
+  const percent = Math.max(0, Math.min(100, Math.round(value * 100)));
+  progressBar.style.width = `${percent}%`;
+  progressTrack?.setAttribute("aria-valuenow", String(percent));
+
+  if (details?.total > 0 && Number.isFinite(details.received)) {
+    progressMeta.textContent = `${formatBytes(details.received)} of ${formatBytes(details.total)}`;
+  } else if (percent > 0 && percent < 100) {
+    progressMeta.textContent = `${percent}%`;
+  } else {
+    progressMeta.textContent = "";
+  }
 }
 
 function setStatus(title, text) {
-  statusPill.textContent = title;
-  statusCopy.textContent = text;
+  const friendlyTitles = {
+    "Loading SOG": "Loading your space",
+    "Preparing FP": "Preparing navigation",
+    "Switching scene": "Preparing your space",
+    "Loading scene": "Loading your space",
+    "Scene ready": "Ready to explore",
+    "SOG ready": "Ready to explore",
+    "3D hero active": "Ready to explore",
+    "Asset issue": "We couldn't open this space",
+  };
+  statusPill.textContent = friendlyTitles[title] || title;
+  statusCopy.textContent = /^Fetching\s+https?:|^Fetching\s+\.\//i.test(text || "")
+    ? "Connecting to the 3D scene and preparing its details."
+    : text;
 }
 
 function setStatusOverlayState(isIdle) {
   viewerStatus.classList.toggle("is-idle", isIdle);
+  const shouldHide = isIdle || !isViewerMode;
+  viewerStatus.hidden = shouldHide;
+  viewerStatus.setAttribute("aria-hidden", String(shouldHide));
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function getSceneCardEntries() {
+  const cards = [
+    {
+      id: "campus-outside",
+      title: "Campus",
+      context: "Outdoor campus",
+      description: "Explore the university grounds across day, dusk and night.",
+      formats: Object.keys(LOCATION_CATALOG.outdoors?.stages?.day || {}),
+      selection: { site: "campus", environment: "outside", stage: "day" },
+      thumbnail: LOCATION_CATALOG.outdoors?.thumbnail || null,
+    },
+    {
+      id: "dit-outside",
+      title: LOCATION_CATALOG.dit?.scene?.label || "DIT",
+      context: "University building",
+      description: "View the Department of Informatics and Telematics in 3D.",
+      formats: Object.keys(LOCATION_CATALOG.dit?.scene?.assets || {}),
+      selection: { site: "dit", environment: "outside", stage: "dusk" },
+      thumbnail: LOCATION_CATALOG.dit?.scene?.thumbnail || null,
+    },
+  ];
+
+  for (const building of CAMPUS_INDOOR_BUILDINGS) {
+    for (const space of building.spaces) {
+      const scene = getCampusIndoorSceneById(space.sceneId);
+      if (!scene) continue;
+      cards.push({
+        id: `indoor-${scene.id}`,
+        title: scene.label,
+        context: `${building.label} building`,
+        description: "Step inside and inspect this university space in detail.",
+        formats: Object.keys(scene.assets || {}),
+        selection: { site: "campus", environment: "inside", building: building.id, scene: scene.id },
+        thumbnail: scene.thumbnail || null,
+      });
+    }
+  }
+
+  return cards;
+}
+
+function renderSceneCards() {
+  const cards = getSceneCardEntries();
+  sceneCardGrid.innerHTML = cards.map((card, index) => {
+    const media = card.thumbnail
+      ? `<img src="${escapeHtml(card.thumbnail)}" alt="" loading="lazy" />`
+      : `<span class="scene-card__monogram" aria-hidden="true">${escapeHtml(card.title.slice(0, 2).toUpperCase())}</span>`;
+    const formats = card.formats.map((format) => `<span>${escapeHtml(FORMAT_LABELS[format] || format.toUpperCase())}</span>`).join("");
+    return `
+      <article class="scene-card" style="--card-index:${index}" data-card-id="${escapeHtml(card.id)}">
+        <div class="scene-card__media">${media}</div>
+        <div class="scene-card__body">
+          <div class="scene-card__meta">
+            <span>${escapeHtml(card.context)}</span>
+            <span class="scene-card__formats">${formats}</span>
+          </div>
+          <h2>${escapeHtml(card.title)}</h2>
+          <p>${escapeHtml(card.description)}</p>
+          <button class="scene-card__cta" type="button" data-scene-card="${escapeHtml(card.id)}">
+            <span>Explore</span><span aria-hidden="true">&nearr;</span>
+          </button>
+        </div>
+      </article>
+    `;
+  }).join("");
+
+  for (const button of sceneCardGrid.querySelectorAll("[data-scene-card]")) {
+    button.addEventListener("click", () => selectSceneCard(button.dataset.sceneCard));
+  }
+}
+
+function enterViewerMode() {
+  isViewerMode = true;
+  document.body.classList.remove("is-scene-selection");
+  document.body.classList.add("is-viewer-mode");
+  sceneSelection.hidden = true;
+  sceneSelection.setAttribute("aria-hidden", "true");
+  viewerBackButton.hidden = false;
+}
+
+function exitViewerMode() {
+  ++activeAssetSwapId;
+  releaseActiveViewerResources();
+  isViewerMode = false;
+  document.body.classList.remove("is-viewer-mode");
+  document.body.classList.add("is-scene-selection");
+  sceneSelection.hidden = false;
+  sceneSelection.setAttribute("aria-hidden", "false");
+  sceneSelection.scrollTop = 0;
+  viewerBackButton.hidden = true;
+  setStatusOverlayState(true);
+}
+
+async function selectSceneCard(cardId) {
+  const card = getSceneCardEntries().find((entry) => entry.id === cardId);
+  if (!card) return;
+
+  const selection = card.selection;
+  activeSiteId = selection.site;
+  activeEnvironmentId = selection.environment;
+  activeTimeStage = selection.stage || activeTimeStage;
+  activeBuildingId = selection.building || activeBuildingId;
+  activeSceneId = selection.scene || null;
+  activeSogMode = "classic";
+  activeFpNavigationMode = "walk";
+  syncNavigationState();
+  activeFormat = getPreferredFormat(getCurrentSceneEntry()) || getAvailableFormats()[0] || "glb";
+  updateLocationUi();
+  updateQualityToggle();
+  updateMaterialToggle();
+  updateTimeUi();
+  enterViewerMode();
+  await applyActiveAssetSelection();
 }
 
 function sortFormats(formats = []) {
@@ -2456,7 +2618,9 @@ async function activateSplatAsset(asset, swapId, options = {}) {
             return;
           }
 
-          if (nextState.status === "loading") {
+          if (nextState.total > 0 && Number.isFinite(nextState.received)) {
+            setProgress(nextState.received / nextState.total, nextState);
+          } else if (nextState.status === "loading") {
             setProgress(0.56);
           }
 
@@ -2546,6 +2710,7 @@ async function applyActiveAssetSelection() {
 
   setControlsBusy(true);
   setStatusOverlayState(false);
+  setProgress(0.08);
   setStatus("Switching scene", `Loading ${describeActiveAsset(nextAsset)}...`);
   releaseActiveViewerResources();
 
@@ -2816,6 +2981,8 @@ resetCamera.addEventListener("click", () => {
   resetActiveViewer();
 });
 
+viewerBackButton.addEventListener("click", exitViewerMode);
+
 fullscreenToggle.addEventListener("click", async () => {
   const hero = document.querySelector(".hero");
   if (document.fullscreenElement) {
@@ -3062,12 +3229,12 @@ updateMaterialToggle();
 updateCalibrationUi();
 updateTimeUi();
 updateTurntableUi();
-setStatusOverlayState(false);
+isViewerMode = false;
+document.body.classList.add("is-scene-selection");
+renderSceneCards();
+updateViewerLayerVisibility("none");
+setStatusOverlayState(true);
 applyTurntableState();
-
-setProgress(0.08);
-setStatus("Loading scene", "Preparing the 3D viewer and resolving the active campus scene.");
-applyActiveAssetSelection();
 
 
 

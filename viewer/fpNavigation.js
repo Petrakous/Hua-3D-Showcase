@@ -3,6 +3,10 @@ const TOUCH_LOOK_SENSITIVITY = 0.16;
 const MAX_PITCH = 89;
 const MIN_MOVE_EPSILON = 1e-6;
 const MAX_LOOK_DELTA_PER_EVENT = 40;
+const TOUCH_TAP_MAX_TRAVEL = 8;
+const NAVIGATION_STOP_DISTANCE = 0.3;
+const NAVIGATION_BLOCKED_TIMEOUT = 0.75;
+const NAVIGATION_MAX_DISTANCE = 40;
 
 const DEFAULT_FLY_SPEED = 4.0;
 const DEFAULT_FLY_SPRINT_MULTIPLIER = 1.8;
@@ -123,8 +127,9 @@ function poseFromOrbitState(orbitState, fov = 90) {
 }
 
 class FirstPersonInput {
-  constructor(canvas) {
+  constructor(canvas, options = {}) {
     this.canvas = canvas;
+    this.onTouchTap = typeof options.onTouchTap === "function" ? options.onTouchTap : null;
     this.keys = new Set();
     this.dragging = false;
     this.pointerLocked = false;
@@ -133,6 +138,7 @@ class FirstPersonInput {
     this.lastClientX = 0;
     this.lastClientY = 0;
     this.touchPointerId = null;
+    this.touchTravel = 0;
     this.mobileMovePointers = new Map();
     this.mobileMoveX = 0;
     this.mobileMoveZ = 0;
@@ -165,6 +171,7 @@ class FirstPersonInput {
       this.canvas.focus?.();
       if (event.pointerType === "touch") {
         this.touchPointerId = event.pointerId;
+        this.touchTravel = 0;
         this.canvas.setPointerCapture?.(event.pointerId);
       } else if (document.pointerLockElement !== this.canvas) {
         try {
@@ -196,6 +203,7 @@ class FirstPersonInput {
       const movementY = clamp(event.clientY - this.lastClientY, -MAX_LOOK_DELTA_PER_EVENT, MAX_LOOK_DELTA_PER_EVENT);
       this.lastClientX = event.clientX;
       this.lastClientY = event.clientY;
+      this.touchTravel += Math.hypot(movementX, movementY);
       this.mouseDeltaX += movementX * (TOUCH_LOOK_SENSITIVITY / POINTER_LOOK_SENSITIVITY);
       this.mouseDeltaY += movementY * (TOUCH_LOOK_SENSITIVITY / POINTER_LOOK_SENSITIVITY);
       event.preventDefault();
@@ -204,8 +212,13 @@ class FirstPersonInput {
     const onPointerUp = (event) => {
       if (event.pointerType === "touch") {
         if (event.pointerId === this.touchPointerId) {
+          const isTap = event.type === "pointerup" && this.touchTravel <= TOUCH_TAP_MAX_TRAVEL;
           this.dragging = false;
           this.touchPointerId = null;
+          if (isTap) {
+            this.onTouchTap?.({ clientX: event.clientX, clientY: event.clientY });
+          }
+          this.touchTravel = 0;
         }
         return;
       }
@@ -246,6 +259,7 @@ class FirstPersonInput {
       this.keys.clear();
       this.dragging = false;
       this.touchPointerId = null;
+      this.touchTravel = 0;
       this.mobileMovePointers.clear();
       this.updateMobileMovement();
       this.mouseDeltaX = 0;
@@ -847,13 +861,15 @@ class FirstPersonNavigationController {
   constructor(canvas, collision, options = {}) {
     this.canvas = canvas;
     this.collision = collision || null;
-    this.input = new FirstPersonInput(canvas);
+    this.input = new FirstPersonInput(canvas, { onTouchTap: options.onTouchTap });
     this.flyController = new FlyController(this.collision, options.fly || {});
     this.walkController = new WalkController(this.collision, options.walk || {});
     this.mode = options.mode === "fly" ? "fly" : "walk";
     this.activeController = this.mode === "fly" ? this.flyController : this.walkController;
     this.passiveYawSpeed = options.passiveYawSpeed ?? 7;
     this.preservePresetSpawn = options.preservePresetSpawn === true;
+    this.navigationTarget = null;
+    this.navigationBlockedTime = 0;
   }
 
   setCollision(collision) {
@@ -871,6 +887,8 @@ class FirstPersonNavigationController {
     if (nextMode === this.mode) {
       return;
     }
+
+    this.cancelNavigation();
 
     const pose = this.activeController.getPose();
     this.mode = nextMode;
@@ -903,6 +921,7 @@ class FirstPersonNavigationController {
   }
 
   enterFromOrbitState(orbitState, fov) {
+    this.cancelNavigation();
     const pose = poseFromOrbitState(orbitState, fov);
     this.activeController.enter(pose, {
       allowSpawnAdjustment: !this.preservePresetSpawn,
@@ -911,13 +930,114 @@ class FirstPersonNavigationController {
     return this.activeController.getPose();
   }
 
+  navigateToFloor(target) {
+    if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y) || !Number.isFinite(target.z)) {
+      return false;
+    }
+
+    const pose = this.activeController.getPose();
+    const targetPosition = {
+      x: target.x,
+      y: target.y + this.walkController.eyeHeight,
+      z: target.z,
+    };
+    const distance = Math.hypot(
+      targetPosition.x - pose.position.x,
+      this.mode === "fly" ? targetPosition.y - pose.position.y : 0,
+      targetPosition.z - pose.position.z
+    );
+    if (distance <= NAVIGATION_STOP_DISTANCE || distance > NAVIGATION_MAX_DISTANCE) {
+      return false;
+    }
+
+    if (this.collision?.querySphere?.(
+      targetPosition.x,
+      targetPosition.y,
+      targetPosition.z,
+      this.walkController.radius,
+      { x: 0, y: 0, z: 0 }
+    )) {
+      return false;
+    }
+
+    this.navigationTarget = targetPosition;
+    this.navigationBlockedTime = 0;
+    return true;
+  }
+
+  cancelNavigation() {
+    this.navigationTarget = null;
+    this.navigationBlockedTime = 0;
+  }
+
+  applyNavigationTarget(frame) {
+    if (!this.navigationTarget) {
+      return false;
+    }
+
+    const hasManualMovement = Math.abs(frame.moveX) > MIN_MOVE_EPSILON ||
+      Math.abs(frame.moveY) > MIN_MOVE_EPSILON ||
+      Math.abs(frame.moveZ) > MIN_MOVE_EPSILON ||
+      frame.jumpPressed;
+    if (hasManualMovement) {
+      this.cancelNavigation();
+      return false;
+    }
+
+    const pose = this.activeController.getPose();
+    const dx = this.navigationTarget.x - pose.position.x;
+    const dy = this.navigationTarget.y - pose.position.y;
+    const dz = this.navigationTarget.z - pose.position.z;
+    const distance = this.mode === "fly" ? Math.hypot(dx, dy, dz) : Math.hypot(dx, dz);
+    if (distance <= NAVIGATION_STOP_DISTANCE) {
+      this.cancelNavigation();
+      return false;
+    }
+
+    if (this.mode === "fly") {
+      const desired = normalize3D(dx, dy, dz);
+      const forward = forwardFromAngles(pose.yaw, pose.pitch);
+      const right = rightFromYaw(pose.yaw);
+      const up = upFromForwardRight(forward, right);
+      frame.moveX = desired.x * right.x + desired.y * right.y + desired.z * right.z;
+      frame.moveY = desired.x * up.x + desired.y * up.y + desired.z * up.z;
+      frame.moveZ = desired.x * forward.x + desired.y * forward.y + desired.z * forward.z;
+    } else {
+      const desired = normalize2D(dx, dz);
+      const right = rightFromYaw(pose.yaw);
+      const forward = {
+        x: -Math.sin((pose.yaw * Math.PI) / 180),
+        z: -Math.cos((pose.yaw * Math.PI) / 180),
+      };
+      frame.moveX = desired.x * right.x + desired.z * right.z;
+      frame.moveZ = desired.x * forward.x + desired.z * forward.z;
+    }
+
+    return true;
+  }
+
   update(deltaSeconds, cameraEntity, options = {}) {
     const frame = this.input.readFrame();
     if (options.autoRotate && !this.input.hasUserInteracted()) {
       frame.lookYaw -= this.passiveYawSpeed * deltaSeconds;
     }
+    const previousPose = this.activeController.getPose();
+    const navigating = this.applyNavigationTarget(frame);
     this.activeController.update(deltaSeconds, frame);
     const pose = this.activeController.getPose();
+    if (navigating && this.navigationTarget) {
+      const moved = Math.hypot(
+        pose.position.x - previousPose.position.x,
+        pose.position.y - previousPose.position.y,
+        pose.position.z - previousPose.position.z
+      );
+      this.navigationBlockedTime = moved < 0.002
+        ? this.navigationBlockedTime + deltaSeconds
+        : 0;
+      if (this.navigationBlockedTime >= NAVIGATION_BLOCKED_TIMEOUT) {
+        this.cancelNavigation();
+      }
+    }
     const target = buildLookTarget(pose.position, pose.yaw, pose.pitch);
     cameraEntity.setPosition(pose.position.x, pose.position.y, pose.position.z);
     cameraEntity.lookAt(target.x, target.y, target.z);
@@ -930,6 +1050,7 @@ class FirstPersonNavigationController {
   }
 
   reset(cameraEntity) {
+    this.cancelNavigation();
     if (!this.activeController.reset()) {
       return false;
     }
@@ -954,6 +1075,7 @@ class FirstPersonNavigationController {
   }
 
   dispose() {
+    this.cancelNavigation();
     this.input.dispose();
   }
 }

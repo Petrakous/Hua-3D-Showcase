@@ -101,7 +101,21 @@
           <div class="hero-noise"></div>
         </div>
 
+        <section class="scene-selection" id="sceneSelection" aria-labelledby="sceneSelectionTitle">
+          <div class="scene-selection__header">
+            <p class="scene-selection__eyebrow">HUA spatial archive</p>
+            <h1 id="sceneSelectionTitle">Choose a space to explore</h1>
+            <p>Move through the campus, teaching spaces and specialist facilities in 3D.</p>
+          </div>
+          <div class="scene-card-grid" id="sceneCardGrid" aria-live="polite"></div>
+        </section>
+
         <div class="hero-time-control">
+          <button class="viewer-back-button" id="viewerBackButton" type="button" hidden>
+            <span aria-hidden="true">&larr;</span>
+            <span>All spaces</span>
+          </button>
+
           <div class="time-control-group" id="timeControlGroup">
             <button
               class="time-dial"
@@ -185,14 +199,13 @@
             </button>
           </div>
 
-          <div class="hero-status" id="viewerStatus">
-            <span class="status-label" id="statusPill">Loading model</span>
-            <div class="progress-track" aria-hidden="true">
+          <div class="hero-status" id="viewerStatus" role="status" aria-live="polite" aria-hidden="true" hidden>
+            <span class="status-label" id="statusPill">Preparing your space</span>
+            <div class="progress-track" role="progressbar" aria-label="Scene loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
               <div class="progress-bar" id="progressBar"></div>
             </div>
-            <p id="statusCopy">
-              Preparing the 3D viewer and connecting the Draco-compressed GLB.
-            </p>
+            <p id="statusCopy">Setting up the 3D experience.</p>
+            <p class="progress-meta" id="progressMeta"></p>
           </div>
 
           <aside class="calibration-panel" id="calibrationPanel" hidden aria-hidden="true">
@@ -271,6 +284,6 @@
       </section>
     </main>
 
-    <script type="module" src="./main.js?v=20260626cal1"></script>
+    <script type="module" src="./main.js?v=20260629cards1"></script>
   </body>
 </html>
