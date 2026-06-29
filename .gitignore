@@ -30,3 +30,6 @@ token.json
 *.key
 *.p12
 
+# Local deployment reports
+upload_report.json
+

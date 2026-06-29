@@ -182,6 +182,7 @@ function parseArgs(argv) {
     json: false,
     execute: false,
     force: false,
+    verify: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -198,6 +199,8 @@ function parseArgs(argv) {
       args.execute = true;
     } else if (arg === "--force") {
       args.force = true;
+    } else if (arg === "--verify") {
+      args.verify = true;
     }
   }
 
