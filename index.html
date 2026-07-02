@@ -98,9 +98,11 @@
           <div class="hero-noise"></div>
         </div>
 
-        <section class="scene-selection" id="sceneSelection" aria-labelledby="sceneSelectionTitle">
+        <section class="scene-selection" id="sceneSelection" aria-label="Choose a space to explore">
           <div class="intro-branding" aria-label="Harokopio University and Computer Vision Group">
-            <img class="intro-branding__showcase" src="./Logos/3dhua-logo.png" alt="3D HUA" />
+            <a class="intro-branding__link intro-branding__link--showcase" href="https://github.com/Petrakous/Hua-3D-Showcase" target="_blank" rel="noopener noreferrer" aria-label="View the 3D HUA Showcase on GitHub">
+              <img class="intro-branding__showcase" src="./Logos/3dhua-logo.png" alt="3D HUA" />
+            </a>
             <div class="intro-branding__partners" aria-label="Project partners">
               <a class="intro-branding__link intro-branding__link--hua" href="https://www.hua.gr/" target="_blank" rel="noopener noreferrer" aria-label="Visit Harokopio University website">
                 <img class="intro-branding__hua" src="./Logos/HUA-Logo-White-Transparent-RGB.png" alt="Harokopio University" />
@@ -111,16 +113,11 @@
               </a>
             </div>
           </div>
-          <div class="scene-selection__header">
-            <p class="scene-selection__eyebrow">Interactive spatial archive</p>
-            <h1 id="sceneSelectionTitle">Choose a space to explore</h1>
-            <p>Select a campus, classroom, lab or DIT space to begin.</p>
-          </div>
           <div class="scene-card-grid" id="sceneCardGrid" aria-live="polite"></div>
         </section>
 
         <div class="hero-time-control">
-          <button class="viewer-back-button" id="viewerBackButton" type="button" hidden>
+          <button class="viewer-back-button" id="viewerBackButton" type="button" aria-label="Return to all spaces" hidden>
             <span aria-hidden="true">&larr;</span>
             <span>All spaces</span>
           </button>
@@ -291,6 +288,6 @@
       </section>
     </main>
 
-    <script type="module" src="./main.js?v=20260629cards1"></script>
+    <script type="module" src="./main.js?v=20260703responsive1"></script>
   </body>
 </html>

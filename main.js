@@ -116,6 +116,9 @@ const calibrationFlagEnabled =
   safeLocalStorageGet(SOG_CALIBRATION_FLAG_KEY) === "1" ||
   safeLocalStorageGet(SOG_CALIBRATION_FLAG_KEY) === "true";
 const calibrationUiUnlocked = calibrationQueryEnabled || calibrationFlagEnabled;
+const cinematicModeEnabled = new URLSearchParams(window.location.search).get("cinematic") === "1";
+const cinematicAuthorEnabled =
+  cinematicModeEnabled && new URLSearchParams(window.location.search).get("author") === "1";
 
 if (calibrationQueryEnabled) {
   safeLocalStorageSet(SOG_CALIBRATION_FLAG_KEY, "1");
@@ -1154,10 +1157,12 @@ function escapeHtml(value) {
 function getSceneCardEntries() {
   const campusExp = resolveSceneExperience("campus-day");
   const ditExp = resolveSceneExperience("dit-main");
+  const laboratorySectionSceneIds = new Set(["biology-lab", "systasis", "metabolism", "geo3-3", "fitness", "kitchen"]);
 
   const cards = [
     {
       id: "campus-outside",
+      section: "outdoor",
       title: campusExp.title.split(" ")[0], // Campus
       context: campusExp.subtitle,
       description: "Explore the university grounds across day, dusk and night.",
@@ -1167,6 +1172,7 @@ function getSceneCardEntries() {
     },
     {
       id: "dit-outside",
+      section: "outdoor",
       title: ditExp.title,
       context: ditExp.subtitle,
       description: ditExp.description,
@@ -1183,6 +1189,7 @@ function getSceneCardEntries() {
       const exp = resolveSceneExperience(scene.id);
       cards.push({
         id: `indoor-${scene.id}`,
+        section: laboratorySectionSceneIds.has(scene.id) ? "labs" : "interiors",
         title: exp.title,
         context: `${building.label} - ${getCategoryLabel(exp.category)}`,
         description: exp.description,
@@ -1198,12 +1205,23 @@ function getSceneCardEntries() {
 
 function renderSceneCards() {
   const cards = getSceneCardEntries();
-  sceneCardGrid.innerHTML = cards.map((card, index) => {
-    const media = card.thumbnail
-      ? `<img src="${escapeHtml(card.thumbnail)}" alt="" loading="lazy" />`
-      : `<span class="scene-card__monogram" aria-hidden="true">${escapeHtml(card.title.slice(0, 2).toUpperCase())}</span>`;
-    const formats = card.formats.map((format) => `<span>${escapeHtml(FORMAT_LABELS[format] || format.toUpperCase())}</span>`).join("");
-    return `
+  const sections = [
+    { id: "outdoor", eyebrow: "Campus & buildings", title: "Explore from the outside" },
+    { id: "interiors", eyebrow: "Teaching & community", title: "Step inside" },
+    { id: "labs", eyebrow: "Research facilities", title: "Visit our laboratories" },
+  ];
+  let cardIndex = 0;
+
+  sceneCardGrid.innerHTML = sections.map((section) => {
+    const sectionCards = cards.filter((card) => card.section === section.id);
+    if (!sectionCards.length) return "";
+    const cardMarkup = sectionCards.map((card) => {
+      const index = cardIndex++;
+      const media = card.thumbnail
+        ? `<img src="${escapeHtml(card.thumbnail)}" alt="" loading="lazy" />`
+        : `<span class="scene-card__monogram" aria-hidden="true">${escapeHtml(card.title.slice(0, 2).toUpperCase())}</span>`;
+      const formats = card.formats.map((format) => `<span>${escapeHtml(FORMAT_LABELS[format] || format.toUpperCase())}</span>`).join("");
+      return `
       <article class="scene-card" style="--card-index:${index}" data-card-id="${escapeHtml(card.id)}">
         <div class="scene-card__media">${media}</div>
         <div class="scene-card__body">
@@ -1214,10 +1232,22 @@ function renderSceneCards() {
           <h2>${escapeHtml(card.title)}</h2>
           <p>${escapeHtml(card.description)}</p>
           <button class="scene-card__cta" type="button" data-scene-card="${escapeHtml(card.id)}">
-            <span>Explore</span><span aria-hidden="true">&nearr;</span>
+            <span>Explore space</span><span class="scene-card__arrow" aria-hidden="true">&rarr;</span>
           </button>
         </div>
       </article>
+      `;
+    }).join("");
+
+    return `
+      <section class="scene-group" aria-labelledby="scene-group-${escapeHtml(section.id)}">
+        <div class="scene-group__heading">
+          <p>${escapeHtml(section.eyebrow)}</p>
+          <h2 id="scene-group-${escapeHtml(section.id)}">${escapeHtml(section.title)}</h2>
+          <span>${sectionCards.length} ${sectionCards.length === 1 ? "space" : "spaces"}</span>
+        </div>
+        <div class="scene-group__grid">${cardMarkup}</div>
+      </section>
     `;
   }).join("");
 
@@ -2934,6 +2964,54 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
   }
 }
 
+async function prepareCinematicPath(path) {
+  const scene = path?.scene;
+  if (!scene) return false;
+
+  if (scene.kind === "outdoor") {
+    activeSiteId = "campus";
+    activeEnvironmentId = "outside";
+    activeTimeStage = scene.stage || "day";
+    activeSceneId = null;
+  } else if (scene.kind === "indoor") {
+    const building = CAMPUS_INDOOR_BUILDINGS.find((entry) =>
+      entry.spaces.some((space) => space.sceneId === scene.sceneId)
+    );
+    if (!building || !getCampusIndoorSceneById(scene.sceneId)) return false;
+    activeSiteId = "campus";
+    activeEnvironmentId = "inside";
+    activeBuildingId = building.id;
+    activeSceneId = scene.sceneId;
+  } else {
+    return false;
+  }
+
+  syncNavigationState();
+  const formats = getAvailableFormats();
+  if (!formats.includes("sog")) return false;
+  activeFormat = "sog";
+  if (!isViewerMode) enterViewerMode();
+  updateLocationUi();
+  updateQualityToggle();
+  updateMaterialToggle();
+  updateTimeUi();
+  await applyActiveAssetSelection();
+  return currentEngineType === "splat" && currentActiveAsset?.runtime === "playcanvas";
+}
+
+function getCinematicSceneInfo() {
+  if (currentEngineType !== "splat" || currentActiveAsset?.runtime !== "playcanvas") {
+    return null;
+  }
+
+  const sceneId = currentActiveAsset.sceneId ||
+    (currentActiveAsset.locationId === "outdoors" ? `campus-${activeTimeStage}` : currentActiveAsset.key);
+  return {
+    sceneId,
+    name: currentActiveAsset.label || sceneId,
+  };
+}
+
 async function setActiveTimeStage(stage, direction = 0) {
   if (!timeStages.includes(stage) || !isTimeStageAvailable(stage)) {
     return;
@@ -3396,10 +3474,22 @@ updateViewerLayerVisibility("none");
 setStatusOverlayState(true);
 applyTurntableState();
 
-
-
-
-
+if (cinematicModeEnabled) {
+  document.body.classList.add("is-cinematic");
+  document.body.classList.toggle("is-cinematic-author", cinematicAuthorEnabled);
+  import("./viewer/cinematicMode.js")
+    .then(({ createCinematicMode }) => {
+      window.__huaCinematicMode = createCinematicMode({
+        viewer: sogViewer,
+        preparePath: prepareCinematicPath,
+        getSceneInfo: getCinematicSceneInfo,
+        authorEnabled: cinematicAuthorEnabled,
+      });
+    })
+    .catch((error) => {
+      console.error("Cinematic mode failed to initialize.", error);
+    });
+}
 
 
 

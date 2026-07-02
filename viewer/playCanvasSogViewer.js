@@ -467,6 +467,8 @@ class PlayCanvasSogViewer {
     this.firstPersonActive = false;
     this.firstPersonTransitionPending = false;
     this.fpInteractionCommitted = false;
+    this.cinematicCameraActive = false;
+    this.cinematicPreviousAutoRotate = false;
     this.targetMaxDpr = null;
     this.loadGeneration = 0;
     this.disposed = true;
@@ -598,6 +600,81 @@ class PlayCanvasSogViewer {
     }
 
     return this.cloneOrbitState(this.orbitState || this.goalOrbitState);
+  }
+
+  beginCinematicCamera() {
+    if (!this.camera || !this.pc) {
+      return false;
+    }
+
+    if (!this.cinematicCameraActive) {
+      this.cinematicPreviousAutoRotate = this.autoRotate;
+    }
+    this.cinematicCameraActive = true;
+    this.autoRotate = false;
+    this.setPanIndicatorVisible(false);
+    if (this.app) this.app.renderNextFrame = true;
+    return true;
+  }
+
+  setCinematicCameraPose(position, target, fov = null, coordinateSpace = "local") {
+    if (!this.cinematicCameraActive || !this.camera || !this.pc || !position || !target) {
+      return false;
+    }
+
+    let cameraPosition = new this.pc.Vec3(...position);
+    let lookTarget = new this.pc.Vec3(...target);
+    if (coordinateSpace === "local" && this.splatEntity) {
+      cameraPosition = this.transformPointToWorld(this.pc, this.splatEntity, cameraPosition);
+      lookTarget = this.transformPointToWorld(this.pc, this.splatEntity, lookTarget);
+    }
+
+    this.camera.setPosition(cameraPosition);
+    this.camera.lookAt(lookTarget);
+    if (Number.isFinite(fov) && this.camera.camera) {
+      this.camera.camera.fov = fov;
+    }
+    if (this.app) this.app.renderNextFrame = true;
+    return true;
+  }
+
+  getCinematicCameraPose(coordinateSpace = "local", fallbackTargetDistance = 5) {
+    if (!this.camera || !this.pc) {
+      return null;
+    }
+
+    let position = this.camera.getPosition().clone();
+    const orbitState = this.getOrbitState();
+    let target = orbitState?.target?.clone?.() || null;
+    if (!target) {
+      const forward = this.camera.forward?.clone?.() || new this.pc.Vec3(0, 0, -1);
+      target = position.clone().add(forward.mulScalar(fallbackTargetDistance));
+    }
+
+    if (coordinateSpace === "local" && this.splatEntity) {
+      const inverseWorld = this.splatEntity.getWorldTransform().clone().invert();
+      inverseWorld.transformPoint(position, position);
+      inverseWorld.transformPoint(target, target);
+    }
+
+    return {
+      position: [position.x, position.y, position.z],
+      target: [target.x, target.y, target.z],
+      fov: Number.isFinite(this.camera.camera?.fov) ? this.camera.camera.fov : null,
+    };
+  }
+
+  endCinematicCamera() {
+    if (!this.cinematicCameraActive) {
+      return;
+    }
+
+    this.cinematicCameraActive = false;
+    this.autoRotate = this.cinematicPreviousAutoRotate;
+    this.cinematicPreviousAutoRotate = false;
+    // Return to a controller-owned, internally consistent pose.
+    this.resetView();
+    if (this.app) this.app.renderNextFrame = true;
   }
 
   setFirstPersonNavigationMode(mode = "walk") {
@@ -2108,7 +2185,9 @@ class PlayCanvasSogViewer {
     this.updateMaxPixelRatio(Math.max(1, this.container.clientWidth || 800), Math.max(1, this.container.clientHeight || 600));
     canvas.tabIndex = 0;
     app.on("update", (deltaSeconds) => {
-      if (this.firstPersonActive && this.fpNavigationController && this.camera) {
+      if (this.cinematicCameraActive) {
+        app.renderNextFrame = true;
+      } else if (this.firstPersonActive && this.fpNavigationController && this.camera) {
         this.fpNavigationController.update(deltaSeconds, this.camera, {
           autoRotate: this.autoRotate,
         });
@@ -2379,6 +2458,8 @@ class PlayCanvasSogViewer {
     this.disposed = true;
     this.stopAutoRotate();
     this.stopFirstPersonNavigation();
+    this.cinematicCameraActive = false;
+    this.cinematicPreviousAutoRotate = false;
     this.setPanIndicatorVisible(false);
     this.clearStreamingHandlers();
     if (this.orbitController) {
