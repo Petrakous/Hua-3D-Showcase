@@ -18,7 +18,6 @@ GLBs/
 .env
 .env.*
 !.env.example
-R2_KEYS_DO_NOT_SHARE.txt
 .rclone.conf
 rclone.conf
 aws-credentials
@@ -33,3 +32,6 @@ token.json
 # Local deployment reports
 upload_report.json
 
+# Local chat context and handoff files
+CHAT_CONTEXT.md
+CHAT_HANDOFF.md

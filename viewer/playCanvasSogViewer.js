@@ -664,6 +664,103 @@ class PlayCanvasSogViewer {
     };
   }
 
+  setDefaultCameraPose(pose, coordinateSpace = "local") {
+    if (!this.pc || !pose?.position || !pose?.target) return false;
+
+    let position = new this.pc.Vec3(...pose.position);
+    let target = new this.pc.Vec3(...pose.target);
+    if (coordinateSpace === "local" && this.splatEntity) {
+      position = this.transformPointToWorld(this.pc, this.splatEntity, position);
+      target = this.transformPointToWorld(this.pc, this.splatEntity, target);
+    }
+
+    const savedState = this.resolveOrbitStateFromCamera(this.pc, target, position);
+    this.defaultOrbitState = this.cloneOrbitState(savedState);
+    if (!this.firstPersonActive && this.goalOrbitState && this.orbitState) {
+      this.goalOrbitState.target.copy(savedState.target);
+      this.goalOrbitState.distance = savedState.distance;
+      this.goalOrbitState.yaw = savedState.yaw;
+      this.goalOrbitState.pitch = savedState.pitch;
+      this.orbitState.target.copy(savedState.target);
+      this.orbitState.distance = savedState.distance;
+      this.orbitState.yaw = savedState.yaw;
+      this.orbitState.pitch = savedState.pitch;
+      this.updateCameraOrbit(this.pc);
+    }
+    if (Number.isFinite(pose.fov) && this.camera?.camera) {
+      this.camera.camera.fov = pose.fov;
+    }
+    if (this.app) this.app.renderNextFrame = true;
+    return true;
+  }
+
+  createOrbitKeyframes(pose, { duration = 14, steps = 16, coordinateSpace = "local" } = {}) {
+    if (!this.pc || !pose?.position || !pose?.target || steps < 3) return [];
+
+    let startPosition = new this.pc.Vec3(...pose.position);
+    let target = new this.pc.Vec3(...pose.target);
+    if (coordinateSpace === "local" && this.splatEntity) {
+      startPosition = this.transformPointToWorld(this.pc, this.splatEntity, startPosition);
+      target = this.transformPointToWorld(this.pc, this.splatEntity, target);
+    }
+
+    const offset = startPosition.clone().sub(target);
+    const horizontalRadius = Math.hypot(offset.x, offset.z);
+    if (horizontalRadius < 0.001) return [];
+    const inverseWorld = coordinateSpace === "local" && this.splatEntity
+      ? this.splatEntity.getWorldTransform().clone().invert()
+      : null;
+    const safeDuration = Math.max(1, duration);
+    const safeSteps = Math.max(3, Math.round(steps));
+
+    return Array.from({ length: safeSteps + 1 }, (_, index) => {
+      if (index === safeSteps) {
+        return {
+          time: safeDuration,
+          position: [...pose.position],
+          target: [...pose.target],
+          fov: pose.fov,
+        };
+      }
+
+      const progress = index / safeSteps;
+      // Ease only the beginning and end of the complete shot. Internal
+      // keyframes remain one continuous move with no stop-start rhythm.
+      const motionProgress = progress * progress * progress *
+        (progress * (progress * 6 - 15) + 10);
+      const angle = motionProgress * Math.PI * 2;
+      const cosine = Math.cos(angle);
+      const sine = Math.sin(angle);
+      const revealArc = Math.sin(Math.PI * progress);
+      const orbitPulse = Math.sin(Math.PI * progress) ** 2;
+      const radialScale = 1 - orbitPulse * 0.14 + Math.sin(Math.PI * 2 * progress) * 0.035;
+      const cameraLift = horizontalRadius * 0.14 * revealArc;
+      const focusLift = horizontalRadius * 0.035 * revealArc;
+      const worldTarget = new this.pc.Vec3(target.x, target.y + focusLift, target.z);
+      const worldPosition = new this.pc.Vec3(
+        target.x + (offset.x * cosine + offset.z * sine) * radialScale,
+        target.y + offset.y + cameraLift,
+        target.z + (-offset.x * sine + offset.z * cosine) * radialScale
+      );
+      const outputPosition = inverseWorld
+        ? inverseWorld.transformPoint(worldPosition, new this.pc.Vec3())
+        : worldPosition;
+      const outputTarget = inverseWorld
+        ? inverseWorld.transformPoint(worldTarget, new this.pc.Vec3())
+        : worldTarget;
+      const baseFov = Number.isFinite(pose.fov) ? pose.fov : 60;
+      const cinematicFov = Math.max(30, Math.min(85,
+        baseFov - orbitPulse * 5 + Math.sin(Math.PI * 2 * progress) * 1.5
+      ));
+      return {
+        time: progress * safeDuration,
+        position: [outputPosition.x, outputPosition.y, outputPosition.z],
+        target: [outputTarget.x, outputTarget.y, outputTarget.z],
+        fov: cinematicFov,
+      };
+    });
+  }
+
   endCinematicCamera() {
     if (!this.cinematicCameraActive) {
       return;
@@ -2447,7 +2544,13 @@ class PlayCanvasSogViewer {
       return;
     }
 
-    this.goalOrbitState = this.cloneOrbitState(this.defaultOrbitState);
+    // Keep the existing object identity: SimpleOrbitController binds directly
+    // to this state, so replacing it leaves pointer input writing to a stale
+    // object after cinematic camera ownership is released.
+    this.goalOrbitState.target.copy(this.defaultOrbitState.target);
+    this.goalOrbitState.distance = this.defaultOrbitState.distance;
+    this.goalOrbitState.yaw = this.defaultOrbitState.yaw;
+    this.goalOrbitState.pitch = this.defaultOrbitState.pitch;
     if (this.app) {
       this.app.renderNextFrame = true;
     }

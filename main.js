@@ -193,6 +193,39 @@ function safeLocalStorageRemove(key) {
   }
 }
 
+const CINEMATIC_START_VIEW_STORAGE_PREFIX = "hua3d.cinematic.startView.";
+
+function getAssetSceneId(asset) {
+  return asset?.sceneId ||
+    (asset?.locationId === "outdoors" ? `campus-${activeTimeStage}` : asset?.key) ||
+    null;
+}
+
+function applySavedCinematicStartView(asset) {
+  if (!cinematicAuthorEnabled || !asset || asset.streamingEnabled) return asset;
+  const sceneId = getAssetSceneId(asset);
+  if (!sceneId) return asset;
+
+  try {
+    const pose = JSON.parse(safeLocalStorageGet(`${CINEMATIC_START_VIEW_STORAGE_PREFIX}${sceneId}`) || "null");
+    const validVector = (vector) =>
+      Array.isArray(vector) && vector.length === 3 && vector.every(Number.isFinite);
+    if (!validVector(pose?.position) || !validVector(pose?.target)) return asset;
+
+    const savedPreset = {
+      cameraPosition: [...pose.position],
+      target: [...pose.target],
+      ...(Number.isFinite(pose.fov) ? { fov: pose.fov } : {}),
+    };
+    return {
+      ...asset,
+      viewPreset: { ...(asset.viewPreset || {}), ...savedPreset },
+    };
+  } catch (_error) {
+    return asset;
+  }
+}
+
 function loadCalibrationOverrides() {
   const raw = safeLocalStorageGet(SOG_CALIBRATION_OVERRIDES_KEY);
   if (!raw) {
@@ -833,12 +866,12 @@ let activeEnvironmentId = "outside";
 let activeLocationStage = "outdoors";
 let activeBuildingId = "main";
 let activeSceneId = null;
-let activeFormat = "glb";
+let activeFormat = cinematicAuthorEnabled ? "sog" : "glb";
 let activeSogMode = "classic";
 let activeFpNavigationMode = "walk";
 let hdEnabled = false;
 let clayEnabled = false;
-let turntableEnabled = true;
+let turntableEnabled = !cinematicAuthorEnabled;
 let originalMaterials = [];
 let currentStageRotation = timeStageAngles[activeTimeStage];
 let currentAssetKey = "";
@@ -1223,7 +1256,7 @@ function renderSceneCards() {
       const formats = card.formats.map((format) => `<span>${escapeHtml(FORMAT_LABELS[format] || format.toUpperCase())}</span>`).join("");
       return `
       <article class="scene-card" style="--card-index:${index}" data-card-id="${escapeHtml(card.id)}">
-        <div class="scene-card__media">${media}</div>
+        <div class="scene-card__media${card.thumbnail ? " scene-card__media--thumbnail" : ""}">${media}</div>
         <div class="scene-card__body">
           <div class="scene-card__meta">
             <span>${escapeHtml(card.context)}</span>
@@ -1291,7 +1324,7 @@ async function selectSceneCard(cardId) {
   activeSogMode = "classic";
   activeFpNavigationMode = "walk";
   syncNavigationState();
-  activeFormat = getPreferredFormat(getCurrentSceneEntry()) || getAvailableFormats()[0] || "glb";
+  activeFormat = getDefaultFormat(getCurrentSceneEntry());
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -1397,12 +1430,28 @@ function getPreferredFormat(scene) {
   const preferredOrder = exp?.fallbacks?.preferredOrder || ["sog", "glb"];
 
   const formats = Object.keys(scene?.assets || {});
+  if (cinematicAuthorEnabled && formats.includes("sog")) {
+    return "sog";
+  }
+
   for (const fmt of preferredOrder) {
     if (formats.includes(fmt)) {
       return fmt;
     }
   }
   return sortFormats(formats)[0] || "glb";
+}
+
+function getDefaultFormat(scene = getCurrentSceneEntry()) {
+  const availableFormats = getAvailableFormats();
+  if (cinematicAuthorEnabled && availableFormats.includes("sog")) {
+    return "sog";
+  }
+
+  const preferredFormat = scene ? getPreferredFormat(scene) : null;
+  return availableFormats.includes(preferredFormat)
+    ? preferredFormat
+    : availableFormats[0] || "glb";
 }
 
 function getCurrentLocationEntry() {
@@ -1530,7 +1579,7 @@ function getAvailableFormats() {
   if (isCampusOutsideSelected()) {
     const stageAssets = locationEntry.stages?.[activeTimeStage] || {};
     const outdoorFormats = Object.keys(stageAssets);
-    const outdoorPriority = ["glb", "sog"];
+    const outdoorPriority = cinematicAuthorEnabled ? ["sog", "glb"] : ["glb", "sog"];
     return outdoorFormats.sort((left, right) => {
       const leftIndex = outdoorPriority.indexOf(left);
       const rightIndex = outdoorPriority.indexOf(right);
@@ -1547,7 +1596,11 @@ function getAvailableFormats() {
 
   normalizeActiveScene();
   const scene = getCurrentSceneEntry();
-  return sortFormats(Object.keys(scene?.assets || {}));
+  const formats = sortFormats(Object.keys(scene?.assets || {}));
+  if (cinematicAuthorEnabled && formats.includes("sog")) {
+    return ["sog", ...formats.filter((format) => format !== "sog")];
+  }
+  return formats;
 }
 
 function normalizeActiveFormat() {
@@ -2753,13 +2806,20 @@ function applyTurntableState() {
   modelViewer.autoRotate = turntableEnabled;
 }
 
+function toggleTurntable() {
+  turntableEnabled = !turntableEnabled;
+  updateTurntableUi();
+  applyTurntableState();
+  return turntableEnabled;
+}
+
 async function activateGlbAsset(asset, swapId) {
   const resolvedSource = asset.src;
   if (swapId !== activeAssetSwapId) {
     return;
   }
 
-  turntableEnabled = true;
+  turntableEnabled = !cinematicAuthorEnabled;
   updateTurntableUi();
 
   sogViewer.dispose();
@@ -2788,7 +2848,7 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   if (asset.streamingEnabled) {
     turntableEnabled = false;
   } else {
-    turntableEnabled = true;
+    turntableEnabled = !cinematicAuthorEnabled;
   }
   updateTurntableUi();
 
@@ -2810,7 +2870,7 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   }
 
   await sogViewer.load(
-    {
+    applySavedCinematicStartView({
       ...asset,
       src: resolvedSource,
       autoRotate: turntableEnabled,
@@ -2818,7 +2878,7 @@ async function activateSplatAsset(asset, swapId, options = {}) {
         !asset.streamingEnabled
           ? pendingSogModeTransitionOrbitState
           : null,
-    },
+    }),
     targetSplatProfile,
     options.silent
       ? undefined
@@ -3009,6 +3069,7 @@ function getCinematicSceneInfo() {
   return {
     sceneId,
     name: currentActiveAsset.label || sceneId,
+    orbitStartViewEnabled: !currentActiveAsset.streamingEnabled,
   };
 }
 
@@ -3018,7 +3079,7 @@ async function setActiveTimeStage(stage, direction = 0) {
   }
 
   activeTimeStage = stage;
-  activeFormat = getAvailableFormats()[0] || "glb";
+  activeFormat = getDefaultFormat();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3037,7 +3098,7 @@ async function setActiveSite(siteId) {
     activeBuildingId = CAMPUS_INDOOR_BUILDINGS[0]?.id || "main";
   }
   syncNavigationState();
-  activeFormat = getAvailableFormats()[0] || "glb";
+  activeFormat = getDefaultFormat();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3053,9 +3114,9 @@ async function setActiveEnvironment(environmentId) {
   activeEnvironmentId = environmentId;
   syncNavigationState();
   if (activeSiteId === "campus" && activeEnvironmentId === "inside") {
-    activeFormat = getPreferredFormat(getCurrentSceneEntry());
+    activeFormat = getDefaultFormat(getCurrentSceneEntry());
   } else {
-    activeFormat = getAvailableFormats()[0] || "glb";
+    activeFormat = getDefaultFormat();
   }
   updateLocationUi();
   updateQualityToggle();
@@ -3071,7 +3132,7 @@ async function setActiveBuilding(buildingId) {
 
   activeBuildingId = buildingId;
   normalizeActiveScene();
-  activeFormat = getPreferredFormat(getCurrentSceneEntry());
+  activeFormat = getDefaultFormat(getCurrentSceneEntry());
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3086,7 +3147,7 @@ async function setActiveSpace(spaceId) {
 
   activeSceneId = space.sceneId;
   const nextScene = getCampusIndoorSceneById(space.sceneId);
-  activeFormat = getPreferredFormat(nextScene);
+  activeFormat = getDefaultFormat(nextScene);
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3264,9 +3325,7 @@ fullscreenToggle.addEventListener("click", async () => {
 });
 
 turntableToggle.addEventListener("click", () => {
-  turntableEnabled = !turntableEnabled;
-  updateTurntableUi();
-  applyTurntableState();
+  toggleTurntable();
 });
 
 timeDial.addEventListener("click", (event) => {
@@ -3483,6 +3542,7 @@ if (cinematicModeEnabled) {
         viewer: sogViewer,
         preparePath: prepareCinematicPath,
         getSceneInfo: getCinematicSceneInfo,
+        toggleRotation: toggleTurntable,
         authorEnabled: cinematicAuthorEnabled,
       });
     })
@@ -3490,10 +3550,3 @@ if (cinematicModeEnabled) {
       console.error("Cinematic mode failed to initialize.", error);
     });
 }
-
-
-
-
-
-
-

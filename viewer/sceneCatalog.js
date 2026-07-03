@@ -273,6 +273,7 @@ function createIndoorScene(id, label, glbSrc = null, sogOptions = null) {
   return {
     id,
     label,
+    thumbnail: sogOptions?.thumbnail || null,
     assets: {
       ...(glbSrc ? { glb: createGlbAsset(glbSrc, INDOOR_VIEW) } : {}),
         ...(sogOptions?.src ? {
@@ -298,6 +299,7 @@ const LOCATION_CATALOG = {
     id: 'outdoors',
     label: LOCATION_LABELS.outdoors,
     kind: 'outdoor-cycle',
+    thumbnail: './assets/thumbnails/campus.webp',
     stages: {
       day: {
         glb: {
@@ -388,6 +390,7 @@ const LOCATION_CATALOG = {
 
         createIndoorScene('metabolism', 'Metabolism', resolveManifestAsset('metabolism', 'glb', './GLBs/Metabolism.glb'), {
           src: resolveManifestAsset('metabolism', 'sog-source', './PLYs/Metabolism/Metabolism.sog'),
+          thumbnail: './assets/thumbnails/metabolism.webp',
           performanceSources: createManifestSogPerformanceSources('metabolism', 'Metabolism'),
           streamingSource: createManifestSogStreamingSource('metabolism', 'Metabolism'),
           fpCollisionSource: resolveManifestAsset('metabolism', 'collision', './GLBs/Metabolism_collision.glb'),
@@ -416,6 +419,7 @@ const LOCATION_CATALOG = {
       }),
       createIndoorScene('systasis', 'Systasis', resolveManifestAsset('systasis', 'glb', './GLBs/Systasis.glb'), {
         src: resolveManifestAsset('systasis', 'sog-source', './PLYs/Systasis/Systasis.sog'),
+        thumbnail: './assets/thumbnails/systasis.webp',
         performanceSources: createManifestSogPerformanceSources('systasis', 'Systasis'),
         streamingSource: createManifestSogStreamingSource('systasis', 'Systasis'),
         fpCollisionSource: resolveManifestAsset('systasis', 'collision', './GLBs/Systasis_collision.glb'),
@@ -431,6 +435,7 @@ const LOCATION_CATALOG = {
       }),
       createIndoorScene('fitness', 'Fitness', resolveManifestAsset('fitness', 'glb', './GLBs/Fitness.glb'), {
         src: resolveManifestAsset('fitness', 'sog-source', './PLYs/Fitness/Fitness.sog'),
+        thumbnail: './assets/thumbnails/fitness.webp',
         performanceSources: createManifestSogPerformanceSources('fitness', 'Fitness'),
         streamingSource: createManifestSogStreamingSource('fitness', 'Fitness'),
         fpCollisionSource: resolveManifestAsset('fitness', 'collision', './GLBs/Fitness_collision.glb'),
@@ -446,6 +451,7 @@ const LOCATION_CATALOG = {
       }),
       createIndoorScene('classroom-5', 'Classroom 5', resolveManifestAsset('classroom-5', 'glb', './GLBs/Classroom 5.glb'), {
         src: resolveManifestAsset('classroom-5', 'sog-source', './PLYs/Classroom 5/Classroom 5.sog'),
+        thumbnail: './assets/thumbnails/classroom-5.webp',
         performanceSources: createManifestSogPerformanceSources('classroom-5', 'Classroom 5'),
         streamingSource: createManifestSogStreamingSource('classroom-5', 'Classroom 5'),
         fpCollisionSource: resolveManifestAsset('classroom-5', 'collision', './GLBs/Classroom 5_collision.glb'),
@@ -461,6 +467,7 @@ const LOCATION_CATALOG = {
       }),
       createIndoorScene('biology-lab', 'Biology Lab', null, {
         src: resolveManifestAsset('biology-lab', 'sog-source', './PLYs/BioLab/BioLab.sog'),
+        thumbnail: './assets/thumbnails/biology-lab.webp',
         performanceSources: createManifestSogPerformanceSources('biology-lab', 'BioLab'),
         streamingSource: createManifestSogStreamingSource('biology-lab', 'BioLab'),
         fpCollisionSource: resolveManifestAsset('biology-lab', 'collision', './GLBs/Biolab_collision.glb'),
@@ -476,6 +483,7 @@ const LOCATION_CATALOG = {
       }),
       createIndoorScene('amphitheater', 'Amphitheater', null, {
         src: resolveManifestAsset('amphitheater', 'sog-source', './PLYs/Amphitheater/Amphitheater.sog'),
+        thumbnail: './assets/thumbnails/amphitheater.webp',
         performanceSources: createManifestSogPerformanceSources('amphitheater', 'Amphitheater'),
         streamingSource: createManifestSogStreamingSource('amphitheater', 'Amphitheater'),
         fpCollisionSource: resolveManifestAsset('amphitheater', 'collision', './GLBs/Amphitheater_collision.glb'),
@@ -491,6 +499,7 @@ const LOCATION_CATALOG = {
       }),
       createIndoorScene('geo3-3', 'Geo 3.3', null, {
         src: resolveManifestAsset('geo3-3', 'sog-source', './PLYs/3.3/3.3.sog'),
+        thumbnail: './assets/thumbnails/geo3-3.webp',
         performanceSources: createManifestSogPerformanceSources('geo3-3', '3.3'),
         streamingSource: createManifestSogStreamingSource('geo3-3', '3.3'),
         fpCollisionSource: resolveManifestAsset('geo3-3', 'collision', './GLBs/Geo3.3_collision.glb'),
@@ -506,6 +515,7 @@ const LOCATION_CATALOG = {
       }),
       createIndoorScene('kitchen', 'Kitchen', null, {
         src: resolveManifestAsset('kitchen', 'sog-source', './PLYs/Kitchen/Kitchen.sog'),
+        thumbnail: './assets/thumbnails/kitchen.webp',
         performanceSources: createManifestSogPerformanceSources('kitchen', 'Kitchen'),
         streamingSource: createManifestSogStreamingSource('kitchen', 'Kitchen'),
         fpCollisionSource: resolveManifestAsset('kitchen', 'collision', './GLBs/Kitchen_collision.glb'),
@@ -521,6 +531,7 @@ const LOCATION_CATALOG = {
       }),
       createIndoorScene('main-hall', 'Main Hall', resolveManifestAsset('main-hall', 'glb', './Indoors.glb'), {
         src: resolveManifestAsset('main-hall', 'sog-source', './PLYs/MainHall/MainHall.sog'),
+        thumbnail: './assets/thumbnails/main-hall.webp',
         performanceSources: createManifestSogPerformanceSources('main-hall', 'MainHall'),
         streamingSource: createManifestSogStreamingSource('main-hall', 'MainHall'),
         fpCollisionSource: resolveManifestAsset('main-hall', 'collision', './GLBs/MainHall_collision.glb'),

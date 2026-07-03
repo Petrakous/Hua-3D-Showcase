@@ -1692,6 +1692,10 @@ body[data-show-time-control="false"] .time-stage-marker:disabled {
   transform: rotate(-8deg);
 }
 
+.scene-card__media--thumbnail::after {
+  display: none;
+}
+
 .scene-card__media img {
   width: 100%;
   height: 100%;
@@ -1876,6 +1880,25 @@ body.is-cinematic:not(.is-cinematic-author) .performance-toast {
   pointer-events: none;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+}
+
+body.is-cinematic-author .cinematic-overlay {
+  top: auto;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+}
+
+body.is-cinematic-ui-hidden .site-header,
+body.is-cinematic-ui-hidden .header-actions,
+body.is-cinematic-ui-hidden .scene-selection,
+body.is-cinematic-ui-hidden .hero-time-control,
+body.is-cinematic-ui-hidden .hero-overlay,
+body.is-cinematic-ui-hidden .hero-gradient,
+body.is-cinematic-ui-hidden .hero-noise,
+body.is-cinematic-ui-hidden .orbit-target-indicator,
+body.is-cinematic-ui-hidden .fp-mobile-controls,
+body.is-cinematic-ui-hidden .performance-toast,
+body.is-cinematic-ui-hidden .cinematic-overlay {
+  display: none !important;
 }
 
 .cinematic-overlay[hidden] {
