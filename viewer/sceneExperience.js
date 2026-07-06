@@ -52,14 +52,14 @@ const SCENE_EXPERIENCES = {
     defaults: {
       format: "sog",
       quality: "web",
-      firstPersonMode: "walk"
+      firstPersonMode: "fly"
     },
     navigation: {
       orbit: true,
-      walk: false,
-      fly: false,
+      walk: true,
+      fly: true,
       tapToMove: false,
-      collision: false,
+      collision: true,
       defaultMode: "orbit"
     },
     performance: {
@@ -83,14 +83,14 @@ const SCENE_EXPERIENCES = {
     defaults: {
       format: "sog",
       quality: "web",
-      firstPersonMode: "walk"
+      firstPersonMode: "fly"
     },
     navigation: {
       orbit: true,
-      walk: false,
-      fly: false,
+      walk: true,
+      fly: true,
       tapToMove: false,
-      collision: false,
+      collision: true,
       defaultMode: "orbit"
     },
     performance: {
@@ -114,14 +114,14 @@ const SCENE_EXPERIENCES = {
     defaults: {
       format: "sog",
       quality: "web",
-      firstPersonMode: "walk"
+      firstPersonMode: "fly"
     },
     navigation: {
       orbit: true,
-      walk: false,
-      fly: false,
+      walk: true,
+      fly: true,
       tapToMove: false,
-      collision: false,
+      collision: true,
       defaultMode: "orbit"
     },
     performance: {

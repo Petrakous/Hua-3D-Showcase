@@ -1,11 +1,11 @@
 """
 make_collision.py
 -----------------
-Merge all GLB tiles from a MipMap output folder into a single lightweight
-collision mesh (no textures, decimated) and export as collision.glb.
+Load one GLB or merge all GLB tiles from a MipMap output folder into a single
+lightweight collision mesh (no textures, decimated) and export as collision.glb.
 
 Usage:
-    python make_collision.py <tiles_folder> <output_glb>
+    python make_collision.py <glb_or_tiles_folder> <output_glb> [ratio]
 
 Example:
     python make_collision.py "../../GLBs/classroom-5_tiles" "../Scenes/Classroom 5/collision.glb"
@@ -22,10 +22,10 @@ import trimesh
 DEFAULT_RATIO = 0.80
 
 
-def load_tiles(tiles_folder: pathlib.Path) -> list[trimesh.Trimesh]:
-    glb_files = sorted(tiles_folder.glob("*.glb"))
+def load_meshes(source: pathlib.Path) -> tuple[list[trimesh.Trimesh], int]:
+    glb_files = [source] if source.is_file() else sorted(source.glob("*.glb"))
     if not glb_files:
-        raise FileNotFoundError(f"No .glb files found in {tiles_folder}")
+        raise FileNotFoundError(f"No .glb files found at {source}")
 
     meshes = []
     total_before = 0
@@ -34,6 +34,11 @@ def load_tiles(tiles_folder: pathlib.Path) -> list[trimesh.Trimesh]:
         scene = trimesh.load(str(glb_path), force="scene", process=False)
         for geom in scene.geometry.values():
             if isinstance(geom, trimesh.Trimesh) and len(geom.faces) > 0:
+                if len(geom.vertices) > 1 and int(geom.faces.max()) == 0:
+                    raise ValueError(
+                        f"{glb_path} uses compressed indices that trimesh could not decode. "
+                        "Decompress/dequantize the GLB before building collision geometry."
+                    )
                 # Strip textures — keep geometry only
                 geom.visual = trimesh.visual.ColorVisuals()
                 meshes.append(geom)
@@ -44,13 +49,13 @@ def load_tiles(tiles_folder: pathlib.Path) -> list[trimesh.Trimesh]:
     return meshes, total_before
 
 
-def make_collision(tiles_folder: str, output_path: str, ratio: float = DEFAULT_RATIO) -> None:
-    tiles_dir = pathlib.Path(tiles_folder)
+def make_collision(source_path: str, output_path: str, ratio: float = DEFAULT_RATIO) -> None:
+    source = pathlib.Path(source_path)
     out = pathlib.Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"Loading tiles from: {tiles_dir}")
-    meshes, total_faces = load_tiles(tiles_dir)
+    print(f"Loading geometry from: {source}")
+    meshes, total_faces = load_meshes(source)
 
     print("Merging meshes...")
     merged = trimesh.util.concatenate(meshes)
@@ -75,7 +80,7 @@ def make_collision(tiles_folder: str, output_path: str, ratio: float = DEFAULT_R
 
 if __name__ == "__main__":
     if len(sys.argv) not in (3, 4):
-        print("Usage: python make_collision.py <tiles_folder> <output_glb> [ratio]")
+        print("Usage: python make_collision.py <glb_or_tiles_folder> <output_glb> [ratio]")
         sys.exit(1)
 
     ratio = DEFAULT_RATIO
