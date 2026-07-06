@@ -461,6 +461,12 @@ class PlayCanvasSogViewer {
     this._spawnMarkerEntity = null;    // visible orange sphere
     this.spawnMarkerVisible = false;
     this.editorGuidesVisible = true;
+    this.editorAxesVisible = true;
+    this.cameraStartTransform = null;
+    this.cameraStartMarkerVisible = false;
+    this._cameraStartMarkerEntity = null;
+    this.manualBoxPreviewVisible = false;
+    this._manualBoxLabels = [];
     this.fpNavigationController = null;
     this.fpNavigationMode = "walk";
     this.flyCollisionIgnored = false;
@@ -553,6 +559,19 @@ class PlayCanvasSogViewer {
   }
 
   resolveOrbitState(pc, asset, entity, localBoundsCenter, boundsRadius) {
+    if (asset.cameraStartOverride?.position) {
+      const transform = asset.cameraStartOverride;
+      const position = new pc.Vec3(...transform.position);
+      const rotation = this.createStandardEulerQuaternion(pc, transform.rotationDegrees || [0, 0, 0]);
+      const forward = rotation.transformVector(new pc.Vec3(0, 0, -1));
+      this.cameraStartTransform = {
+        position: [...transform.position],
+        rotationDegrees: [...(transform.rotationDegrees || [0, 0, 0])],
+        scale: [1, 1, 1],
+      };
+      return this.resolveOrbitStateFromCamera(pc, position.clone().add(forward), position);
+    }
+
     const viewPreset = asset.viewPreset || {};
     const manualBox = asset.streamingEnabled ? asset.manualBox : null;
     const useManualBoxAnchor = !!manualBox && !viewPreset.target && !viewPreset.cameraPosition;
@@ -954,21 +973,173 @@ class PlayCanvasSogViewer {
     if (this.app) this.app.renderNextFrame = true;
   }
 
+  setEditorAxesVisible(visible) {
+    this.editorAxesVisible = visible === true;
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
   drawEditorGuides(pc) {
-    if (!this.editorGuidesVisible || !this.app?.drawLine || !this.currentAsset?.streamingEnabled) return;
+    if ((!this.editorGuidesVisible && !this.editorAxesVisible) || !this.app?.drawLine) return;
+    this.app.renderNextFrame = true;
     const size = 24;
     const step = 2;
     const gridColor = new pc.Color(0.16, 0.72, 0.7, 0.32);
     const xAxisColor = new pc.Color(1, 0.28, 0.28, 0.9);
     const yAxisColor = new pc.Color(0.35, 1, 0.42, 0.9);
     const zAxisColor = new pc.Color(0.35, 0.58, 1, 0.9);
-    for (let value = -size; value <= size; value += step) {
-      this.app.drawLine(new pc.Vec3(-size, 0, value), new pc.Vec3(size, 0, value), gridColor);
-      this.app.drawLine(new pc.Vec3(value, 0, -size), new pc.Vec3(value, 0, size), gridColor);
+    if (this.editorGuidesVisible) {
+      for (let value = -size; value <= size; value += step) {
+        this.app.drawLine(new pc.Vec3(-size, 0, value), new pc.Vec3(size, 0, value), gridColor);
+        this.app.drawLine(new pc.Vec3(value, 0, -size), new pc.Vec3(value, 0, size), gridColor);
+      }
     }
-    this.app.drawLine(new pc.Vec3(-size, 0, 0), new pc.Vec3(size, 0, 0), xAxisColor);
-    this.app.drawLine(new pc.Vec3(0, -size * 0.25, 0), new pc.Vec3(0, size * 0.25, 0), yAxisColor);
-    this.app.drawLine(new pc.Vec3(0, 0, -size), new pc.Vec3(0, 0, size), zAxisColor);
+    if (this.editorAxesVisible) {
+      this.app.drawLine(new pc.Vec3(-size, 0, 0), new pc.Vec3(size, 0, 0), xAxisColor);
+      this.app.drawLine(new pc.Vec3(0, -size * 0.25, 0), new pc.Vec3(0, size * 0.25, 0), yAxisColor);
+      this.app.drawLine(new pc.Vec3(0, 0, -size), new pc.Vec3(0, 0, size), zAxisColor);
+    }
+  }
+
+  captureCurrentCameraTransform() {
+    if (!this.camera) return null;
+    const position = this.camera.getPosition();
+    const rotation = this.camera.getEulerAngles();
+    return {
+      position: [position.x, position.y, position.z],
+      rotationDegrees: [rotation.x, rotation.y, rotation.z],
+      scale: [1, 1, 1],
+    };
+  }
+
+  getCameraStartTransform() {
+    return this.cameraStartTransform ? {
+      position: [...this.cameraStartTransform.position],
+      rotationDegrees: [...this.cameraStartTransform.rotationDegrees],
+      scale: [1, 1, 1],
+    } : null;
+  }
+
+  setCameraStartTransform(transform) {
+    if (!transform) return;
+    this.cameraStartTransform = {
+      position: [...(transform.position || [0, 0, 0])],
+      rotationDegrees: [...(transform.rotationDegrees || [0, 0, 0])],
+      scale: [1, 1, 1],
+    };
+    this._updateCameraStartMarker();
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  _ensureCameraStartMarker() {
+    if (this._cameraStartMarkerEntity || !this.pc || !this.app) return;
+    const pc = this.pc;
+    const marker = new pc.Entity("CameraStartMarker");
+    marker.addComponent("render", { type: "sphere" });
+    const material = new pc.StandardMaterial();
+    material.useLighting = false;
+    material.emissive = new pc.Color(0.25, 0.75, 1.0);
+    material.opacity = 0.9;
+    material.blendType = pc.BLEND_NORMAL;
+    material.depthTest = false;
+    material.depthWrite = false;
+    material.update();
+    for (const meshInstance of marker.render.meshInstances || []) {
+      meshInstance.material = material;
+      meshInstance.drawOrder = 1e6;
+    }
+    marker.setLocalScale(0.3, 0.3, 0.3);
+    this.app.root.addChild(marker);
+    this._cameraStartMarkerEntity = marker;
+    this._updateCameraStartMarker();
+  }
+
+  _updateCameraStartMarker() {
+    if (!this._cameraStartMarkerEntity || !this.cameraStartTransform) return;
+    this._cameraStartMarkerEntity.setPosition(...this.cameraStartTransform.position);
+  }
+
+  setCameraStartMarkerVisible(visible) {
+    this.cameraStartMarkerVisible = visible === true;
+    if (this.cameraStartMarkerVisible) {
+      if (!this.cameraStartTransform) this.cameraStartTransform = this.captureCurrentCameraTransform();
+      this._ensureCameraStartMarker();
+    }
+    if (this._cameraStartMarkerEntity) this._cameraStartMarkerEntity.enabled = this.cameraStartMarkerVisible;
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  drawCameraStartMarker(pc) {
+    if (!this.cameraStartMarkerVisible || !this.cameraStartTransform || !this.app?.drawLine) return;
+    this.app.renderNextFrame = true;
+    const origin = new pc.Vec3(...this.cameraStartTransform.position);
+    const rotation = this.createStandardEulerQuaternion(pc, this.cameraStartTransform.rotationDegrees);
+    const forward = rotation.transformVector(new pc.Vec3(0, 0, -1)).normalize();
+    const tip = origin.clone().add(forward.clone().mulScalar(2));
+    const color = new pc.Color(0.25, 0.75, 1.0, 1);
+    this.app.drawLine(origin, tip, color);
+    const side = new pc.Vec3(-forward.z, 0, forward.x).normalize().mulScalar(0.3);
+    const back = forward.clone().mulScalar(-0.35);
+    this.app.drawLine(tip, tip.clone().add(back).add(side), color);
+    this.app.drawLine(tip, tip.clone().add(back).sub(side), color);
+  }
+
+  setManualBoxPreviewVisible(visible) {
+    this.manualBoxPreviewVisible = visible === true;
+    if (!this.manualBoxPreviewVisible) this._hideManualBoxLabels();
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  _ensureManualBoxLabels() {
+    if (this._manualBoxLabels.length || !this.container) return;
+    for (const name of ["Left", "Right", "Top", "Bottom", "Front", "Back"]) {
+      const label = document.createElement("div");
+      label.className = "calibration-box-label";
+      label.textContent = name;
+      label.hidden = true;
+      this.container.appendChild(label);
+      this._manualBoxLabels.push(label);
+    }
+  }
+
+  _hideManualBoxLabels() {
+    for (const label of this._manualBoxLabels) label.hidden = true;
+  }
+
+  drawManualBoxPreview(pc) {
+    const config = this.activeManualBoxConfig;
+    if (!this.manualBoxPreviewVisible || !config || !this.app?.drawLine) {
+      this._hideManualBoxLabels();
+      return;
+    }
+    this.app.renderNextFrame = true;
+    const matrix = this.createBoxWorldMatrix(pc, config);
+    const units = [
+      [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5],
+      [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [-0.5, 0.5, 0.5], [0.5, 0.5, 0.5],
+    ];
+    const corners = units.map((value) => matrix.transformPoint(new pc.Vec3(...value)));
+    const edges = [[0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]];
+    const color = new pc.Color(0.65, 1.0, 0.08, 1);
+    for (const [a, b] of edges) this.app.drawLine(corners[a], corners[b], color);
+
+    this._ensureManualBoxLabels();
+    const faces = [[-0.5, 0, 0], [0.5, 0, 0], [0, 0.5, 0], [0, -0.5, 0], [0, 0, 0.5], [0, 0, -0.5]];
+    const width = Math.max(1, this.container.clientWidth || 1);
+    const height = Math.max(1, this.container.clientHeight || 1);
+    faces.forEach((face, index) => {
+      const world = matrix.transformPoint(new pc.Vec3(...face));
+      const screen = this.camera?.camera?.worldToScreen?.(world, new pc.Vec3());
+      const label = this._manualBoxLabels[index];
+      if (!screen || screen.z < 0) {
+        label.hidden = true;
+        return;
+      }
+      label.hidden = false;
+      const deviceWidth = Math.max(1, this.app.graphicsDevice?.width || width);
+      const deviceHeight = Math.max(1, this.app.graphicsDevice?.height || height);
+      label.style.left = `${screen.x * width / deviceWidth}px`;
+      label.style.top = `${screen.y * height / deviceHeight}px`;
+    });
   }
 
   // ===========================================================================
@@ -1267,12 +1438,18 @@ class PlayCanvasSogViewer {
       this.camera.camera.fov = fpViewPreset.fov;
     }
 
-    // Spawn the player at the edited spawn config if available, otherwise fall
-    // back to the orbit-derived entry pose.
-    if (!this.spawnEditConfig) {
+    // Only treat persisted/calibrated camera data as an explicit spawn. For an
+    // outdoor streamed scene without one, preserve the camera pose from which
+    // the user entered Streamed mode instead of teleporting to [0, 1.6, 0].
+    const hasExplicitSpawn = !!(
+      this.currentAsset?.spawnOverride?.position ||
+      this.currentAsset?.resolvedFpViewPreset?.cameraPosition ||
+      this.currentAsset?.fpViewPreset?.cameraPosition
+    );
+    if (hasExplicitSpawn && !this.spawnEditConfig) {
       this.initSpawnConfig();
     }
-    if (this.spawnEditConfig) {
+    if (hasExplicitSpawn && this.spawnEditConfig) {
       const c = this.spawnEditConfig;
       const spawnOrbitState = {
         target: new pc.Vec3(c.cameraPosition[0], c.cameraPosition[1], c.cameraPosition[2]),
@@ -2305,8 +2482,16 @@ class PlayCanvasSogViewer {
         }
       }
       this.syncCutawayState(pc, { deltaSeconds });
-      this.drawEditorGuides(pc);
-      this.drawSpawnMarker(pc);
+      try {
+        this.drawEditorGuides(pc);
+        this.drawSpawnMarker(pc);
+        this.drawCameraStartMarker(pc);
+        this.drawManualBoxPreview(pc);
+      } catch (error) {
+        console.error("Calibration overlay rendering failed:", error);
+        this.manualBoxPreviewVisible = false;
+        this._hideManualBoxLabels();
+      }
     });
 
     this.app = app;
@@ -2515,6 +2700,10 @@ class PlayCanvasSogViewer {
     }
   }
 
+  getCutawayEnabled() {
+    return this.cutawayEnabled;
+  }
+
   setMaxDpr(maxDpr) {
     this.targetMaxDpr = maxDpr;
     if (!this.app || !this.app.graphicsDevice || !this.container) {
@@ -2592,6 +2781,13 @@ class PlayCanvasSogViewer {
     this._spawnMarkerEntity = null;
     this.spawnMarkerVisible = false;
     this.spawnEditConfig = null;
+    if (this._cameraStartMarkerEntity) this._cameraStartMarkerEntity.destroy();
+    this._cameraStartMarkerEntity = null;
+    this.cameraStartMarkerVisible = false;
+    this.cameraStartTransform = null;
+    for (const label of this._manualBoxLabels || []) label.remove();
+    this._manualBoxLabels = [];
+    this.manualBoxPreviewVisible = false;
     if (this.collisionPreviewAsset && this.app) {
       this.app.assets.remove(this.collisionPreviewAsset);
       this.collisionPreviewAsset.unload();

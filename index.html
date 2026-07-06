@@ -233,13 +233,31 @@
             </label>
             <label class="calibration-toggle" id="calibrationGridControl" hidden>
               <input id="calibrationShowGrid" type="checkbox" checked />
-              <span>Show alignment grid and axes</span>
+              <span>Show alignment grid</span>
+            </label>
+            <label class="calibration-toggle" id="calibrationAxesControl" hidden>
+              <input id="calibrationShowAxes" type="checkbox" checked />
+              <span>Show alignment axes</span>
+            </label>
+            <label class="calibration-toggle" id="calibrationCameraMarkerControl" hidden>
+              <input id="calibrationShowCameraMarker" type="checkbox" checked />
+              <span>Show camera start marker</span>
+            </label>
+            <label class="calibration-toggle" id="calibrationCullingControl" hidden>
+              <input id="calibrationCullingEnabled" type="checkbox" checked />
+              <span>Enable box culling</span>
+            </label>
+            <label class="calibration-toggle" id="calibrationBoxPreviewControl" hidden>
+              <input id="calibrationShowBox" type="checkbox" checked />
+              <span>Show labeled culling box</span>
             </label>
 
             <div class="calibration-target" id="calibrationTargetControl" hidden>
               <span class="calibration-target__label">Editing</span>
               <div class="calibration-target__options" role="group" aria-label="Choose calibration target">
                 <button class="calibration-target__btn" data-calib-target="scene" data-active="true" type="button">Scene / SOG</button>
+                <button class="calibration-target__btn" data-calib-target="box" data-active="false" type="button" hidden>Box</button>
+                <button class="calibration-target__btn" data-calib-target="camera" data-active="false" type="button" hidden>Camera Start</button>
                 <button class="calibration-target__btn" data-calib-target="collision" data-active="false" type="button">Collision</button>
                 <button class="calibration-target__btn" data-calib-target="spawn" data-active="false" type="button">Spawn</button>
               </div>
@@ -274,6 +292,7 @@
             </div>
 
             <div class="calibration-panel__actions">
+              <button class="calibration-action" id="calibrationSetCurrent" type="button" hidden>Set to current</button>
               <button class="calibration-action" id="calibrationReset" type="button">Reset</button>
               <button class="calibration-action" id="calibrationSave" type="button" style="display: none;">Save</button>
               <button class="calibration-action" id="calibrationCopy" type="button">Copy JSON</button>
@@ -286,6 +305,6 @@
       </section>
     </main>
 
-    <script type="module" src="./main.js?v=20260703responsive1"></script>
+    <script type="module" src="./main.js?v=20260707dit1"></script>
   </body>
 </html>

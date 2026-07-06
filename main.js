@@ -1,5 +1,5 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260625fp22";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260629tap1";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260707dit1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260707cal1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260629exp1";
 
@@ -35,6 +35,15 @@ const calibrationCollisionPreviewControl = document.getElementById("calibrationC
 const calibrationShowCollision = document.getElementById("calibrationShowCollision");
 const calibrationGridControl = document.getElementById("calibrationGridControl");
 const calibrationShowGrid = document.getElementById("calibrationShowGrid");
+const calibrationAxesControl = document.getElementById("calibrationAxesControl");
+const calibrationShowAxes = document.getElementById("calibrationShowAxes");
+const calibrationCameraMarkerControl = document.getElementById("calibrationCameraMarkerControl");
+const calibrationShowCameraMarker = document.getElementById("calibrationShowCameraMarker");
+const calibrationCullingControl = document.getElementById("calibrationCullingControl");
+const calibrationCullingEnabled = document.getElementById("calibrationCullingEnabled");
+const calibrationBoxPreviewControl = document.getElementById("calibrationBoxPreviewControl");
+const calibrationShowBox = document.getElementById("calibrationShowBox");
+const calibrationSetCurrent = document.getElementById("calibrationSetCurrent");
 const calibrationTargetControl = document.getElementById("calibrationTargetControl");
 const calibrationTargetButtons = [...document.querySelectorAll("[data-calib-target]")];
 const timeDial = document.getElementById("timeDial");
@@ -884,6 +893,8 @@ let calibrationPanelOpen = false;
 let calibrationInputSyncSuspended = false;
 // Which target the Streamed Move/Rotate/Scale controls edit: "scene" | "collision"
 let streamedCalibTarget = "scene";
+// Which target the regular LOD controls edit: "scene" | "box" | "camera"
+let lodCalibTarget = "box";
 let dialPointerId = null;
 let dialStartAngle = 0;
 let dialDragged = false;
@@ -902,6 +913,8 @@ const GITHUB_MEDIA_BASE_URL = "https://media.githubusercontent.com/media/Petrako
 const GITHUB_RAW_BASE_URL = "https://raw.githubusercontent.com/Petrakous/Hua-3D-Showcase/main/";
 const calibrationOverrides = calibrationUiUnlocked ? loadCalibrationOverrides() : {};
 const calibrationSessionDefaults = new Map();
+const calibrationSessionSceneDefaults = new Map();
+const calibrationSessionCameraDefaults = new Map();
 
 function encodeUrlPathSegments(path = "") {
   return path
@@ -995,7 +1008,7 @@ function applyCalibrationOverrideToAsset(asset) {
     return asset;
   }
 
-  if (asset.streamingEnabled && asset.sceneCalibrationKey) {
+  if (asset.sceneCalibrationKey) {
     const streamedOverride = getStreamedTransformOverride(asset);
     if (streamedOverride) {
       const updatedAsset = { ...asset };
@@ -1005,19 +1018,30 @@ function applyCalibrationOverrideToAsset(asset) {
         updatedAsset.rotation = degreesToQuaternion(streamedOverride.scene.rotationDegrees);
         updatedAsset.scale = streamedOverride.scene.scale;
       }
-      if (streamedOverride.collision) {
+      if (!asset.streamingEnabled && streamedOverride.cameraStart) {
+        updatedAsset.cameraStartOverride = {
+          position: streamedOverride.cameraStart.position,
+          rotationDegrees: streamedOverride.cameraStart.rotationDegrees,
+        };
+        updatedAsset.fpViewPreset = {
+          ...(updatedAsset.fpViewPreset || {}),
+          cameraPosition: streamedOverride.cameraStart.position,
+          cameraRotationDegrees: streamedOverride.cameraStart.rotationDegrees,
+        };
+      }
+      if (asset.streamingEnabled && streamedOverride.collision) {
         updatedAsset.collisionPosition = streamedOverride.collision.position;
         updatedAsset.collisionRotationDegrees = streamedOverride.collision.rotationDegrees;
         updatedAsset.collisionRotation = degreesToQuaternion(streamedOverride.collision.rotationDegrees);
         updatedAsset.collisionScale = streamedOverride.collision.scale;
       }
-      if (streamedOverride.spawn) {
+      if (asset.streamingEnabled && streamedOverride.spawn) {
         updatedAsset.spawnOverride = {
           position: streamedOverride.spawn.position,
           rotationDegrees: streamedOverride.spawn.rotationDegrees,
         };
       }
-      return updatedAsset;
+      asset = updatedAsset;
     }
   }
 
@@ -1677,7 +1701,10 @@ function getEffectiveSogMode(asset) {
     return "classic";
   }
 
-  return activeSogMode === "streamed" && asset.streamingSource && asset.manualBox ? "streamed" : "classic";
+  // A culling/collision box is useful for indoor walk mode, but it is not a
+  // prerequisite for loading a streamed SOG. Outdoor scenes can start in fly
+  // mode from the current orbit camera without one.
+  return activeSogMode === "streamed" && asset.streamingSource ? "streamed" : "classic";
 }
 
 function finalizeSogAsset(asset) {
@@ -2059,11 +2086,18 @@ function setCalibrationPanelOpen(open) {
     if (calibrationPanelOpen) {
       sogViewer.setCollisionPreviewVisible?.(calibrationShowCollision.checked);
       sogViewer.setEditorGuidesVisible?.(calibrationShowGrid.checked);
+      sogViewer.setEditorAxesVisible?.(calibrationShowAxes.checked);
+      sogViewer.setCameraStartMarkerVisible?.(!currentActiveAsset?.streamingEnabled && calibrationShowCameraMarker.checked);
+      sogViewer.setManualBoxPreviewVisible?.(!currentActiveAsset?.streamingEnabled && calibrationShowBox.checked);
     } else {
       sogViewer.setCollisionPreviewVisible?.(false);
       sogViewer.setEditorGuidesVisible?.(false);
+      sogViewer.setEditorAxesVisible?.(false);
+      sogViewer.setCameraStartMarkerVisible?.(false);
+      sogViewer.setManualBoxPreviewVisible?.(false);
       sogViewer.setSpawnMarkerVisible?.(false);
       streamedCalibTarget = "scene";
+      lodCalibTarget = "box";
     }
   }
 }
@@ -2074,6 +2108,7 @@ function setCalibrationInputsDisabled(disabled) {
     ...calibrationInputs.rotationDegrees,
     ...calibrationInputs.scale,
     calibrationReset,
+    calibrationSetCurrent,
     calibrationSave,
     calibrationCopy,
     calibrationClose,
@@ -2117,14 +2152,22 @@ function updateCalibrationUi() {
   }
 
   const isStreamed = !!currentActiveAsset?.streamingEnabled;
-  calibrationSave.style.display = isStreamed ? "" : "none";
+  calibrationSave.style.display = "";
   calibrationLodControls.hidden = isStreamed;
   calibrationFlyCollisionControl.hidden = !isStreamed;
   calibrationCollisionPreviewControl.hidden = !isStreamed;
-  calibrationGridControl.hidden = !isStreamed;
-  calibrationTargetControl.hidden = !isStreamed;
+  calibrationGridControl.hidden = false;
+  calibrationAxesControl.hidden = false;
+  calibrationTargetControl.hidden = false;
+  calibrationCameraMarkerControl.hidden = isStreamed;
+  calibrationCullingControl.hidden = isStreamed;
+  calibrationBoxPreviewControl.hidden = isStreamed;
+  calibrationSetCurrent.hidden = true;
   calibrationFlyIgnoreCollision.checked = isStreamed && sogViewer.getFlyCollisionIgnored?.() === true;
   calibrationShowCollision.checked = isStreamed && sogViewer.getCollisionPreviewVisible?.() === true;
+  if (!isStreamed) {
+    calibrationCullingEnabled.checked = sogViewer.getCutawayEnabled?.() !== false;
+  }
 
   if (isStreamed) {
     calibrationSceneLabel.textContent = currentActiveAsset?.label || "Active streamed SOG";
@@ -2150,6 +2193,7 @@ function updateCalibrationUi() {
 
     // Reflect active target on the buttons
     for (const btn of calibrationTargetButtons) {
+      btn.hidden = btn.dataset.calibTarget === "box" || btn.dataset.calibTarget === "camera";
       btn.dataset.active = String(btn.dataset.calibTarget === streamedCalibTarget);
     }
 
@@ -2166,17 +2210,31 @@ function updateCalibrationUi() {
     return;
   }
 
+  const editingBox = lodCalibTarget === "box";
+  const editingCamera = lodCalibTarget === "camera";
+  const prefix = editingBox ? "Box" : editingCamera ? "Camera Start" : "Scene / SOG";
   const lodLabels = calibrationLodControls.querySelectorAll(".calibration-group__label");
-  if (lodLabels[0]) lodLabels[0].textContent = "Move";
-  if (lodLabels[1]) lodLabels[1].textContent = "Rotate";
-  if (lodLabels[2]) lodLabels[2].textContent = "Scale";
+  if (lodLabels[0]) lodLabels[0].textContent = `${prefix} Move`;
+  if (lodLabels[1]) lodLabels[1].textContent = `${prefix} Rotate`;
+  if (lodLabels[2]) lodLabels[2].textContent = `${prefix} Scale`;
+
+  for (const btn of calibrationTargetButtons) {
+    const target = btn.dataset.calibTarget;
+    btn.hidden = target === "collision" || target === "spawn";
+    btn.dataset.active = String(target === lodCalibTarget);
+  }
 
   const config = getCurrentCalibrationConfig();
   calibrationSceneLabel.textContent = currentActiveAsset?.label || "Active SOG scene";
-  calibrationHint.textContent = currentActiveAsset?.sceneCalibrationKey
-    ? `Scene key: ${currentActiveAsset.sceneCalibrationKey}`
-    : "Live transform controls for the active SOG cutaway box.";
-  populateCalibrationInputs(config);
+  calibrationHint.textContent = editingBox
+    ? "Editing the culling box independently from the rendered splat."
+    : editingCamera
+      ? "Editing the saved initial camera. Use Set to current to capture this view."
+      : "Editing the rendered SOG scene transform.";
+  const lodScaleGroup = lodLabels[2]?.closest(".calibration-group");
+  if (lodScaleGroup) lodScaleGroup.hidden = editingCamera;
+  calibrationSetCurrent.hidden = !editingCamera;
+  populateCalibrationInputs(editingBox ? config : getLodTargetTransform());
   setCalibrationInputsDisabled(false);
 }
 
@@ -2185,7 +2243,7 @@ function readCalibrationInputs() {
   // not the manual box, so use the active target transform as the base.
   const currentConfig = currentActiveAsset?.streamingEnabled
     ? getStreamedTargetTransform()
-    : getCurrentCalibrationConfig();
+    : getLodTargetTransform();
   if (!currentConfig) {
     return null;
   }
@@ -2201,6 +2259,22 @@ function readCalibrationInputs() {
     rotationDegrees: calibrationInputs.rotationDegrees.map((input, index) => parseInput(input, currentConfig.rotationDegrees?.[index] ?? 0)),
     scale: calibrationInputs.scale.map((input, index) => Math.max(0.001, parseInput(input, currentConfig.scale?.[index] ?? 1))),
   };
+}
+
+function getLodTargetTransform() {
+  if (lodCalibTarget === "camera") {
+    return sogViewer.getCameraStartTransform?.() || sogViewer.captureCurrentCameraTransform?.() || {
+      position: [0, 0, 0], rotationDegrees: [0, 0, 0], scale: [1, 1, 1],
+    };
+  }
+  if (lodCalibTarget === "scene") {
+    return sogViewer.getSceneTransform?.() || {
+      position: [0, 0, 0],
+      rotationDegrees: [0, 0, 0],
+      scale: [1, 1, 1],
+    };
+  }
+  return getCurrentCalibrationConfig();
 }
 
 // Read the transform of whichever target is currently selected in streamed mode.
@@ -2257,6 +2331,20 @@ function applyCalibrationConfig(config) {
     return;
   }
 
+  if (lodCalibTarget === "scene") {
+    sogViewer.setSceneTransform(config);
+    populateCalibrationInputs(sogViewer.getSceneTransform?.());
+    setStatus("Scene updated", `${currentActiveAsset?.label || "SOG scene"} transform updated.`);
+    return;
+  }
+
+  if (lodCalibTarget === "camera") {
+    sogViewer.setCameraStartTransform?.(config);
+    populateCalibrationInputs(sogViewer.getCameraStartTransform?.());
+    setStatus("Camera start updated", "Saved camera marker transform updated.");
+    return;
+  }
+
   const nextConfig = cloneManualBoxConfig(config);
   sogViewer.setManualBoxConfig(nextConfig);
   currentActiveAsset = {
@@ -2277,13 +2365,16 @@ function applyCalibrationConfig(config) {
 }
 
 async function copyCalibrationConfig() {
-  const config = getCurrentCalibrationConfig();
-  if (!config) {
+  const boxConfig = getCurrentCalibrationConfig();
+  const sceneTransform = sogViewer.getSceneTransform?.();
+  if (!boxConfig && !sceneTransform) {
     return;
   }
 
   const payload = JSON.stringify({
-    manualBox: config,
+    scene: sceneTransform,
+    manualBox: boxConfig,
+    cameraStart: sogViewer.getCameraStartTransform?.(),
   }, null, 2);
 
   try {
@@ -2297,6 +2388,30 @@ async function copyCalibrationConfig() {
   requestAnimationFrame(() => {
     setStatusOverlayState(true);
   });
+}
+
+function saveCurrentLodTransforms() {
+  const key = currentActiveAsset?.sceneCalibrationKey;
+  if (!key || currentActiveAsset?.streamingEnabled) return;
+
+  const sceneTransform = sogViewer.getSceneTransform?.();
+  const boxConfig = getCurrentCalibrationConfig();
+  const cameraStart = sogViewer.getCameraStartTransform?.();
+  if (sceneTransform) {
+    streamedTransformsOverrides[key] = {
+      ...(streamedTransformsOverrides[key] || {}),
+      scene: cloneTransformConfig(sceneTransform),
+      ...(cameraStart ? { cameraStart: cloneTransformConfig(cameraStart) } : {}),
+    };
+    saveStreamedTransformsOverrides();
+  }
+  if (boxConfig) {
+    setCalibrationOverride(key, boxConfig);
+  }
+
+  setStatus("Calibration Saved", `Saved scene and box transforms for ${currentActiveAsset.label || "SOG scene"}.`);
+  setStatusOverlayState(false);
+  requestAnimationFrame(() => setStatusOverlayState(true));
 }
 
 function saveCurrentStreamedTransforms() {
@@ -2357,6 +2472,31 @@ function resetCalibrationConfig() {
     return;
   }
 
+  if (lodCalibTarget === "scene") {
+    const fallbackScene = calibrationSessionSceneDefaults.get(currentActiveAsset.sceneCalibrationKey);
+    if (!fallbackScene) return;
+    if (streamedTransformsOverrides[currentActiveAsset.sceneCalibrationKey]) {
+      delete streamedTransformsOverrides[currentActiveAsset.sceneCalibrationKey].scene;
+      if (Object.keys(streamedTransformsOverrides[currentActiveAsset.sceneCalibrationKey]).length === 0) {
+        delete streamedTransformsOverrides[currentActiveAsset.sceneCalibrationKey];
+      }
+      saveStreamedTransformsOverrides();
+    }
+    sogViewer.setSceneTransform(cloneTransformConfig(fallbackScene));
+    populateCalibrationInputs(sogViewer.getSceneTransform?.());
+    setStatus("Scene reset", `${currentActiveAsset?.label || "SOG scene"} transform restored.`);
+    return;
+  }
+
+  if (lodCalibTarget === "camera") {
+    const fallbackCamera = calibrationSessionCameraDefaults.get(currentActiveAsset.sceneCalibrationKey);
+    if (!fallbackCamera) return;
+    sogViewer.setCameraStartTransform?.(cloneTransformConfig(fallbackCamera));
+    populateCalibrationInputs(sogViewer.getCameraStartTransform?.());
+    setStatus("Camera reset", "Camera start restored to its session default.");
+    return;
+  }
+
   const fallbackConfig =
     cloneManualBoxConfig(calibrationSessionDefaults.get(currentActiveAsset.sceneCalibrationKey)) ||
     cloneManualBoxConfig(currentActiveAsset.sourceManualBox);
@@ -2387,7 +2527,7 @@ function renderSogModeMarkers() {
     asset?.runtime === "playcanvas" &&
     asset?.fileFormat === "sog";
   const shouldShowModeControl =
-    isSogActive && !!asset?.manualBox;
+    isSogActive && !!asset?.streamingSource;
 
   sogModeControl.hidden = !shouldShowModeControl;
 
@@ -2414,8 +2554,8 @@ function renderSogModeMarkers() {
         return;
       }
 
-      if (mode === "streamed" && (!asset?.streamingSource || !asset?.manualBox)) {
-        setStatus("FP mode unavailable", "This scene does not have inside exploration data yet.");
+      if (mode === "streamed" && !asset?.streamingSource) {
+        setStatus("Streamed mode unavailable", "This scene does not have streamed LOD data yet.");
         setStatusOverlayState(false);
         requestAnimationFrame(() => {
           setStatusOverlayState(true);
@@ -2874,10 +3014,9 @@ async function activateSplatAsset(asset, swapId, options = {}) {
       ...asset,
       src: resolvedSource,
       autoRotate: turntableEnabled,
-      transitionOrbitState:
-        !asset.streamingEnabled
-          ? pendingSogModeTransitionOrbitState
-          : null,
+      // Streamed outdoor scenes without a calibrated spawn use this pose as
+      // their safe initial FP entry point.
+      transitionOrbitState: pendingSogModeTransitionOrbitState,
     }),
     targetSplatProfile,
     options.silent
@@ -2911,6 +3050,18 @@ async function activateSplatAsset(asset, swapId, options = {}) {
     calibrationSessionDefaults.set(
       currentActiveAsset.sceneCalibrationKey,
       cloneManualBoxConfig(currentActiveAsset.sourceManualBox || currentActiveAsset.manualBox)
+    );
+  }
+  if (currentActiveAsset.sceneCalibrationKey && !calibrationSessionSceneDefaults.has(currentActiveAsset.sceneCalibrationKey)) {
+    calibrationSessionSceneDefaults.set(
+      currentActiveAsset.sceneCalibrationKey,
+      cloneTransformConfig(sogViewer.getSceneTransform?.())
+    );
+  }
+  if (currentActiveAsset.sceneCalibrationKey && !calibrationSessionCameraDefaults.has(currentActiveAsset.sceneCalibrationKey)) {
+    calibrationSessionCameraDefaults.set(
+      currentActiveAsset.sceneCalibrationKey,
+      cloneTransformConfig(sogViewer.getCameraStartTransform?.() || sogViewer.captureCurrentCameraTransform?.())
     );
   }
 
@@ -3176,6 +3327,14 @@ async function setActiveSogMode(mode) {
     currentEngineType === "splat" && currentActiveAsset?.runtime === "playcanvas"
       ? sogViewer.getOrbitState?.()
       : null;
+  if (mode === "streamed") {
+    const asset = currentActiveAsset?.type === "splat" ? currentActiveAsset : getActiveAssetDescriptor();
+    const sceneId = asset?.sceneId || (asset?.locationId === "outdoors" ? `campus-${activeTimeStage}` : null);
+    const exp = sceneId ? resolveSceneExperience(sceneId) : null;
+    if (exp?.defaults?.firstPersonMode === "fly" || (!exp?.navigation?.walk && exp?.navigation?.fly)) {
+      activeFpNavigationMode = "fly";
+    }
+  }
   activeSogMode = mode;
   updateLocationUi();
   updateQualityToggle();
@@ -3451,7 +3610,11 @@ calibrationReset.addEventListener("click", () => {
 });
 
 calibrationSave.addEventListener("click", () => {
-  saveCurrentStreamedTransforms();
+  if (currentActiveAsset?.streamingEnabled) {
+    saveCurrentStreamedTransforms();
+  } else {
+    saveCurrentLodTransforms();
+  }
 });
 
 calibrationCopy.addEventListener("click", async () => {
@@ -3481,12 +3644,48 @@ calibrationShowGrid.addEventListener("change", () => {
   sogViewer.setEditorGuidesVisible?.(calibrationShowGrid.checked);
 });
 
-// Scene / Collision / Spawn target switch (streamed mode only)
+calibrationShowAxes.addEventListener("change", () => {
+  sogViewer.setEditorAxesVisible?.(calibrationShowAxes.checked);
+});
+
+calibrationShowCameraMarker.addEventListener("change", () => {
+  sogViewer.setCameraStartMarkerVisible?.(calibrationShowCameraMarker.checked);
+});
+
+calibrationCullingEnabled.addEventListener("change", () => {
+  sogViewer.setCutawayEnabled?.(calibrationCullingEnabled.checked);
+});
+
+calibrationShowBox.addEventListener("change", () => {
+  sogViewer.setManualBoxPreviewVisible?.(calibrationShowBox.checked);
+});
+
+calibrationSetCurrent.addEventListener("click", () => {
+  if (currentActiveAsset?.streamingEnabled || lodCalibTarget !== "camera") return;
+  const captured = sogViewer.captureCurrentCameraTransform?.();
+  if (!captured) return;
+  sogViewer.setCameraStartTransform?.(captured);
+  calibrationShowCameraMarker.checked = true;
+  populateCalibrationInputs(captured);
+  setStatus("Camera start captured", "Initial camera transform set from the current view.");
+});
+
+// Target switch for streamed and regular LOD calibration modes.
 for (const btn of calibrationTargetButtons) {
   btn.addEventListener("click", () => {
-    if (!currentActiveAsset?.streamingEnabled) return;
     const nextTarget = btn.dataset.calibTarget;
-    if (nextTarget === streamedCalibTarget) return;
+    if (!nextTarget) return;
+
+    if (!currentActiveAsset?.streamingEnabled) {
+      if (!["scene", "box", "camera"].includes(nextTarget) || nextTarget === lodCalibTarget) return;
+      lodCalibTarget = nextTarget;
+      sogViewer.setManualBoxPreviewVisible?.(nextTarget === "box" && calibrationShowBox.checked);
+      sogViewer.setCameraStartMarkerVisible?.(nextTarget === "camera" && calibrationShowCameraMarker.checked);
+      updateCalibrationUi();
+      return;
+    }
+
+    if (!["scene", "collision", "spawn"].includes(nextTarget) || nextTarget === streamedCalibTarget) return;
 
     streamedCalibTarget = nextTarget;
     if (streamedCalibTarget === "collision") {
