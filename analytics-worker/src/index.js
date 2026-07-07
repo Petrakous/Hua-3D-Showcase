@@ -320,6 +320,16 @@ async function handleStats(request, env) {
       COUNT(DISTINCT CASE WHEN unixepoch(last_seen_at) >= unixepoch('now', '-1 day') THEN visitor_id END) AS visitors_today,
       COUNT(DISTINCT CASE WHEN unixepoch(last_seen_at) >= unixepoch('now', '-7 day') THEN visitor_id END) AS visitors_7d,
       COUNT(DISTINCT CASE WHEN unixepoch(last_seen_at) >= unixepoch('now', '-30 day') THEN visitor_id END) AS visitors_30d,
+      (
+        SELECT COUNT(*)
+        FROM (
+          SELECT visitor_id
+          FROM sessions
+          WHERE unixepoch(started_at) >= unixepoch('now', '-30 day')
+          GROUP BY visitor_id
+          HAVING COUNT(*) > 1
+        )
+      ) AS returning_visitors_30d,
       (SELECT COUNT(*) FROM sessions WHERE unixepoch(started_at) >= unixepoch('now', '-1 day')) AS sessions_today,
       (SELECT COUNT(*) FROM sessions WHERE unixepoch(started_at) >= unixepoch('now', '-7 day')) AS sessions_7d,
       (SELECT COUNT(*) FROM sessions WHERE unixepoch(started_at) >= unixepoch('now', '-30 day')) AS sessions_30d,
@@ -448,6 +458,78 @@ async function handleStats(request, env) {
       WHERE event_name = 'performance_sample'
         AND unixepoch(timestamp) >= unixepoch('now', '-30 day')
         AND json_extract(metadata_json, '$.fps') IS NOT NULL
+    `),
+    fps_by_device: await queryAll(env, `
+      SELECT
+        COALESCE(s.device_category, 'unknown') AS device_category,
+        COUNT(*) AS samples,
+        ROUND(AVG(CAST(json_extract(e.metadata_json, '$.fps') AS REAL)), 1) AS avg_fps,
+        ROUND(MIN(CAST(json_extract(e.metadata_json, '$.fps') AS REAL)), 1) AS min_fps,
+        ROUND(AVG(CAST(json_extract(e.metadata_json, '$.dpr') AS REAL)), 2) AS avg_dpr
+      FROM events e
+      LEFT JOIN sessions s ON s.session_id = e.session_id
+      WHERE e.event_name = 'performance_sample'
+        AND unixepoch(e.timestamp) >= unixepoch('now', '-30 day')
+        AND json_extract(e.metadata_json, '$.fps') IS NOT NULL
+      GROUP BY s.device_category
+      ORDER BY avg_fps DESC
+      LIMIT 8
+    `),
+    fps_by_browser: await queryAll(env, `
+      SELECT
+        COALESCE(s.browser, 'unknown') AS browser,
+        COUNT(*) AS samples,
+        ROUND(AVG(CAST(json_extract(e.metadata_json, '$.fps') AS REAL)), 1) AS avg_fps,
+        ROUND(MIN(CAST(json_extract(e.metadata_json, '$.fps') AS REAL)), 1) AS min_fps,
+        ROUND(AVG(CAST(json_extract(e.metadata_json, '$.dpr') AS REAL)), 2) AS avg_dpr
+      FROM events e
+      LEFT JOIN sessions s ON s.session_id = e.session_id
+      WHERE e.event_name = 'performance_sample'
+        AND unixepoch(e.timestamp) >= unixepoch('now', '-30 day')
+        AND json_extract(e.metadata_json, '$.fps') IS NOT NULL
+      GROUP BY s.browser
+      ORDER BY avg_fps DESC
+      LIMIT 8
+    `),
+    duration_by_device: await queryAll(env, `
+      SELECT
+        COALESCE(device_category, 'unknown') AS device_category,
+        COUNT(*) AS sessions,
+        ROUND(AVG(COALESCE(duration_seconds, unixepoch(last_seen_at) - unixepoch(started_at))), 1) AS avg_duration_seconds
+      FROM sessions
+      WHERE unixepoch(started_at) >= unixepoch('now', '-30 day')
+      GROUP BY device_category
+      ORDER BY avg_duration_seconds DESC
+      LIMIT 8
+    `),
+    scene_success_rates: await queryAll(env, `
+      SELECT
+        COALESCE(scene_id, 'unknown') AS scene_id,
+        SUM(CASE WHEN event_name = 'scene_loaded' THEN 1 ELSE 0 END) AS loads,
+        SUM(CASE WHEN event_name = 'scene_load_failed' THEN 1 ELSE 0 END) AS failures,
+        COUNT(DISTINCT session_id) AS sessions
+      FROM events
+      WHERE event_name IN ('scene_loaded', 'scene_load_failed') AND unixepoch(timestamp) >= unixepoch('now', '-30 day')
+      GROUP BY scene_id
+      ORDER BY (loads + failures) DESC
+      LIMIT 10
+    `),
+    errors_by_scene: await queryAll(env, `
+      SELECT COALESCE(scene_id, 'unknown') AS scene_id, COUNT(*) AS errors
+      FROM errors
+      WHERE unixepoch(timestamp) >= unixepoch('now', '-30 day')
+      GROUP BY scene_id
+      ORDER BY errors DESC
+      LIMIT 10
+    `),
+    errors_by_device: await queryAll(env, `
+      SELECT COALESCE(s.device_category, 'unknown') AS device_category, COUNT(*) AS errors
+      FROM errors er
+      LEFT JOIN sessions s ON s.session_id = er.session_id
+      WHERE unixepoch(er.timestamp) >= unixepoch('now', '-30 day')
+      GROUP BY s.device_category
+      ORDER BY errors DESC
+      LIMIT 8
     `),
   }, 200, cors);
 }

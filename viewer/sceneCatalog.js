@@ -1,3 +1,5 @@
+import { logger } from "./logger.js";
+
 const DEFAULT_SOG_ROTATION_DEGREES = [180, 0, 0];
 const DEFAULT_CLIP_BOX = {
   minX: -8,
@@ -82,7 +84,7 @@ function logAssetResolution(sceneId, role, resolvedUrl) {
   }
 
   loggedAssetResolutions.add(logKey);
-  console.info('[asset-manifest] Resolved active asset', {
+  logger.debug('asset-manifest', 'Resolved active asset', {
     assetMode: ACTIVE_ASSET_MODE,
     sceneId,
     role,

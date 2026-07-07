@@ -206,7 +206,14 @@
             </div>
             <p id="statusCopy">Setting up the 3D experience.</p>
             <p class="progress-meta" id="progressMeta"></p>
-            <button class="status-retry" id="statusRetry" type="button" hidden>Retry</button>
+            <details class="status-details" id="statusDetails" hidden>
+              <summary>Technical details</summary>
+              <pre id="statusDetailsText"></pre>
+            </details>
+            <div class="status-actions">
+              <button class="status-retry" id="statusRetry" type="button" hidden>Retry</button>
+              <button class="status-back" id="statusBack" type="button" hidden>Back to all spaces</button>
+            </div>
           </div>
 
           <aside class="calibration-panel" id="calibrationPanel" hidden aria-hidden="true">
@@ -301,10 +308,26 @@
           </aside>
         </div>
 
+        <button class="mobile-controls-scrim" id="mobileControlsScrim" type="button" aria-label="Close controls" hidden></button>
+        <div class="mobile-controls-dock" id="mobileControlsDock" aria-label="Viewer controls">
+          <button class="mobile-dock-button" type="button" data-mobile-panel="time" aria-expanded="false">
+            <span>Time</span>
+          </button>
+          <button class="mobile-dock-button" type="button" data-mobile-panel="format" aria-expanded="false">
+            <span>Format</span>
+          </button>
+          <button class="mobile-dock-button" type="button" data-mobile-panel="quality" aria-expanded="false">
+            <span>Quality</span>
+          </button>
+          <button class="mobile-dock-button" type="button" data-mobile-panel="more" aria-expanded="false">
+            <span>More</span>
+          </button>
+        </div>
+
         <div class="performance-toast" id="performanceToast" role="status" aria-live="polite" aria-hidden="true"></div>
       </section>
     </main>
 
-    <script type="module" src="./main.js?v=20260707dit1"></script>
+    <script type="module" src="./main.js?v=20260708mobile1"></script>
   </body>
 </html>

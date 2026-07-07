@@ -22,7 +22,7 @@ function injectStyles() {
         linear-gradient(135deg, #06101f 0%, #071728 42%, #040811 100%);
       color: #e9f6ff;
       font-family: Manrope, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      padding: 28px;
+      padding: clamp(16px, 2vw, 32px);
     }
     .analytics-dashboard * { box-sizing: border-box; }
     .analytics-dashboard h1,
@@ -30,7 +30,7 @@ function injectStyles() {
     .analytics-dashboard h3,
     .analytics-dashboard p { margin: 0; }
     .analytics-dashboard__shell {
-      width: min(1440px, 100%);
+      width: min(1560px, 100%);
       margin: 0 auto;
     }
     .analytics-dashboard__top {
@@ -138,7 +138,7 @@ function injectStyles() {
     .analytics-dashboard__grid {
       display: grid;
       grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: 14px;
+      gap: clamp(12px, 1.2vw, 18px);
     }
     .analytics-dashboard__panel,
     .analytics-dashboard__metric,
@@ -200,12 +200,13 @@ function injectStyles() {
     }
     .analytics-dashboard__panel {
       grid-column: span 6;
-      min-height: 320px;
+      min-height: 300px;
       padding: 18px;
     }
     .analytics-dashboard__panel--wide { grid-column: span 8; }
     .analytics-dashboard__panel--narrow { grid-column: span 4; }
     .analytics-dashboard__panel--full { grid-column: 1 / -1; }
+    .analytics-dashboard__panel--compact { min-height: auto; }
     .analytics-dashboard__panel-head {
       display: flex;
       align-items: flex-start;
@@ -314,12 +315,14 @@ function injectStyles() {
       text-transform: uppercase;
     }
     .analytics-dashboard__table-wrap {
-      overflow: auto;
+      overflow-x: auto;
+      overflow-y: auto;
       max-height: 400px;
       border-radius: 8px;
       border: 1px solid rgba(126, 202, 255, 0.13);
     }
     .analytics-dashboard table {
+      min-width: 760px;
       width: 100%;
       border-collapse: collapse;
       font-size: 0.84rem;
@@ -330,7 +333,8 @@ function injectStyles() {
       border-bottom: 1px solid rgba(128, 180, 219, 0.11);
       padding: 10px 9px;
       vertical-align: top;
-      word-break: break-word;
+      word-break: normal;
+      overflow-wrap: normal;
     }
     .analytics-dashboard th {
       position: sticky;
@@ -343,7 +347,55 @@ function injectStyles() {
       text-transform: uppercase;
     }
     .analytics-dashboard td { color: #d7e8f5; }
+    .analytics-dashboard td:not(:last-child) {
+      white-space: nowrap;
+    }
+    .analytics-dashboard td:last-child {
+      min-width: 220px;
+    }
     .analytics-dashboard__cell-muted { color: #7f95ad; }
+    .analytics-dashboard__session-list {
+      display: grid;
+      gap: 10px;
+      max-height: 520px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+    .analytics-dashboard__session-card {
+      display: grid;
+      grid-template-columns: minmax(220px, 1.1fr) minmax(180px, 0.9fr) minmax(150px, 0.8fr);
+      gap: 12px;
+      align-items: start;
+      border: 1px solid rgba(126, 202, 255, 0.13);
+      border-radius: 8px;
+      padding: 12px;
+      background: rgba(5, 15, 28, 0.34);
+    }
+    .analytics-dashboard__session-meta {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      color: #d7e8f5;
+      font-size: 0.84rem;
+    }
+    .analytics-dashboard__session-meta span {
+      color: #84a0b9;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    .analytics-dashboard__truncate {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .analytics-dashboard__stack {
+      display: grid;
+      gap: 16px;
+    }
     .analytics-dashboard__health {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -461,6 +513,9 @@ function injectStyles() {
       .analytics-dashboard__panel,
       .analytics-dashboard__panel--wide,
       .analytics-dashboard__panel--narrow { grid-column: 1 / -1; }
+      .analytics-dashboard__session-card {
+        grid-template-columns: minmax(220px, 1fr) minmax(180px, 1fr);
+      }
     }
     @media (max-width: 760px) {
       .analytics-dashboard { padding: 16px; }
@@ -472,6 +527,8 @@ function injectStyles() {
       .analytics-dashboard__bar-value { text-align: left; }
       .analytics-dashboard__health { grid-template-columns: 1fr; }
       .analytics-dashboard__modal-grid { grid-template-columns: 1fr; }
+      .analytics-dashboard table { min-width: 680px; }
+      .analytics-dashboard__session-card { grid-template-columns: 1fr; }
     }
   `;
   document.head.appendChild(style);
@@ -617,7 +674,13 @@ function renderEmpty(message = "No data yet.") {
 }
 
 function renderPanel(title, subtitle, body, options = {}) {
-  const className = options.className ? ` analytics-dashboard__panel--${options.className}` : "";
+  const className = options.className
+    ? String(options.className)
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((name) => ` analytics-dashboard__panel--${name}`)
+      .join("")
+    : "";
   return `
     <section class="analytics-dashboard__panel${className}">
       <div class="analytics-dashboard__panel-head">
@@ -662,6 +725,71 @@ function renderRows(rows = [], columns = []) {
           `).join("")}
         </tbody>
       </table>
+    </div>
+  `;
+}
+
+function renderSessionCards(rows = []) {
+  if (!rows.length) {
+    return renderEmpty("No sessions to show yet.");
+  }
+
+  return `
+    <div class="analytics-dashboard__session-list">
+      ${rows.map((row) => `
+        <article class="analytics-dashboard__session-card">
+          <div class="analytics-dashboard__session-meta">
+            <span>Visitor</span>
+            ${renderVisitorBadge(row)}
+          </div>
+          <div class="analytics-dashboard__session-meta">
+            <span>Session</span>
+            <strong class="analytics-dashboard__truncate" title="${escapeHtml(row.session_id || "")}">${escapeHtml(shortSessionId(row.session_id))}</strong>
+            <small>${escapeHtml(formatDateTime(row.started_at))} · ${escapeHtml(formatDuration(row.duration_seconds))}</small>
+          </div>
+          <div class="analytics-dashboard__session-meta">
+            <span>Scene</span>
+            <strong class="analytics-dashboard__truncate" title="${escapeHtml(row.current_scene || "")}">${escapeHtml(row.current_scene || "Unknown")}</strong>
+            <small>${escapeHtml(formatNumber(row.page_views || 0))} views · ${escapeHtml(formatNumber(row.event_count || 0))} events</small>
+          </div>
+          <div class="analytics-dashboard__session-meta">
+            <span>Device</span>
+            <strong class="analytics-dashboard__truncate">${escapeHtml(row.device_category || "unknown")} / ${escapeHtml(row.browser || "browser")}</strong>
+            <small>${escapeHtml(row.os || "OS unknown")}</small>
+          </div>
+          <div class="analytics-dashboard__session-meta">
+            <span>Location</span>
+            <strong class="analytics-dashboard__truncate">${escapeHtml([row.country, row.city].filter(Boolean).join(", ") || "Unknown")}</strong>
+            <small class="analytics-dashboard__truncate" title="${escapeHtml(row.referrer || "")}">${escapeHtml(cleanReferrer(row.referrer))}</small>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderSceneReliability(rows = []) {
+  if (!rows.length) {
+    return renderEmpty("No scene reliability data yet.");
+  }
+
+  return `
+    <div class="analytics-dashboard__bars">
+      ${rows.map((row) => {
+        const loads = toNumber(row.loads);
+        const failures = toNumber(row.failures);
+        const total = Math.max(1, loads + failures);
+        const success = Math.round((loads / total) * 100);
+        return `
+          <div class="analytics-dashboard__bar-row" title="${escapeHtml(`${row.scene_id}: ${success}% success (${loads} loads, ${failures} failures)`)}">
+            <span class="analytics-dashboard__bar-label">${escapeHtml(row.scene_id || "Unknown")}</span>
+            <span class="analytics-dashboard__bar-track">
+              <span class="analytics-dashboard__bar-fill" style="width:${success}%"></span>
+            </span>
+            <strong class="analytics-dashboard__bar-value">${success}%</strong>
+          </div>
+        `;
+      }).join("")}
     </div>
   `;
 }
@@ -859,11 +987,12 @@ function renderBarList(rows = [], config = {}) {
         const value = toNumber(row[valueKey]);
         const width = Math.max(3, Math.round((value / max) * 100));
         const detail = config.detail ? config.detail(row) : `${label}: ${formatNumber(value)}`;
+        const displayValue = config.valueFormat ? config.valueFormat(value, row) : formatNumber(value);
         return `
           <div class="analytics-dashboard__bar-row" title="${escapeHtml(detail)}">
             <span class="analytics-dashboard__bar-label">${escapeHtml(label || "Unknown")}</span>
             <span class="analytics-dashboard__bar-track"><span class="analytics-dashboard__bar-fill" style="width:${width}%"></span></span>
-            <strong class="analytics-dashboard__bar-value">${formatNumber(value)}</strong>
+            <strong class="analytics-dashboard__bar-value">${escapeHtml(displayValue)}</strong>
           </div>
         `;
       }).join("")}
@@ -1045,6 +1174,7 @@ function renderStats(root, stats, sessions, errors) {
         ${renderMetricCard("Sessions today", formatNumber(summary.sessions_today || 0), `${formatNumber(summary.sessions_30d || 0)} sessions in 30 days`)}
         ${renderMetricCard("Page views", formatNumber(summary.page_views_30d || 0), "Total page views in the last 30 days")}
         ${renderMetricCard("Avg session", formatDuration(summary.avg_session_duration || 0), "Based on heartbeat and session end events")}
+        ${renderMetricCard("Returning visitors", formatNumber(summary.returning_visitors_30d || 0), "Anonymous visitors with more than one session in 30 days")}
         ${renderMetricCard("Scene success", health.successRate === null ? "n/a" : `${health.successRate}%`, `${formatNumber(health.loads)} loaded / ${formatNumber(health.failures)} failed`)}
         ${renderMetricCard("Performance", performance.samples ? `${formatNumber(performance.avg_fps)} fps` : "n/a", performance.samples ? `${formatNumber(performance.samples)} samples, min ${formatNumber(performance.min_fps)} fps` : "No samples yet")}
         ${renderMetricCard("Recent errors", formatNumber(recentErrors.length), "Latest captured viewer and load errors")}
@@ -1060,7 +1190,7 @@ function renderStats(root, stats, sessions, errors) {
               <button class="analytics-dashboard__icon-button" type="button" data-detail-visitor="${escapeHtml(currentVisitorId)}">Details</button>
             </div>
           `,
-          { className: "narrow", pill: "Private admin use" }
+          { className: "narrow compact", pill: "Private admin use" }
         )}
 
         ${renderPanel(
@@ -1076,14 +1206,8 @@ function renderStats(root, stats, sessions, errors) {
         ${renderPanel(
           "Live activity",
           activeSessionsList.length ? "Active sessions seen in the last 90 seconds." : "No active sessions right now; showing recent sessions instead.",
-          renderRows(liveRows, [
-            { key: "visitor_id", label: "Visitor", html: true, format: (_value, row) => renderVisitorBadge(row) },
-            { key: "started_at", label: "Started", format: formatDateTime },
-            { key: "current_scene", label: "Scene", format: (value) => value || "Unknown" },
-            { key: "device_category", label: "Device", format: (value, row) => `${value || "unknown"} / ${row.browser || "browser"}` },
-            { key: "country", label: "Place", format: (value, row) => [value, row.city].filter(Boolean).join(", ") || "Unknown" },
-          ]),
-          { className: "narrow", pill: `${formatNumber(sessions.active_sessions || 0)} live` }
+          renderSessionCards(liveRows),
+          { className: "full", pill: `${formatNumber(sessions.active_sessions || 0)} live` }
         )}
 
         ${renderPanel(
@@ -1119,7 +1243,7 @@ function renderStats(root, stats, sessions, errors) {
         ${renderPanel(
           "Browser and OS",
           "Runtime environment captured anonymously by the frontend.",
-          `<div class="analytics-dashboard__split">
+          `<div class="analytics-dashboard__stack">
             <div>${renderBarList(stats.top_browsers || [], { labelKey: "browser", valueKey: "sessions", empty: "No browser data yet." })}</div>
             <div>${renderBarList(stats.top_os || [], { labelKey: "os", valueKey: "sessions", empty: "No OS data yet." })}</div>
           </div>`,
@@ -1152,6 +1276,50 @@ function renderStats(root, stats, sessions, errors) {
         )}
 
         ${renderPanel(
+          "Performance by device",
+          "Average FPS and DPR grouped by anonymous device category.",
+          renderBarList(stats.fps_by_device || [], {
+            labelKey: "device_category",
+            valueKey: "avg_fps",
+            empty: "No FPS samples by device yet.",
+            detail: (row) => `${row.device_category}: ${formatNumber(row.avg_fps)} avg FPS, ${formatNumber(row.min_fps)} min FPS, ${formatNumber(row.avg_dpr)} avg DPR from ${formatNumber(row.samples)} samples`,
+          }),
+          { className: "narrow", pill: "FPS" }
+        )}
+
+        ${renderPanel(
+          "Performance by browser",
+          "Average FPS grouped by browser to spot runtime differences.",
+          renderBarList(stats.fps_by_browser || [], {
+            labelKey: "browser",
+            valueKey: "avg_fps",
+            empty: "No FPS samples by browser yet.",
+            detail: (row) => `${row.browser}: ${formatNumber(row.avg_fps)} avg FPS, ${formatNumber(row.min_fps)} min FPS, ${formatNumber(row.avg_dpr)} avg DPR from ${formatNumber(row.samples)} samples`,
+          }),
+          { className: "narrow", pill: "Runtime" }
+        )}
+
+        ${renderPanel(
+          "Session duration by device",
+          "Average session length by device category.",
+          renderBarList(stats.duration_by_device || [], {
+            labelKey: "device_category",
+            valueKey: "avg_duration_seconds",
+            empty: "No duration data by device yet.",
+            detail: (row) => `${row.device_category}: ${formatDuration(row.avg_duration_seconds)} average across ${formatNumber(row.sessions)} sessions`,
+            valueFormat: formatDuration,
+          }),
+          { className: "narrow", pill: "Engagement" }
+        )}
+
+        ${renderPanel(
+          "Scene reliability",
+          "Load success rate by scene.",
+          renderSceneReliability(stats.scene_success_rates || []),
+          { className: "narrow", pill: "Success rate" }
+        )}
+
+        ${renderPanel(
           "Performance and loading",
           "Frame samples and load failure trend from the last 30 days.",
           renderLineChart((stats.failures_by_day || []).map((row) => ({ ...row, page_views: row.failures, sessions: 0 })), [
@@ -1164,6 +1332,16 @@ function renderStats(root, stats, sessions, errors) {
             </div>
           `,
           { className: "wide", pill: "Reliability" }
+        )}
+
+        ${renderPanel(
+          "Error concentration",
+          "Where errors are clustering by scene and device category.",
+          `<div class="analytics-dashboard__stack">
+            <div>${renderBarList(stats.errors_by_scene || [], { labelKey: "scene_id", valueKey: "errors", empty: "No errors by scene yet." })}</div>
+            <div>${renderBarList(stats.errors_by_device || [], { labelKey: "device_category", valueKey: "errors", empty: "No errors by device yet." })}</div>
+          </div>`,
+          { className: "narrow", pill: "Debugging" }
         )}
 
         ${renderPanel(

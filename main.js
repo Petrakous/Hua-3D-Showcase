@@ -1,7 +1,8 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260707dit1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260707cal1";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260708diag1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260708diag1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260629exp1";
+import { logger, setLoggerContextProvider } from "./viewer/logger.js";
 import {
   initAnalytics,
   trackPageView,
@@ -26,6 +27,9 @@ const statusPill = document.getElementById("statusPill");
 const statusCopy = document.getElementById("statusCopy");
 const viewerStatus = document.getElementById("viewerStatus");
 const statusRetry = document.getElementById("statusRetry");
+const statusBack = document.getElementById("statusBack");
+const statusDetails = document.getElementById("statusDetails");
+const statusDetailsText = document.getElementById("statusDetailsText");
 const sceneSelection = document.getElementById("sceneSelection");
 const sceneCardGrid = document.getElementById("sceneCardGrid");
 const viewerBackButton = document.getElementById("viewerBackButton");
@@ -74,6 +78,9 @@ const resetCamera = document.getElementById("resetCamera");
 const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
 const performanceToast = document.getElementById("performanceToast");
+const mobileControlsDock = document.getElementById("mobileControlsDock");
+const mobileControlsScrim = document.getElementById("mobileControlsScrim");
+const mobileDockButtons = [...document.querySelectorAll("[data-mobile-panel]")];
 const calibrationInputs = {
   position: [
     document.getElementById("calibrationPositionX"),
@@ -493,7 +500,7 @@ function stopSogPerformanceMonitor() {
     try {
       sogPerformanceMonitor.cleanup();
     } catch (e) {
-      console.warn("Monitor cleanup warning:", e);
+      logger.warn("sog-loader", "Performance monitor cleanup failed", null, e);
     }
   }
   sogPerformanceMonitor = null;
@@ -1012,8 +1019,19 @@ let dialDragged = false;
 let skipNextDialClick = false;
 let isViewerMode = false;
 let performanceToastTimer = null;
+let activeMobileControlsPanel = "";
 const performanceNoticeKeys = new Set();
 const sogViewer = new PlayCanvasSogViewer(splatViewerMount);
+
+setLoggerContextProvider(() => {
+  const asset = currentActiveAsset || getActiveAssetDescriptor?.();
+  return {
+    sceneId: getAnalyticsSceneId(asset),
+    sceneName: asset?.label || null,
+    format: asset?.format || asset?.fileFormat || activeFormat,
+    mode: asset?.streamingEnabled ? "streamed" : (asset?.type === "splat" ? activeSogMode : activeFormat),
+  };
+});
 
 const FORMAT_LABELS = {
   glb: "GLB",
@@ -1272,10 +1290,29 @@ function setProgress(value, details = null) {
   }
 }
 
-function setStatus(title, text) {
+function formatTechnicalDetails(details) {
+  if (!details) {
+    return "";
+  }
+
+  if (typeof details === "string") {
+    return details;
+  }
+
+  try {
+    return JSON.stringify(details, null, 2).slice(0, 4000);
+  } catch (_error) {
+    return String(details).slice(0, 4000);
+  }
+}
+
+function setStatus(title, text, options = {}) {
   const friendlyTitles = {
     "Loading SOG": "Loading your space",
+    "Loading scene metadata": "Loading scene metadata",
     "Preparing FP": "Preparing navigation",
+    "Preparing streamed LOD": "Preparing streamed view",
+    "Finalizing first view": "Finalizing first view",
     "Switching scene": "Preparing your space",
     "Loading scene": "Loading your space",
     "Scene ready": "Ready to explore",
@@ -1309,8 +1346,18 @@ function setStatus(title, text) {
 
   statusPill.textContent = finalTitle;
   statusCopy.textContent = finalCopy;
-  statusRetry.hidden = title !== "Asset issue";
+  const isError = options.severity === "fatal" || title === "Asset issue";
+  statusRetry.hidden = !isError;
+  statusBack.hidden = !isError;
   statusRetry.disabled = false;
+  const detailsText = formatTechnicalDetails(options.details);
+  statusDetails.hidden = !detailsText;
+  if (detailsText) {
+    statusDetailsText.textContent = detailsText;
+  } else {
+    statusDetails.open = false;
+    statusDetailsText.textContent = "";
+  }
 }
 
 function setStatusOverlayState(isIdle) {
@@ -1318,6 +1365,69 @@ function setStatusOverlayState(isIdle) {
   const shouldHide = isIdle || !isViewerMode;
   viewerStatus.hidden = shouldHide;
   viewerStatus.setAttribute("aria-hidden", String(shouldHide));
+}
+
+function isMobileControlPanelAvailable(panel) {
+  if (!isViewerMode) {
+    return false;
+  }
+
+  if (panel === "time") {
+    return !timeControlGroup.hidden && isTimeSelectionVisible();
+  }
+
+  if (panel === "format") {
+    return !formatControl.hidden;
+  }
+
+  if (panel === "quality") {
+    return [glbQualityControl, sogModeControl, fpNavControl, lodControl].some((control) => control && !control.hidden);
+  }
+
+  if (panel === "more") {
+    return !navigationControl.hidden && !!navigationGroups?.textContent?.trim();
+  }
+
+  return false;
+}
+
+function setMobileControlsPanel(panel = "") {
+  const nextPanel = panel && isMobileControlPanelAvailable(panel) ? panel : "";
+  activeMobileControlsPanel = nextPanel;
+  document.body.dataset.mobileControlsPanel = nextPanel;
+
+  for (const button of mobileDockButtons) {
+    const isActive = button.dataset.mobilePanel === nextPanel;
+    button.dataset.active = String(isActive);
+    button.setAttribute("aria-expanded", String(isActive));
+  }
+
+  const hasOpenPanel = !!nextPanel;
+  if (mobileControlsScrim) {
+    mobileControlsScrim.hidden = !hasOpenPanel;
+    mobileControlsScrim.setAttribute("aria-hidden", String(!hasOpenPanel));
+  }
+}
+
+function updateMobileControlsUi() {
+  if (!mobileControlsDock) {
+    return;
+  }
+
+  for (const button of mobileDockButtons) {
+    const panel = button.dataset.mobilePanel;
+    const available = isMobileControlPanelAvailable(panel);
+    button.hidden = !available;
+    button.disabled = !available || document.body.classList.contains("is-error");
+  }
+
+  mobileControlsDock.hidden = !mobileDockButtons.some((button) => !button.hidden);
+
+  if (activeMobileControlsPanel && !isMobileControlPanelAvailable(activeMobileControlsPanel)) {
+    setMobileControlsPanel("");
+  } else {
+    setMobileControlsPanel(activeMobileControlsPanel);
+  }
 }
 
 function showPerformanceNotice(key, message) {
@@ -1339,6 +1449,42 @@ function showPerformanceNotice(key, message) {
     performanceToast.classList.remove("is-visible");
     performanceToast.setAttribute("aria-hidden", "true");
   }, 4600);
+}
+
+function getFriendlyLoadError(error, asset = currentActiveAsset || getActiveAssetDescriptor()) {
+  const message = String(error?.message || error || "");
+  if (/webgl|graphics device|context/i.test(message)) {
+    return "WebGL is not available or was interrupted. Try reloading the page or using a device with stronger graphics support.";
+  }
+  if (/lod-meta|metadata|json/i.test(message)) {
+    return "This streamed space could not load its scene metadata. Check your connection and try again.";
+  }
+  if (/timeout|timed out|stalled/i.test(message)) {
+    return "This space is taking too long to prepare. Check your connection and try again.";
+  }
+  if (/failed to load|fetch|network|cors|404|403|asset/i.test(message)) {
+    return asset?.streamingEnabled
+      ? "Some 3D data failed to download. Check your connection and try again."
+      : "This space could not be loaded. Check your connection and try again.";
+  }
+  if (/memory|budget|allocation/i.test(message)) {
+    return "Your device may not have enough graphics memory for this scene.";
+  }
+  return "This space could not be loaded. Please try again.";
+}
+
+function buildErrorDetails(error, asset = currentActiveAsset || getActiveAssetDescriptor(), extra = {}) {
+  return {
+    scene_id: getAnalyticsSceneId(asset),
+    scene_name: asset?.label || null,
+    format: asset?.format || asset?.fileFormat || null,
+    mode: asset?.streamingEnabled ? "streamed" : (asset?.type || null),
+    source: asset?.src || null,
+    message: error?.message || String(error || "Unknown error"),
+    stack: error?.stack || "",
+    error_details: error?.details || null,
+    ...extra,
+  };
 }
 
 function escapeHtml(value) {
@@ -1459,10 +1605,12 @@ function enterViewerMode() {
   sceneSelection.hidden = true;
   sceneSelection.setAttribute("aria-hidden", "true");
   viewerBackButton.hidden = false;
+  updateMobileControlsUi();
 }
 
 function exitViewerMode() {
   ++activeAssetSwapId;
+  setMobileControlsPanel("");
   releaseActiveViewerResources();
   isViewerMode = false;
   document.body.classList.remove("is-viewer-mode");
@@ -1472,6 +1620,7 @@ function exitViewerMode() {
   sceneSelection.scrollTop = 0;
   viewerBackButton.hidden = true;
   setStatusOverlayState(true);
+  updateMobileControlsUi();
 }
 
 async function selectSceneCard(cardId) {
@@ -2077,6 +2226,10 @@ function updateViewerLayerVisibility(engineType) {
   updateOrbitTargetIndicatorVisibility();
 }
 
+function setSplatPreparing(isPreparing) {
+  splatViewerMount.classList.toggle("is-preparing", !!isPreparing);
+}
+
 function updateOrbitTargetIndicatorVisibility() {
   const shouldShow =
     sogPanIndicatorVisible &&
@@ -2168,6 +2321,7 @@ function revokeObjectUrl(url) {
 }
 
 function releaseActiveViewerResources() {
+  setMobileControlsPanel("");
   sogViewer.dispose();
   stopSogPerformanceMonitor();
   replaceModelViewerElement();
@@ -2175,6 +2329,7 @@ function releaseActiveViewerResources() {
   currentActiveAsset = null;
   sogPanIndicatorVisible = false;
   updateViewerLayerVisibility("none");
+  setSplatPreparing(false);
   document.body.classList.remove("is-loaded");
   document.body.classList.remove("is-error");
   originalMaterials = [];
@@ -2917,6 +3072,7 @@ function updateSceneAndFormatUi() {
   renderSogModeMarkers();
   renderFpNavMarkers();
   updateLodToggle();
+  updateMobileControlsUi();
 }
 
 function renderNavigationGroup(label, items = []) {
@@ -3105,6 +3261,7 @@ function setControlsBusy(isBusy) {
   setCalibrationInputsDisabled(isBusy || !isSogCalibrationAvailable());
 
   if (isBusy) {
+    setMobileControlsPanel("");
     for (const marker of glbQualityMarkers.querySelectorAll(".location-stage-marker")) {
       marker.disabled = true;
     }
@@ -3119,6 +3276,7 @@ function setControlsBusy(isBusy) {
     updateLodToggle();
     updateCalibrationUi();
   }
+  updateMobileControlsUi();
 }
 
 function updateTurntableUi() {
@@ -3153,6 +3311,10 @@ async function activateGlbAsset(asset, swapId) {
     return;
   }
 
+  logger.info("glb-loader", "Starting GLB scene load", {
+    scene_id: getAnalyticsSceneId(asset),
+    source: resolvedSource,
+  });
   turntableEnabled = !cinematicAuthorEnabled;
   updateTurntableUi();
 
@@ -3199,9 +3361,16 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   currentAssetKey = asset.key;
   updateTurntableUi();
   updateViewerLayerVisibility("splat");
+  setSplatPreparing(!!asset.streamingEnabled);
   if (!options.silent) {
     setProgress(0.22);
   }
+
+  logger.info("sog-loader", "Starting SOG scene load", {
+    scene_id: getAnalyticsSceneId(asset),
+    source: resolvedSource,
+    streamed: !!asset.streamingEnabled,
+  });
 
   await sogViewer.load(
     applySavedCinematicStartView({
@@ -3222,11 +3391,27 @@ async function activateSplatAsset(asset, swapId, options = {}) {
 
           if (nextState.total > 0 && Number.isFinite(nextState.received)) {
             setProgress(nextState.received / nextState.total, nextState);
+          } else if (Number.isFinite(nextState.progress)) {
+            setProgress(nextState.progress);
           } else if (nextState.status === "loading") {
             setProgress(0.56);
           }
 
-          setStatus(nextState.title, nextState.message);
+          if (nextState.status === "warning") {
+            showPerformanceNotice(
+              `${asset.key}:${nextState.code || nextState.title}`,
+              nextState.message || "The streamed model is still preparing. Please wait..."
+            );
+            logger.warn("sog-loader", nextState.message || "Recoverable SOG loading warning", {
+              scene_id: getAnalyticsSceneId(asset),
+              ...nextState.details,
+            });
+            return;
+          }
+
+          setStatus(nextState.title, nextState.message, {
+            details: logger.isDebugEnabled() ? nextState.details : null,
+          });
         }
   );
 
@@ -3268,6 +3453,8 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   }
 
   pendingSogModeTransitionOrbitState = null;
+
+  setSplatPreparing(false);
 
   if (!options.silent) {
     document.body.classList.add("is-loaded");
@@ -3359,10 +3546,15 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
       return;
     }
 
+    setSplatPreparing(false);
+    logger.error("scene-loader", "Scene load failed", buildErrorDetails(error, nextAsset), error);
     trackSceneLoadFailed(getAnalyticsSceneId(nextAsset), error, getAnalyticsAssetMetadata(nextAsset));
     document.body.classList.add("is-error");
     setStatusOverlayState(false);
-    setStatus("Asset issue", error?.message || "The selected scene did not render correctly.");
+    setStatus("Asset issue", getFriendlyLoadError(error, nextAsset), {
+      severity: "fatal",
+      details: buildErrorDetails(error, nextAsset),
+    });
   } finally {
     if (swapId === activeAssetSwapId) {
       setControlsBusy(false);
@@ -3672,13 +3864,71 @@ function handleModelViewerError(event) {
 
   document.body.classList.add("is-error");
   setStatusOverlayState(false);
-  setStatus("Asset issue", event.detail?.type || "The model did not render correctly.");
+  const error = new Error(event.detail?.type || "The model did not render correctly.");
+  logger.error("glb-loader", "GLB viewer reported a load error", buildErrorDetails(error, currentActiveAsset, {
+    event_type: event.detail?.type || null,
+  }), error);
+  setStatus("Asset issue", getFriendlyLoadError(error, currentActiveAsset), {
+    severity: "fatal",
+    details: buildErrorDetails(error, currentActiveAsset, {
+      event_type: event.detail?.type || null,
+    }),
+  });
   trackSceneLoadFailed(
     getAnalyticsSceneId(currentActiveAsset),
-    new Error(event.detail?.type || "The model did not render correctly."),
+    error,
     getAnalyticsAssetMetadata(currentActiveAsset, { load_engine: "model_viewer_glb" })
   );
   setControlsBusy(false);
+}
+
+function installGlobalSafetyHandlers() {
+  window.addEventListener("error", (event) => {
+    logger.error("app", "Unhandled browser error", {
+      source: event.filename || "",
+      line: event.lineno || null,
+      column: event.colno || null,
+    }, event.error || new Error(event.message || "Unhandled browser error"));
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    logger.error("app", "Unhandled promise rejection", {
+      source: "unhandledrejection",
+    }, event.reason instanceof Error ? event.reason : new Error(String(event.reason || "Unhandled promise rejection")));
+  });
+
+  const bindContextLoss = () => {
+    const canvas = sogViewer?.canvas || modelViewer?.shadowRoot?.querySelector?.("canvas");
+    if (!canvas || canvas.dataset.huaDiagnosticsContextListener === "1") {
+      return;
+    }
+
+    canvas.dataset.huaDiagnosticsContextListener = "1";
+    canvas.addEventListener("webglcontextlost", (event) => {
+      event.preventDefault?.();
+      const error = new Error("WebGL context lost");
+      logger.error("webgl", "WebGL context was lost", buildErrorDetails(error), error);
+      trackViewerError(error, getAnalyticsAssetMetadata(currentActiveAsset, {
+        source: "webglcontextlost",
+        fatal: true,
+      }));
+      if (isViewerMode) {
+        document.body.classList.add("is-error");
+        setStatusOverlayState(false);
+        setStatus("Asset issue", "WebGL is not available or was interrupted.", {
+          severity: "fatal",
+          details: buildErrorDetails(error),
+        });
+      }
+    });
+    canvas.addEventListener("webglcontextrestored", () => {
+      logger.info("webgl", "WebGL context was restored");
+      showPerformanceNotice("webgl-restored", "Graphics context was restored. Retry the space if it does not resume.");
+    });
+  };
+
+  bindContextLoss();
+  setInterval(bindContextLoss, 5000);
 }
 
 resetCamera.addEventListener("click", () => {
@@ -3703,22 +3953,80 @@ window.addEventListener("keydown", (event) => {
   resetActiveViewer();
 });
 
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && activeMobileControlsPanel) {
+    setMobileControlsPanel("");
+  }
+});
+
+window.addEventListener("resize", () => {
+  if (window.innerWidth > 760 && activeMobileControlsPanel) {
+    setMobileControlsPanel("");
+  }
+  updateMobileControlsUi();
+});
+
 viewerBackButton.addEventListener("click", exitViewerMode);
+statusBack.addEventListener("click", exitViewerMode);
+
+for (const button of mobileDockButtons) {
+  button.addEventListener("click", () => {
+    const panel = button.dataset.mobilePanel;
+    setMobileControlsPanel(activeMobileControlsPanel === panel ? "" : panel);
+  });
+}
+
+mobileControlsScrim?.addEventListener("click", () => {
+  setMobileControlsPanel("");
+});
+
+for (const control of [
+  timeControlGroup,
+  formatControl,
+  glbQualityControl,
+  sogModeControl,
+  fpNavControl,
+  lodControl,
+  navigationControl,
+]) {
+  control?.addEventListener("click", (event) => {
+    const button = event.target?.closest?.("button");
+    if (!button || button.disabled || button.id === "timeDial") {
+      return;
+    }
+
+    window.setTimeout(() => {
+      setMobileControlsPanel("");
+    }, 0);
+  });
+}
 
 statusRetry.addEventListener("click", async () => {
   if (!isViewerMode || statusRetry.disabled) return;
   statusRetry.disabled = true;
+  logger.info("ui", "Retrying active scene load from status overlay", {
+    scene_id: getAnalyticsSceneId(getActiveAssetDescriptor()),
+  });
   await applyActiveAssetSelection({ forceReload: true });
 });
 
 fullscreenToggle.addEventListener("click", async () => {
   const hero = document.querySelector(".hero");
-  if (document.fullscreenElement) {
-    await document.exitFullscreen();
-    return;
-  }
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
 
-  await hero.requestFullscreen();
+    await hero.requestFullscreen();
+  } catch (error) {
+    logger.warn("ui", "Fullscreen request failed", { source: "fullscreenToggle" }, error);
+    showPerformanceNotice("fullscreen-failed", "Fullscreen was blocked by the browser.");
+    trackViewerError(error, getAnalyticsAssetMetadata(currentActiveAsset, {
+      source: "fullscreen",
+      recoverable: true,
+    }));
+  }
 });
 
 turntableToggle.addEventListener("click", () => {
@@ -3968,7 +4276,9 @@ document.body.classList.add("is-scene-selection");
 renderSceneCards();
 updateViewerLayerVisibility("none");
 setStatusOverlayState(true);
+updateMobileControlsUi();
 applyTurntableState();
+installGlobalSafetyHandlers();
 initAnalytics({
   getSceneId: () => getAnalyticsSceneId(),
   getCanvas: () => sogViewer?.canvas || modelViewer?.shadowRoot?.querySelector?.("canvas") || null,
@@ -3989,7 +4299,7 @@ if (cinematicModeEnabled) {
       });
     })
     .catch((error) => {
-      console.error("Cinematic mode failed to initialize.", error);
+      logger.error("ui", "Cinematic mode failed to initialize", { source: "cinematic_mode_init" }, error);
       trackViewerError(error, { source: "cinematic_mode_init" });
     });
 }

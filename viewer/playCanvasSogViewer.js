@@ -1,6 +1,7 @@
 import { computeAutoCutaway } from "./autoCutaway.js?v=20260625fp22";
 import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
 import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629tap1";
+import { logger } from "./logger.js";
 
 const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas@2.20.1/+esm";
 const CANVAS_PIXEL_BUDGET = {
@@ -13,6 +14,13 @@ const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const DEFAULT_ORBIT_MIN_DISTANCE = 0.2;
 const DEFAULT_ORBIT_MAX_DISTANCE = 200;
+const STREAMING_READY_TIMEOUT_MS = 22000;
+const STREAMING_STALL_WARNING_MS = 9000;
+const STREAMING_SAFE_REMAINING_LOADS = 16;
+const STREAMING_SAFE_READY_FRAMES = 2;
+const STREAMING_MIN_READY_MS = 2500;
+const ASSET_LOAD_TIMEOUT_MS = 45000;
+const VIEWER_INIT_TIMEOUT_MS = 20000;
 const AUTO_CUTAWAY_FADE_WIDTH = 0.12;
 const SOG_BOX_CULLING_MODIFIER = {
   glsl: `
@@ -178,6 +186,30 @@ fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
 function supportsPlayCanvasSogViewer() {
   const canvas = document.createElement("canvas");
   return !!canvas.getContext("webgl2");
+}
+
+function withTimeout(promise, timeoutMs, message, details = {}) {
+  let timeoutId = null;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error(message);
+      error.details = details;
+      reject(error);
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+}
+
+function getPlayCanvasAssetErrorDetail(error) {
+  if (typeof error === "string") {
+    return error;
+  }
+  return error?.message || error?.status || error?.statusText || "Unknown PlayCanvas asset loader error";
 }
 
 class SimpleOrbitController {
@@ -461,6 +493,7 @@ class PlayCanvasSogViewer {
     this.panIndicatorVisible = false;
     this.streamingState = null;
     this.frameReadyHandler = null;
+    this.streamingReadyState = null;
     this.currentCutawayBoxConfig = null;
     this.fpCollision = null;
     this.collisionPreviewEntity = null;
@@ -987,7 +1020,9 @@ class PlayCanvasSogViewer {
         this.fpNavigationController?.setCollision?.(collision);
       }
     } catch (error) {
-      console.warn("Collision rebuild from preview failed:", error);
+      logger.warn("sog-loader", "Collision rebuild from preview failed", {
+        source: this.currentAsset?.fpCollisionSource || null,
+      }, error);
     }
   }
 
@@ -1553,7 +1588,10 @@ class PlayCanvasSogViewer {
         ),
       };
     } catch (error) {
-      console.warn("FP collision preparation failed:", error);
+      logger.warn("sog-loader", "First-person collision preparation failed", {
+        source: asset.fpCollisionSource,
+        scene_source: asset.src,
+      }, error);
       this.fpCollision = null;
       return asset;
     }
@@ -2213,6 +2251,16 @@ class PlayCanvasSogViewer {
     }
 
     this.frameReadyHandler = null;
+    if (this.streamingReadyState) {
+      for (const cleanup of this.streamingReadyState.cleanupFns || []) {
+        try {
+          cleanup();
+        } catch (_error) {}
+      }
+      if (this.streamingReadyState.timeoutId) clearTimeout(this.streamingReadyState.timeoutId);
+      if (this.streamingReadyState.warningId) clearTimeout(this.streamingReadyState.warningId);
+    }
+    this.streamingReadyState = null;
   }
 
   getStreamingState() {
@@ -2350,41 +2398,270 @@ class PlayCanvasSogViewer {
     this.setStreamingLodRange(targetRangeMin, targetRangeMax);
   }
 
+  waitForStreamingInitialReady(asset, generation, onState) {
+    if (!asset?.streamingEnabled || !this.app || !this.app.systems?.gsplat) {
+      return Promise.resolve();
+    }
+
+    const app = this.app;
+    const state = {
+      assetKey: asset.key || asset.src || "",
+      startedAt: (typeof performance !== "undefined" ? performance.now() : Date.now()),
+      settled: false,
+      sawReadyFrame: false,
+      sawPostRender: false,
+      readyFrameCount: 0,
+      lastLoadingCount: null,
+      bestLoadingCount: null,
+      cleanupFns: [],
+      timeoutId: null,
+      warningId: null,
+    };
+    this.streamingReadyState = state;
+
+    onState?.({
+      status: "loading",
+      title: "Preparing streamed LOD",
+      message: "The streamed model is still preparing. Please wait...",
+      progress: 0.72,
+      details: {
+        source: asset.src,
+        lod_range_min: this.streamingState?.targetLodRangeMin ?? null,
+        lod_range_max: this.streamingState?.targetLodRangeMax ?? null,
+      },
+    });
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const cleanup = () => {
+        state.settled = true;
+        for (const fn of state.cleanupFns.splice(0)) {
+          try {
+            fn();
+          } catch (_error) {}
+        }
+        if (state.timeoutId) clearTimeout(state.timeoutId);
+        if (state.warningId) clearTimeout(state.warningId);
+        if (this.streamingReadyState === state) {
+          this.streamingReadyState = null;
+        }
+      };
+
+      const finish = () => {
+        if (settled || !this.isLoadCurrent(generation) || this.app !== app) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        onState?.({
+          status: "loading",
+          title: "Finalizing first view",
+          message: "Finalizing the first streamed view...",
+          progress: 0.92,
+          details: {
+            frame_ready: true,
+            postrender_seen: true,
+            loading_count: state.lastLoadingCount,
+          },
+        });
+        resolve();
+      };
+
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+
+      const getElapsedMs = () =>
+        (typeof performance !== "undefined" ? performance.now() : Date.now()) - state.startedAt;
+
+      const isInitialViewSafe = () => {
+        if (!state.sawReadyFrame || !state.sawPostRender) {
+          return false;
+        }
+
+        if (!Number.isFinite(state.lastLoadingCount) || state.lastLoadingCount === 0) {
+          return true;
+        }
+
+        return (
+          state.lastLoadingCount <= STREAMING_SAFE_REMAINING_LOADS &&
+          state.readyFrameCount >= STREAMING_SAFE_READY_FRAMES &&
+          getElapsedMs() >= STREAMING_MIN_READY_MS
+        );
+      };
+
+      const maybeFinish = () => {
+        if (isInitialViewSafe()) {
+          finish();
+        }
+      };
+
+      const onFrameReady = (_camera, _layer, ready, loadingCount) => {
+        if (!this.isLoadCurrent(generation) || this.app !== app) {
+          return;
+        }
+
+        state.lastLoadingCount = Number.isFinite(loadingCount) ? loadingCount : null;
+        if (Number.isFinite(loadingCount)) {
+          state.bestLoadingCount = Number.isFinite(state.bestLoadingCount)
+            ? Math.min(state.bestLoadingCount, loadingCount)
+            : loadingCount;
+        }
+        if (Number.isFinite(loadingCount) && loadingCount > 0) {
+          onState?.({
+            status: "loading",
+            title: "Preparing streamed LOD",
+            message: `Loading streamed tiles (${loadingCount} remaining)...`,
+            progress: 0.76,
+            details: {
+              loading_count: loadingCount,
+              lod_range_min: this.streamingState?.lodRangeMin ?? null,
+              lod_range_max: this.streamingState?.lodRangeMax ?? null,
+            },
+          });
+        }
+
+        if (ready) {
+          state.sawReadyFrame = true;
+          state.readyFrameCount += 1;
+          app.renderNextFrame = true;
+          maybeFinish();
+        }
+      };
+
+      const onPostRender = () => {
+        if (!this.isLoadCurrent(generation) || this.app !== app) {
+          return;
+        }
+        state.sawPostRender = true;
+        maybeFinish();
+      };
+
+      app.systems.gsplat.on("frame:ready", onFrameReady);
+      app.on("postrender", onPostRender);
+      state.cleanupFns.push(() => app.systems.gsplat.off("frame:ready", onFrameReady));
+      state.cleanupFns.push(() => app.off("postrender", onPostRender));
+
+      state.warningId = setTimeout(() => {
+        if (
+          settled ||
+          state.settled ||
+          this.streamingReadyState !== state ||
+          !this.isLoadCurrent(generation) ||
+          this.app !== app ||
+          (this.currentAsset?.key || this.currentAsset?.src || "") !== state.assetKey
+        ) {
+          return;
+        }
+        const details = {
+          source: asset.src,
+          loading_count: state.lastLoadingCount,
+          best_loading_count: state.bestLoadingCount,
+          ready_frames: state.readyFrameCount,
+          safe_remaining_loads: STREAMING_SAFE_REMAINING_LOADS,
+          lod_range_min: this.streamingState?.lodRangeMin ?? null,
+          lod_range_max: this.streamingState?.lodRangeMax ?? null,
+        };
+        logger.warn("sog-loader", "Streamed initial LOD is still preparing", details);
+        onState?.({
+          status: "warning",
+          code: "streaming-initial-lod-stalled",
+          title: "Preparing streamed LOD",
+          message: "The streamed model is still preparing. Please wait...",
+          details,
+        });
+      }, STREAMING_STALL_WARNING_MS);
+
+      state.timeoutId = setTimeout(() => {
+        if (
+          settled ||
+          state.settled ||
+          this.streamingReadyState !== state ||
+          !this.isLoadCurrent(generation) ||
+          this.app !== app ||
+          (this.currentAsset?.key || this.currentAsset?.src || "") !== state.assetKey
+        ) {
+          return;
+        }
+        const error = new Error("Timed out while preparing the initial streamed LOD view.");
+        error.details = {
+          source: asset.src,
+          loading_count: state.lastLoadingCount,
+          best_loading_count: state.bestLoadingCount,
+          ready_frames: state.readyFrameCount,
+          safe_remaining_loads: STREAMING_SAFE_REMAINING_LOADS,
+          frame_ready: state.sawReadyFrame,
+          postrender_seen: state.sawPostRender,
+        };
+        fail(error);
+      }, STREAMING_READY_TIMEOUT_MS);
+
+      app.renderNextFrame = true;
+    });
+  }
+
+  loadGsplatAsset(pc, app, asset, generation, onState) {
+    const splatAsset = new pc.Asset(asset.label || "Scene", "gsplat", {
+      url: asset.src,
+    });
+
+    const loadPromise = new Promise((resolve, reject) => {
+      splatAsset.on("progress", (received, total) => {
+        if (!total || !this.isLoadCurrent(generation)) {
+          return;
+        }
+
+        onState?.({
+          status: "loading",
+          title: asset.streamingEnabled ? "Loading scene metadata" : "Loading SOG",
+          message: asset.streamingEnabled
+            ? `Loading streamed metadata (${Math.round((received / total) * 100)}%)`
+            : `${asset.label || "SOG scene"} loading (${Math.round((received / total) * 100)}%)`,
+          received,
+          total,
+          details: {
+            source: asset.src,
+            streamed: !!asset.streamingEnabled,
+          },
+        });
+      });
+      splatAsset.on("load", () => resolve(splatAsset));
+      splatAsset.on("error", (error) => {
+        const detail = getPlayCanvasAssetErrorDetail(error);
+        const loadError = new Error(`Failed to load SOG asset: ${asset.streamingEnabled ? "streamed scene data" : asset.src} (${detail})`);
+        loadError.details = {
+          source: asset.src,
+          streamed: !!asset.streamingEnabled,
+          detail,
+        };
+        reject(loadError);
+      });
+      app.assets.add(splatAsset);
+      app.assets.load(splatAsset);
+    });
+
+    return withTimeout(
+      loadPromise,
+      ASSET_LOAD_TIMEOUT_MS,
+      `Timed out while loading SOG asset: ${asset.streamingEnabled ? "streamed scene data" : asset.src}`,
+      {
+        source: asset.src,
+        streamed: !!asset.streamingEnabled,
+      }
+    );
+  }
+
   async load(asset, profile = { maxDpr: 1.05 }, onState) {
     if (this.app && this.pc && this.splatEntity && this.currentAsset?.key === asset.key) {
       const generation = ++this.loadGeneration;
       this.disposed = false;
       const app = this.app;
       this.stopFirstPersonNavigation();
-      const splatAsset = new this.pc.Asset(asset.label || "Scene", "gsplat", {
-        url: asset.src,
-      });
-
-      await new Promise((resolve, reject) => {
-        splatAsset.on("progress", (received, total) => {
-          if (!total) {
-            return;
-          }
-
-          if (this.isLoadCurrent(generation)) onState?.({
-            status: "loading",
-            title: "Loading SOG",
-            message: `${asset.label || "SOG scene"} loading (${Math.round((received / total) * 100)}%)`,
-            received,
-            total,
-          });
-        });
-        splatAsset.on("load", resolve);
-        splatAsset.on("error", (error) => {
-          const detail =
-            typeof error === "string"
-              ? error
-              : error?.message || error?.status || error?.statusText || "Unknown PlayCanvas asset loader error";
-          reject(new Error(`Failed to load SOG asset: ${asset.src} (${detail})`));
-        });
-        this.app.assets.add(splatAsset);
-        this.app.assets.load(splatAsset);
-      });
+      const splatAsset = await this.loadGsplatAsset(this.pc, app, asset, generation, onState);
 
       if (!this.isLoadCurrent(generation) || this.app !== app || !this.splatEntity) {
         app.assets.remove(splatAsset);
@@ -2417,7 +2694,9 @@ class PlayCanvasSogViewer {
             oldAsset.unload();
           }
         } catch (e) {
-          console.warn("Cleanup warning:", e);
+          logger.warn("sog-loader", "Previous SOG entity cleanup failed", {
+            source: asset.src,
+          }, e);
         }
       }, 200);
 
@@ -2442,6 +2721,7 @@ class PlayCanvasSogViewer {
       if (asset.streamingEnabled) {
         this.firstPersonTransitionPending = false;
         this.startFirstPersonNavigation(this.pc);
+        await this.waitForStreamingInitialReady(asset, generation, onState);
       }
       
       this.app.renderNextFrame = true;
@@ -2463,7 +2743,12 @@ class PlayCanvasSogViewer {
       message: `Fetching ${asset.src}`,
     });
 
-    const pc = await import(PLAYCANVAS_CDN);
+    const pc = await withTimeout(
+      import(PLAYCANVAS_CDN),
+      VIEWER_INIT_TIMEOUT_MS,
+      "Timed out while preparing the 3D viewer.",
+      { source: PLAYCANVAS_CDN }
+    );
     if (!this.isLoadCurrent(generation)) return;
     const canvas = document.createElement("canvas");
     canvas.className = "viewer-canvas playcanvas-sog-canvas";
@@ -2514,7 +2799,9 @@ class PlayCanvasSogViewer {
         this.drawCameraStartMarker(pc);
         this.drawManualBoxPreview(pc);
       } catch (error) {
-        console.error("Calibration overlay rendering failed:", error);
+        logger.error("ui", "Calibration overlay rendering failed", {
+          source: "playcanvas-editor-guides",
+        }, error);
         this.manualBoxPreviewVisible = false;
         this._hideManualBoxLabels();
       }
@@ -2568,35 +2855,7 @@ class PlayCanvasSogViewer {
     this.resizeObserver.observe(this.container);
     onResize();
 
-    const splatAsset = new pc.Asset(preparedAsset.label || "Scene", "gsplat", {
-      url: preparedAsset.src,
-    });
-
-    await new Promise((resolve, reject) => {
-      splatAsset.on("progress", (received, total) => {
-        if (!total) {
-          return;
-        }
-
-        if (this.isLoadCurrent(generation)) onState?.({
-          status: "loading",
-          title: "Loading SOG",
-          message: `${preparedAsset.label || "SOG scene"} loading (${Math.round((received / total) * 100)}%)`,
-          received,
-          total,
-        });
-      });
-      splatAsset.on("load", resolve);
-      splatAsset.on("error", (error) => {
-        const detail =
-          typeof error === "string"
-            ? error
-            : error?.message || error?.status || error?.statusText || "Unknown PlayCanvas asset loader error";
-        reject(new Error(`Failed to load SOG asset: ${preparedAsset.src} (${detail})`));
-      });
-      app.assets.add(splatAsset);
-      app.assets.load(splatAsset);
-    });
+    const splatAsset = await this.loadGsplatAsset(pc, app, preparedAsset, generation, onState);
 
     if (!this.isLoadCurrent(generation) || this.app !== app) {
       app.assets.remove(splatAsset);
@@ -2637,7 +2896,12 @@ class PlayCanvasSogViewer {
       : null;
     if (preparedAsset.streamingEnabled) {
       this.loadCollisionPreview(preparedAsset, generation).catch((error) => {
-        if (this.isLoadCurrent(generation)) console.warn("Collision preview failed:", error);
+        if (this.isLoadCurrent(generation)) {
+          logger.warn("sog-loader", "Collision preview failed", {
+            source: preparedAsset.fpCollisionSource,
+            scene_source: preparedAsset.src,
+          }, error);
+        }
       });
     }
 
@@ -2667,42 +2931,16 @@ class PlayCanvasSogViewer {
       this.startAutoRotate(pc);
     }
 
-    const triggerReady = () => {
-      if (this.isLoadCurrent(generation)) {
-        onState?.({
-          status: "ready",
-          title: "SOG ready",
-          message: `${preparedAsset.label || "SOG scene"} loaded successfully.`,
-        });
-      }
-    };
-
     if (preparedAsset.streamingEnabled) {
-      let frameCount = 0;
-      const onPostRender = () => {
-        if (!this.isLoadCurrent(generation) || this.app !== app) {
-          app.off("postrender", onPostRender);
-          return;
-        }
-        frameCount++;
-        if (frameCount >= 1) {
-          app.off("postrender", onPostRender);
-          clearTimeout(fallbackTimeout);
-          triggerReady();
-        }
-      };
+      await this.waitForStreamingInitialReady(preparedAsset, generation, onState);
+    }
 
-      const fallbackTimeout = setTimeout(() => {
-        if (this.isLoadCurrent(generation) && this.app === app) {
-          app.off("postrender", onPostRender);
-          triggerReady();
-        }
-      }, 1000); // 1-second fallback timeout
-
-      app.on("postrender", onPostRender);
-      app.renderNextFrame = true;
-    } else {
-      triggerReady();
+    if (this.isLoadCurrent(generation)) {
+      onState?.({
+        status: "ready",
+        title: "SOG ready",
+        message: `${preparedAsset.label || "SOG scene"} loaded successfully.`,
+      });
     }
   }
 
