@@ -2,6 +2,18 @@ import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260707dit1";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260707cal1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260629exp1";
+import {
+  initAnalytics,
+  trackPageView,
+  trackSceneOpen,
+  trackSceneLoaded,
+  trackSceneLoadFailed,
+  trackLodSelected,
+  trackQualityChanged,
+  trackViewerError,
+  trackPerformanceSample,
+} from "./analytics/client.js";
+import { initAnalyticsDashboard } from "./analytics/dashboard.js";
 
 let modelViewer = document.getElementById("siteModel");
 const splatViewerMount = document.getElementById("splatViewerMount");
@@ -119,6 +131,7 @@ const SOG_CALIBRATION_QUERY_PARAM = "sog-calibration";
 const SOG_CALIBRATION_FLAG_KEY = "hua:sog-calibration-ui-enabled";
 const SOG_CALIBRATION_OVERRIDES_KEY = "hua:sog-calibration-overrides:v1";
 const SOG_STREAMED_TRANSFORMS_KEY = "hua:sog-streamed-transforms:v1";
+const SELECTION_PREFERENCES_KEY = "hua3d.selection.preferences:v1";
 const calibrationQueryEnabled =
   new URLSearchParams(window.location.search).get(SOG_CALIBRATION_QUERY_PARAM) === "1";
 const calibrationFlagEnabled =
@@ -276,6 +289,48 @@ const autoPerformanceProfile = getAutoPerformanceProfile();
 const splatProfile = {
   maxDpr: autoPerformanceProfile.maxDpr,
 };
+
+function sanitizeSelectionPreferences(value = {}) {
+  const defaults = {
+    timeStage: "day",
+    format: cinematicAuthorEnabled ? "sog" : "glb",
+    hdEnabled: false,
+    sogMode: "classic",
+    fpNavigationMode: "walk",
+    lodTier: autoPerformanceProfile.tier,
+  };
+
+  return {
+    timeStage: timeStages.includes(value.timeStage) ? value.timeStage : defaults.timeStage,
+    format: ["glb", "sog"].includes(value.format) ? value.format : defaults.format,
+    hdEnabled: value.hdEnabled === true,
+    sogMode: ["classic", "streamed"].includes(value.sogMode) ? value.sogMode : defaults.sogMode,
+    fpNavigationMode: ["walk", "fly"].includes(value.fpNavigationMode) ? value.fpNavigationMode : defaults.fpNavigationMode,
+    lodTier: ["lod0", "lod1", "lod2", "lod3", "lod4"].includes(value.lodTier) ? value.lodTier : defaults.lodTier,
+  };
+}
+
+function loadSelectionPreferences() {
+  try {
+    return sanitizeSelectionPreferences(JSON.parse(safeLocalStorageGet(SELECTION_PREFERENCES_KEY) || "{}"));
+  } catch (_error) {
+    return sanitizeSelectionPreferences();
+  }
+}
+
+let selectionPreferences = loadSelectionPreferences();
+
+function saveSelectionPreferences() {
+  safeLocalStorageSet(SELECTION_PREFERENCES_KEY, JSON.stringify(selectionPreferences));
+}
+
+function updateSelectionPreferences(patch = {}) {
+  selectionPreferences = sanitizeSelectionPreferences({
+    ...selectionPreferences,
+    ...patch,
+  });
+  saveSelectionPreferences();
+}
 
 function getStreamingPerformanceProfile() {
   if (isMobileDevice) {
@@ -534,6 +589,11 @@ function startSogPerformanceMonitor(asset, initialDpr = null) {
         const fps = Math.max(0, Math.round((monitor.sampleFrames * 1000) / elapsed));
         monitor.sampleFrames = 0;
         monitor.sampleStart = timestamp;
+        trackPerformanceSample(getAnalyticsAssetMetadata(asset, {
+          fps,
+          dpr: monitor.currentDpr,
+          streaming: !!asset.streamingEnabled,
+        }));
         evaluateSogPerformance(asset, fps, timestamp, monitor);
       }
     };
@@ -557,6 +617,11 @@ function startSogPerformanceMonitor(asset, initialDpr = null) {
         const fps = Math.max(0, Math.round((monitor.sampleFrames * 1000) / elapsed));
         monitor.sampleFrames = 0;
         monitor.sampleStart = timestamp;
+        trackPerformanceSample(getAnalyticsAssetMetadata(asset, {
+          fps,
+          dpr: monitor.currentDpr,
+          streaming: !!asset.streamingEnabled,
+        }));
         evaluateSogPerformance(asset, fps, timestamp, monitor);
       }
 
@@ -583,6 +648,11 @@ function adjustStreamingQuality(direction) {
     );
     if (nextBudget < (state.splatBudget || 0) - 20000) {
       sogViewer.applyStreamingQuality({ splatBudget: nextBudget });
+      trackQualityChanged("streaming_splat_budget", getAnalyticsAssetMetadata(currentActiveAsset, {
+        direction,
+        previous_value: state.splatBudget || 0,
+        next_value: nextBudget,
+      }));
       return true;
     }
 
@@ -592,6 +662,11 @@ function adjustStreamingQuality(direction) {
         lodRangeMin: nextRangeMin,
         lodRangeMax: lodLevels - 1,
       });
+      trackQualityChanged("streaming_lod_range", getAnalyticsAssetMetadata(currentActiveAsset, {
+        direction,
+        previous_value: currentRangeMin,
+        next_value: nextRangeMin,
+      }));
       return true;
     }
 
@@ -611,6 +686,13 @@ function adjustStreamingQuality(direction) {
         lodBaseDistance: nextBaseDistance,
         lodMultiplier: nextMultiplier,
       });
+      trackQualityChanged("streaming_lod_distance", getAnalyticsAssetMetadata(currentActiveAsset, {
+        direction,
+        previous_base_distance: state.lodBaseDistance || null,
+        next_base_distance: nextBaseDistance,
+        previous_multiplier: state.lodMultiplier || null,
+        next_multiplier: nextMultiplier,
+      }));
       return true;
     }
 
@@ -623,6 +705,11 @@ function adjustStreamingQuality(direction) {
       lodRangeMin: currentRangeMin - 1,
       lodRangeMax: currentRangeMax,
     });
+    trackQualityChanged("streaming_lod_range", getAnalyticsAssetMetadata(currentActiveAsset, {
+      direction,
+      previous_value: currentRangeMin,
+      next_value: currentRangeMin - 1,
+    }));
     return true;
   }
 
@@ -632,6 +719,11 @@ function adjustStreamingQuality(direction) {
   );
   if (nextBudget > (state.splatBudget || 0) + 20000) {
     sogViewer.applyStreamingQuality({ splatBudget: nextBudget });
+    trackQualityChanged("streaming_splat_budget", getAnalyticsAssetMetadata(currentActiveAsset, {
+      direction,
+      previous_value: state.splatBudget || 0,
+      next_value: nextBudget,
+    }));
     return true;
   }
 
@@ -651,6 +743,13 @@ function adjustStreamingQuality(direction) {
       lodBaseDistance: nextBaseDistance,
       lodMultiplier: nextMultiplier,
     });
+    trackQualityChanged("streaming_lod_distance", getAnalyticsAssetMetadata(currentActiveAsset, {
+      direction,
+      previous_base_distance: state.lodBaseDistance || null,
+      next_base_distance: nextBaseDistance,
+      previous_multiplier: state.lodMultiplier || null,
+      next_multiplier: nextMultiplier,
+    }));
     return true;
   }
 
@@ -740,6 +839,10 @@ function evaluateSogPerformance(asset, fps, timestamp, monitor) {
     const lowerAsset = getLowerSogAsset(activeAsset);
     if (lowerAsset && canAutoChangeSogTier(activeAsset, "downgrade", timestamp)) {
       recordAutoSogTierChange(activeAsset, "downgrade", timestamp);
+      trackLodSelected(getAnalyticsSceneId(lowerAsset), lowerAsset.performanceTier, getAnalyticsAssetMetadata(lowerAsset, {
+        reason: "auto_downgrade",
+        previous_tier: activeAsset.performanceTier,
+      }));
       stopSogPerformanceMonitor();
       reloadSogAsset(lowerAsset, { silent: true, targetDpr: monitor.currentDpr });
       return;
@@ -754,6 +857,10 @@ function evaluateSogPerformance(asset, fps, timestamp, monitor) {
     const higherAsset = getHigherSogAsset(activeAsset);
     if (higherAsset && canAutoChangeSogTier(activeAsset, "upgrade", timestamp)) {
       recordAutoSogTierChange(activeAsset, "upgrade", timestamp);
+      trackLodSelected(getAnalyticsSceneId(higherAsset), higherAsset.performanceTier, getAnalyticsAssetMetadata(higherAsset, {
+        reason: "auto_upgrade",
+        previous_tier: activeAsset.performanceTier,
+      }));
       stopSogPerformanceMonitor();
       reloadSogAsset(higherAsset, { silent: true, targetDpr: monitor.currentDpr });
       return;
@@ -861,6 +968,10 @@ async function reloadSogAsset(asset, options = {}) {
       targetDpr: options.targetDpr,
     });
   } catch (error) {
+    trackSceneLoadFailed(getAnalyticsSceneId(asset), error, getAnalyticsAssetMetadata(asset, {
+      silent: !!options.silent,
+      source: "sog_reload",
+    }));
     if (!options.silent) {
       document.body.classList.add("is-error");
       setStatusOverlayState(false);
@@ -869,16 +980,16 @@ async function reloadSogAsset(asset, options = {}) {
   }
 }
 
-let activeTimeStage = "day";
+let activeTimeStage = selectionPreferences.timeStage;
 let activeSiteId = "campus";
 let activeEnvironmentId = "outside";
 let activeLocationStage = "outdoors";
 let activeBuildingId = "main";
 let activeSceneId = null;
-let activeFormat = cinematicAuthorEnabled ? "sog" : "glb";
-let activeSogMode = "classic";
-let activeFpNavigationMode = "walk";
-let hdEnabled = false;
+let activeFormat = cinematicAuthorEnabled ? "sog" : selectionPreferences.format;
+let activeSogMode = selectionPreferences.sogMode;
+let activeFpNavigationMode = selectionPreferences.fpNavigationMode;
+let hdEnabled = selectionPreferences.hdEnabled;
 let clayEnabled = false;
 let turntableEnabled = !cinematicAuthorEnabled;
 let originalMaterials = [];
@@ -915,6 +1026,34 @@ const calibrationOverrides = calibrationUiUnlocked ? loadCalibrationOverrides() 
 const calibrationSessionDefaults = new Map();
 const calibrationSessionSceneDefaults = new Map();
 const calibrationSessionCameraDefaults = new Map();
+
+function getAnalyticsSceneId(asset = currentActiveAsset) {
+  if (!asset) {
+    return activeLocationStage === "outdoors" ? `campus-${activeTimeStage}` : activeSceneId;
+  }
+
+  return asset.sceneId ||
+    (asset.locationId === "outdoors" ? `campus-${activeTimeStage}` : null) ||
+    asset.key ||
+    null;
+}
+
+function getAnalyticsAssetMetadata(asset = currentActiveAsset, extra = {}) {
+  return {
+    scene_id: getAnalyticsSceneId(asset),
+    asset_key: asset?.key || null,
+    label: asset?.label || null,
+    location_id: asset?.locationId || activeLocationStage,
+    format: asset?.format || activeFormat,
+    engine: asset?.type || currentEngineType,
+    sog_mode: asset?.streamingEnabled ? "streamed" : activeSogMode,
+    fp_navigation_mode: activeFpNavigationMode,
+    performance_tier: asset?.performanceTier || null,
+    time_stage: activeTimeStage,
+    hd_enabled: hdEnabled,
+    ...extra,
+  };
+}
 
 function encodeUrlPathSegments(path = "") {
   return path
@@ -1345,10 +1484,11 @@ async function selectSceneCard(cardId) {
   activeTimeStage = selection.stage || activeTimeStage;
   activeBuildingId = selection.building || activeBuildingId;
   activeSceneId = selection.scene || null;
-  activeSogMode = "classic";
-  activeFpNavigationMode = "walk";
+  updateSelectionPreferences({ timeStage: activeTimeStage });
+  activeSogMode = selectionPreferences.sogMode;
+  activeFpNavigationMode = selectionPreferences.fpNavigationMode;
   syncNavigationState();
-  activeFormat = getDefaultFormat(getCurrentSceneEntry());
+  normalizeActiveFormat();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -1566,6 +1706,11 @@ function syncNavigationState() {
     if (activeEnvironmentId === "outside") {
       activeLocationStage = "outdoors";
       activeSceneId = null;
+      if (isTimeStageAvailable(selectionPreferences.timeStage)) {
+        activeTimeStage = selectionPreferences.timeStage;
+      } else if (!isTimeStageAvailable(activeTimeStage)) {
+        activeTimeStage = getFirstAvailableTimeStage();
+      }
     } else {
       activeLocationStage = "indoors";
       if (!getCampusBuilding(activeBuildingId)) {
@@ -1634,9 +1779,48 @@ function normalizeActiveFormat() {
     return;
   }
 
-  if (!availableFormats.includes(activeFormat)) {
-    activeFormat = availableFormats[0] || "glb";
+  if (availableFormats.includes(selectionPreferences.format)) {
+    activeFormat = selectionPreferences.format;
+  } else {
+    activeFormat = getDefaultFormat() || availableFormats[0] || "glb";
   }
+}
+
+function normalizeActiveQuality() {
+  const hdAvailable =
+    isCampusOutsideSelected() &&
+    activeFormat === "glb" &&
+    !!getOutdoorAsset(activeTimeStage, "hd", activeFormat);
+  hdEnabled = hdAvailable && selectionPreferences.hdEnabled === true;
+}
+
+function getFpNavigationModesForAsset(asset) {
+  const sceneId = asset?.sceneId || (asset?.locationId === "outdoors" ? `campus-${activeTimeStage}` : null);
+  const exp = sceneId ? resolveSceneExperience(sceneId) : null;
+  const hasWalk = exp ? exp.navigation.walk : !!asset?.streamingEnabled;
+  const hasFly = exp ? exp.navigation.fly : !!asset?.streamingEnabled;
+  const modes = [];
+  if (hasWalk) modes.push("walk");
+  if (hasFly) modes.push("fly");
+  return { modes, exp };
+}
+
+function normalizeActiveFpNavigationMode(asset) {
+  if (!asset?.streamingEnabled) {
+    activeFpNavigationMode = selectionPreferences.fpNavigationMode;
+    return;
+  }
+
+  const { modes, exp } = getFpNavigationModesForAsset(asset);
+  if (!modes.length || modes.includes(selectionPreferences.fpNavigationMode)) {
+    activeFpNavigationMode = selectionPreferences.fpNavigationMode;
+    return;
+  }
+
+  activeFpNavigationMode =
+    (exp?.defaults?.firstPersonMode && modes.includes(exp.defaults.firstPersonMode))
+      ? exp.defaults.firstPersonMode
+      : modes[0];
 }
 
 function getOutdoorAsset(stage, qualityKey, formatKey = activeFormat) {
@@ -1656,7 +1840,7 @@ function selectPerformanceSogAsset(asset) {
     return asset;
   }
 
-  const tier = autoPerformanceProfile.tier;
+  const tier = selectionPreferences.lodTier || autoPerformanceProfile.tier;
   const performanceSources = asset.performanceSources || {};
   let nextSrc = asset.src;
   let performanceTier = "lod0";
@@ -1722,6 +1906,7 @@ function finalizeSogAsset(asset) {
 function getActiveAssetDescriptor() {
   syncNavigationState();
   normalizeActiveFormat();
+  normalizeActiveQuality();
 
   if (isCampusOutsideSelected()) {
     const qualityKey = hdEnabled ? "hd" : "web";
@@ -1736,7 +1921,9 @@ function getActiveAssetDescriptor() {
       sourceManualBox: cloneManualBoxConfig(asset?.manualBox),
     };
 
-    return finalizeSogAsset(baseAsset);
+    const finalAsset = finalizeSogAsset(baseAsset);
+    normalizeActiveFpNavigationMode(finalAsset);
+    return finalAsset;
   }
 
   if (activeSiteId === "dit") {
@@ -1760,7 +1947,9 @@ function getActiveAssetDescriptor() {
       sourceManualBox: cloneManualBoxConfig(asset?.manualBox),
     };
 
-    return finalizeSogAsset(baseAsset);
+    const finalAsset = finalizeSogAsset(baseAsset);
+    normalizeActiveFpNavigationMode(finalAsset);
+    return finalAsset;
   }
 
   const locationEntry = getCurrentLocationEntry();
@@ -1783,7 +1972,9 @@ function getActiveAssetDescriptor() {
     sourceManualBox: cloneManualBoxConfig(asset?.manualBox),
   };
 
-  return finalizeSogAsset(baseAsset);
+  const finalAsset = finalizeSogAsset(baseAsset);
+  normalizeActiveFpNavigationMode(finalAsset);
+  return finalAsset;
 }
 
 function describeActiveAsset(asset = getActiveAssetDescriptor()) {
@@ -1930,6 +2121,14 @@ function resetActiveViewer() {
   resetGlbViewAfterLoad();
 }
 
+function isTextEntryTarget(element) {
+  const tagName = element?.tagName;
+  return element?.isContentEditable ||
+    tagName === "INPUT" ||
+    tagName === "TEXTAREA" ||
+    tagName === "SELECT";
+}
+
 function cacheMaterialState() {
   originalMaterials =
     modelViewer.model?.materials?.map((material) => {
@@ -2007,13 +2206,11 @@ function resolveHostedSogUrl(src) {
 
 
 function updateQualityToggle() {
+  normalizeActiveQuality();
   const hdAvailable =
     isCampusOutsideSelected() &&
     activeFormat === "glb" &&
     !!getOutdoorAsset(activeTimeStage, "hd", activeFormat);
-  if (!hdAvailable) {
-    hdEnabled = false;
-  }
 
   glbQualityControl.hidden = !hdAvailable;
   if (!hdAvailable) {
@@ -2040,6 +2237,10 @@ function updateQualityToggle() {
       }
 
       hdEnabled = nextHdEnabled;
+      updateSelectionPreferences({ hdEnabled });
+      trackQualityChanged(nextHdEnabled ? "hd" : "normal", getAnalyticsAssetMetadata(getActiveAssetDescriptor(), {
+        control: "glb_quality",
+      }));
       updateQualityToggle();
       if (hdEnabled) {
         showPerformanceNotice(
@@ -2570,11 +2771,8 @@ function renderSogModeMarkers() {
 
 function renderFpNavMarkers() {
   const asset = currentActiveAsset?.type === "splat" ? currentActiveAsset : getActiveAssetDescriptor();
-  const sceneId = asset?.sceneId || (asset?.locationId === "outdoors" ? `campus-${activeTimeStage}` : null);
-  const exp = sceneId ? resolveSceneExperience(sceneId) : null;
-
-  const hasWalk = exp ? exp.navigation.walk : !!asset?.streamingEnabled;
-  const hasFly = exp ? exp.navigation.fly : !!asset?.streamingEnabled;
+  normalizeActiveFpNavigationMode(asset);
+  const { modes } = getFpNavigationModesForAsset(asset);
 
   const shouldShowFpNavControl =
     currentEngineType === "splat" &&
@@ -2582,7 +2780,7 @@ function renderFpNavMarkers() {
     asset?.runtime === "playcanvas" &&
     asset?.fileFormat === "sog" &&
     asset?.streamingEnabled &&
-    (hasWalk || hasFly);
+    modes.length > 0;
 
   fpNavControl.hidden = !shouldShowFpNavControl;
 
@@ -2590,10 +2788,6 @@ function renderFpNavMarkers() {
     fpNavMarkers.innerHTML = "";
     return;
   }
-
-  const modes = [];
-  if (hasWalk) modes.push("walk");
-  if (hasFly) modes.push("fly");
 
   fpNavMarkers.innerHTML = modes
     .map((mode) => `
@@ -3091,6 +3285,10 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   renderFpNavMarkers();
   updateLodToggle();
   updateCalibrationUi();
+  trackSceneLoaded(getAnalyticsSceneId(asset), getAnalyticsAssetMetadata(asset, {
+    load_engine: "playcanvas_sog",
+    silent: !!options.silent,
+  }));
 
   startSogPerformanceMonitor(
     asset,
@@ -3132,6 +3330,8 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
   setStatusOverlayState(false);
   setProgress(0.08);
   setStatus("Switching scene", `Loading ${describeActiveAsset(nextAsset)}...`);
+  trackPageView(getAnalyticsAssetMetadata(nextAsset, { source: "scene_selection" }));
+  trackSceneOpen(getAnalyticsSceneId(nextAsset), getAnalyticsAssetMetadata(nextAsset));
   releaseActiveViewerResources();
 
   try {
@@ -3159,6 +3359,7 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
       return;
     }
 
+    trackSceneLoadFailed(getAnalyticsSceneId(nextAsset), error, getAnalyticsAssetMetadata(nextAsset));
     document.body.classList.add("is-error");
     setStatusOverlayState(false);
     setStatus("Asset issue", error?.message || "The selected scene did not render correctly.");
@@ -3230,7 +3431,8 @@ async function setActiveTimeStage(stage, direction = 0) {
   }
 
   activeTimeStage = stage;
-  activeFormat = getDefaultFormat();
+  updateSelectionPreferences({ timeStage: stage });
+  normalizeActiveFormat();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3249,7 +3451,7 @@ async function setActiveSite(siteId) {
     activeBuildingId = CAMPUS_INDOOR_BUILDINGS[0]?.id || "main";
   }
   syncNavigationState();
-  activeFormat = getDefaultFormat();
+  normalizeActiveFormat();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3264,11 +3466,7 @@ async function setActiveEnvironment(environmentId) {
 
   activeEnvironmentId = environmentId;
   syncNavigationState();
-  if (activeSiteId === "campus" && activeEnvironmentId === "inside") {
-    activeFormat = getDefaultFormat(getCurrentSceneEntry());
-  } else {
-    activeFormat = getDefaultFormat();
-  }
+  normalizeActiveFormat();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3283,7 +3481,7 @@ async function setActiveBuilding(buildingId) {
 
   activeBuildingId = buildingId;
   normalizeActiveScene();
-  activeFormat = getDefaultFormat(getCurrentSceneEntry());
+  normalizeActiveFormat();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3297,8 +3495,7 @@ async function setActiveSpace(spaceId) {
   }
 
   activeSceneId = space.sceneId;
-  const nextScene = getCampusIndoorSceneById(space.sceneId);
-  activeFormat = getDefaultFormat(nextScene);
+  normalizeActiveFormat();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3312,6 +3509,7 @@ async function setActiveFormat(format) {
   }
 
   activeFormat = format;
+  updateSelectionPreferences({ format });
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3336,6 +3534,10 @@ async function setActiveSogMode(mode) {
     }
   }
   activeSogMode = mode;
+  updateSelectionPreferences({ sogMode: mode });
+  trackQualityChanged(mode, getAnalyticsAssetMetadata(getActiveAssetDescriptor(), {
+    control: "sog_mode",
+  }));
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3348,6 +3550,10 @@ function setActiveFpNavigationMode(mode) {
   }
 
   activeFpNavigationMode = mode;
+  updateSelectionPreferences({ fpNavigationMode: mode });
+  trackQualityChanged(mode, getAnalyticsAssetMetadata(currentActiveAsset, {
+    control: "fp_navigation_mode",
+  }));
   if (currentEngineType === "splat" && currentActiveAsset?.runtime === "playcanvas" && currentActiveAsset?.streamingEnabled) {
     sogViewer.setFirstPersonNavigationMode(mode);
     setStatus(
@@ -3382,6 +3588,11 @@ async function setActiveLodTier(tier) {
     );
   }
 
+  updateSelectionPreferences({ lodTier: tier });
+  trackLodSelected(getAnalyticsSceneId(nextAsset), tier, getAnalyticsAssetMetadata(nextAsset, {
+    reason: "manual",
+    previous_tier: currentActiveAsset.performanceTier,
+  }));
   stopSogPerformanceMonitor();
   await reloadSogAsset(nextAsset, { silent: false });
   updateLodToggle();
@@ -3445,6 +3656,10 @@ async function handleModelViewerLoad(event) {
     applyClayMaterials();
   }
 
+  trackSceneLoaded(getAnalyticsSceneId(currentActiveAsset), getAnalyticsAssetMetadata(currentActiveAsset, {
+    load_engine: "model_viewer_glb",
+  }));
+
   requestAnimationFrame(() => {
     setStatusOverlayState(true);
   });
@@ -3458,10 +3673,33 @@ function handleModelViewerError(event) {
   document.body.classList.add("is-error");
   setStatusOverlayState(false);
   setStatus("Asset issue", event.detail?.type || "The model did not render correctly.");
+  trackSceneLoadFailed(
+    getAnalyticsSceneId(currentActiveAsset),
+    new Error(event.detail?.type || "The model did not render correctly."),
+    getAnalyticsAssetMetadata(currentActiveAsset, { load_engine: "model_viewer_glb" })
+  );
   setControlsBusy(false);
 }
 
 resetCamera.addEventListener("click", () => {
+  resetActiveViewer();
+});
+
+window.addEventListener("keydown", (event) => {
+  if (
+    !cinematicAuthorEnabled ||
+    event.defaultPrevented ||
+    event.repeat ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.key.toLowerCase() !== "r" ||
+    isTextEntryTarget(event.target)
+  ) {
+    return;
+  }
+
+  event.preventDefault();
   resetActiveViewer();
 });
 
@@ -3731,6 +3969,11 @@ renderSceneCards();
 updateViewerLayerVisibility("none");
 setStatusOverlayState(true);
 applyTurntableState();
+initAnalytics({
+  getSceneId: () => getAnalyticsSceneId(),
+  getCanvas: () => sogViewer?.canvas || modelViewer?.shadowRoot?.querySelector?.("canvas") || null,
+});
+initAnalyticsDashboard();
 
 if (cinematicModeEnabled) {
   document.body.classList.add("is-cinematic");
@@ -3747,5 +3990,6 @@ if (cinematicModeEnabled) {
     })
     .catch((error) => {
       console.error("Cinematic mode failed to initialize.", error);
+      trackViewerError(error, { source: "cinematic_mode_init" });
     });
 }

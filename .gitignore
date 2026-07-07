@@ -1,5 +1,15 @@
 Thumbs.db
 .DS_Store
+desktop.ini
+
+# Logs / runtime traces
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+chrome.log
 
 # Local-only staged R2 payloads
 dist-r2-assets/
@@ -7,17 +17,29 @@ dist-r2-assets/
 # Large local source/runtime asset payloads served from Cloudflare R2
 PLYs/
 GLBs/
+_dit_transfer_work/
 *.sog
 *.ply
 *.glb
 
 # Splat project/intermediate files
 *.ssproj
+*.splat
+*.ksplat
 
 # Local secrets and cloud credentials
 .env
 .env.*
 !.env.example
+.dev.vars
+.dev.vars.*
+node_modules/
+package-lock.json.tmp
+.wrangler/
+.wrangler-config/
+.wrangler-dry-run/
+.mf/
+.cache/
 .rclone.conf
 rclone.conf
 aws-credentials
@@ -31,7 +53,16 @@ token.json
 
 # Local deployment reports
 upload_report.json
+wrangler-*.log
 
 # Local chat context and handoff files
 CHAT_CONTEXT.md
 CHAT_HANDOFF.md
+Dev Notes.md
+Dev Notes.txt
+
+# Local OS/editor files
+.vscode/
+.idea/
+*.swp
+*.swo

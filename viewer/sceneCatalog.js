@@ -195,6 +195,7 @@ function createSplatAsset(src, options = {}) {
     streamingSource: options.streamingSource || null,
     fpCollisionSource: options.fpCollisionSource || null,
     fpCollisionStrategy: options.fpCollisionStrategy || null,
+    maxOrbitDistance: options.maxOrbitDistance || null,
     autoRotate: options.autoRotate !== false,
     cutawayEnabled: options.cutawayEnabled !== false,
   };
@@ -214,7 +215,11 @@ const OUTDOOR_VIEW = {
   cameraOrbit: '0deg 0deg auto',
   fieldOfView: '10deg',
   minCameraOrbit: 'auto 55deg auto',
-  maxCameraOrbit: 'auto 85deg auto',
+  maxCameraOrbit: 'auto 85deg 900m',
+};
+
+const OUTDOOR_SOG_OPTIONS = {
+  maxOrbitDistance: 900,
 };
 
 const INDOOR_VIEW = {
@@ -308,6 +313,7 @@ const LOCATION_CATALOG = {
         },
         sog: {
           web: createSogAsset(resolveManifestAsset('campus-day', 'sog-source', './PLYs/Campus Day/Campus Day.sog'), {
+            ...OUTDOOR_SOG_OPTIONS,
             cutawayEnabled: false,
             performanceSources: createManifestSogPerformanceSources('campus-day', 'Campus Day'),
             streamingSource: createManifestSogStreamingSource('campus-day', 'Campus Day'),
@@ -315,6 +321,7 @@ const LOCATION_CATALOG = {
             fpCollisionStrategy: 'mesh',
           }),
           hd: createSogAsset(resolveManifestAsset('campus-day', 'sog-source', './PLYs/Campus Day/Campus Day.sog'), {
+            ...OUTDOOR_SOG_OPTIONS,
             cutawayEnabled: false,
             performanceSources: createManifestSogPerformanceSources('campus-day', 'Campus Day'),
             streamingSource: createManifestSogStreamingSource('campus-day', 'Campus Day'),
@@ -330,6 +337,7 @@ const LOCATION_CATALOG = {
         },
         sog: {
           web: createSogAsset(resolveManifestAsset('campus-dusk', 'sog-source', './PLYs/Campus Dusk/Campus Dusk.sog'), {
+            ...OUTDOOR_SOG_OPTIONS,
             cutawayEnabled: false,
             performanceSources: createManifestSogPerformanceSources('campus-dusk', 'Campus Dusk'),
             streamingSource: createManifestSogStreamingSource('campus-dusk', 'Campus Dusk'),
@@ -337,6 +345,7 @@ const LOCATION_CATALOG = {
             fpCollisionStrategy: 'mesh',
           }),
           hd: createSogAsset(resolveManifestAsset('campus-dusk', 'sog-source', './PLYs/Campus Dusk/Campus Dusk.sog'), {
+            ...OUTDOOR_SOG_OPTIONS,
             cutawayEnabled: false,
             performanceSources: createManifestSogPerformanceSources('campus-dusk', 'Campus Dusk'),
             streamingSource: createManifestSogStreamingSource('campus-dusk', 'Campus Dusk'),
@@ -352,6 +361,7 @@ const LOCATION_CATALOG = {
         },
         sog: {
           web: createSogAsset(resolveManifestAsset('campus-night', 'sog-source', './PLYs/Campus Night/Campus Night.sog'), {
+            ...OUTDOOR_SOG_OPTIONS,
             cutawayEnabled: false,
             performanceSources: createManifestSogPerformanceSources('campus-night', 'Campus Night'),
             streamingSource: createManifestSogStreamingSource('campus-night', 'Campus Night'),
@@ -359,6 +369,7 @@ const LOCATION_CATALOG = {
             fpCollisionStrategy: 'mesh',
           }),
           hd: createSogAsset(resolveManifestAsset('campus-night', 'sog-source', './PLYs/Campus Night/Campus Night.sog'), {
+            ...OUTDOOR_SOG_OPTIONS,
             cutawayEnabled: false,
             performanceSources: createManifestSogPerformanceSources('campus-night', 'Campus Night'),
             streamingSource: createManifestSogStreamingSource('campus-night', 'Campus Night'),

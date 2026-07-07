@@ -427,6 +427,13 @@ model-viewer:active {
   display: grid;
   gap: 10px;
   justify-items: start;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 24px;
+  background: rgba(7, 17, 27, 0.42);
+  box-shadow: 0 14px 32px rgba(4, 9, 16, 0.16);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   transition: opacity 180ms ease, filter 180ms ease;
 }
 
@@ -1877,18 +1884,24 @@ body.is-cinematic:not(.is-cinematic-author) .performance-toast {
   display: none !important;
 }
 
+body.is-cinematic:not(.is-viewer-mode) .cinematic-overlay,
+body.is-cinematic:not(.is-viewer-mode) .cinematic-legend {
+  display: none !important;
+}
+
 .cinematic-overlay {
   position: fixed;
   top: calc(env(safe-area-inset-top, 0px) + 18px);
   left: calc(env(safe-area-inset-left, 0px) + 18px);
   z-index: 100;
   display: grid;
-  gap: 4px;
-  min-width: 230px;
-  padding: 11px 14px;
+  gap: 5px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 12px;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 10px;
-  background: rgba(5, 10, 15, 0.72);
+  border-radius: 12px;
+  background: rgba(5, 10, 15, 0.78);
+  box-shadow: 0 18px 46px rgba(0, 7, 12, 0.32);
   color: #fff;
   font: 500 12px/1.35 Manrope, sans-serif;
   letter-spacing: 0.01em;
@@ -1912,16 +1925,19 @@ body.is-cinematic-ui-hidden .hero-noise,
 body.is-cinematic-ui-hidden .orbit-target-indicator,
 body.is-cinematic-ui-hidden .fp-mobile-controls,
 body.is-cinematic-ui-hidden .performance-toast,
-body.is-cinematic-ui-hidden .cinematic-overlay {
+body.is-cinematic-ui-hidden .cinematic-overlay,
+body.is-cinematic-ui-hidden .cinematic-legend {
   display: none !important;
 }
 
-.cinematic-overlay[hidden] {
+.cinematic-overlay[hidden],
+.cinematic-legend[hidden] {
   display: none;
 }
 
 .cinematic-overlay strong {
   font-size: 13px;
+  line-height: 1.2;
 }
 
 .cinematic-overlay span {
@@ -1938,10 +1954,9 @@ body.is-cinematic-ui-hidden .cinematic-overlay {
 
 .cinematic-author-details {
   display: grid;
-  gap: 3px;
-  max-width: min(620px, calc(100vw - 36px));
-  margin-top: 5px;
-  padding-top: 7px;
+  gap: 6px;
+  margin-top: 7px;
+  padding-top: 9px;
   border-top: 1px solid rgba(255, 255, 255, 0.14);
 }
 
@@ -1949,9 +1964,99 @@ body.is-cinematic-ui-hidden .cinematic-overlay {
   display: none;
 }
 
-.cinematic-author-details [data-author-controls] {
-  max-width: 560px;
+.cinematic-author-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.cinematic-author-row b {
+  color: rgba(130, 234, 213, 0.78);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.cinematic-author-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cinematic-author-row--pose span {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 11px;
+}
+
+.cinematic-author-details [data-author-status] {
+  margin-top: 1px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  line-height: 1.35;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
+.cinematic-legend {
+  position: fixed;
+  top: 50%;
+  right: calc(env(safe-area-inset-right, 0px) + 10px);
+  z-index: 100;
+  display: grid;
+  gap: 8px;
+  width: min(232px, calc(100vw - 24px));
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(5, 10, 15, 0.78);
+  box-shadow: 0 18px 46px rgba(0, 7, 12, 0.32);
+  color: #fff;
+  font: 600 11px/1.32 Manrope, sans-serif;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  transform: translateY(-50%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.cinematic-legend strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.cinematic-legend__group {
+  display: grid;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.cinematic-legend__group:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.cinematic-legend__group span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.76);
   white-space: normal;
+}
+
+.cinematic-legend kbd {
+  display: inline-grid;
+  min-width: 20px;
+  height: 18px;
+  place-items: center;
+  padding: 0 5px;
+  border: 1px solid rgba(130, 234, 213, 0.28);
+  border-radius: 5px;
+  background: rgba(130, 234, 213, 0.1);
+  color: #d8fff8;
+  font: 800 9px/1 Manrope, sans-serif;
+  letter-spacing: 0.04em;
 }
 
 .performance-toast.is-visible {
@@ -2129,6 +2234,8 @@ body.is-cinematic-ui-hidden .cinematic-overlay {
 
   .time-control-group {
     display: block;
+    padding: 7px 8px;
+    border-radius: 16px;
   }
 
   .time-stage-markers {

@@ -123,7 +123,11 @@ const AUTHORING_STORAGE_PREFIX = "hua3d.cinematic.authoring.";
 const START_VIEW_STORAGE_PREFIX = "hua3d.cinematic.startView.";
 const AUTHORING_SEGMENT_SECONDS = 3;
 const PATH_ENTRY_TRANSITION_SECONDS = 1.25;
+const QUICK_ORBIT_SLOT = 8;
 const ORBIT_SLOT = 9;
+const QUICK_ORBIT_ROTATIONS = 3;
+const QUICK_ORBIT_SECONDS_PER_ROTATION = 5;
+const QUICK_ORBIT_STEPS_PER_ROTATION = 12;
 const ORBIT_DURATION_SECONDS = 14;
 const ORBIT_STEPS = 16;
 const roundVector = (vector) => vector?.map((value) => Number(value.toFixed(2))) || null;
@@ -155,6 +159,7 @@ class CinematicMode {
     this.authorSceneName = null;
     this.authorStatus = "Move the camera, then press K";
     this.overlay = this.createOverlay();
+    this.legend = this.createLegend();
     this.onKeyDown = this.onKeyDown.bind(this);
     this.tick = this.tick.bind(this);
     window.addEventListener("keydown", this.onKeyDown);
@@ -170,18 +175,53 @@ class CinematicMode {
     overlay.setAttribute("aria-live", "polite");
     overlay.innerHTML = `
       <strong data-cinematic-name>Cinematic ready</strong>
-      <span data-cinematic-time>${this.authorEnabled ? "Shift+0–9 edit · 0–9 play" : "Press 1–5 to play a path"}</span>
+      <span data-cinematic-time>${this.authorEnabled ? "Author mode" : "Press 1–5 to play a path"}</span>
       <small data-cinematic-state>READY</small>
       <div class="cinematic-author-details" data-cinematic-author-details hidden>
-        <span data-author-scene>No active SOG scene</span>
-        <span data-author-summary>0 keyframes</span>
-        <span data-author-pose>Position: -- | Target: --</span>
-        <span data-author-controls>Shift+0–9 edit slot · 0–9 play slot · T rotate on/off · V save start view · K add · Shift+K update · [ ] select · Del remove · P preview/stop · C copy · L log · H clean viewer · Esc release</span>
+        <span class="cinematic-author-row"><b>Scene</b><span data-author-scene>No active SOG scene</span></span>
+        <span class="cinematic-author-row"><b>Slot</b><span data-author-summary>0 keyframes</span></span>
+        <span class="cinematic-author-row cinematic-author-row--pose"><b>Pose</b><span data-author-pose>Position: -- | Target: --</span></span>
         <small data-author-status>Move the camera, then press K</small>
       </div>
     `;
     document.body.appendChild(overlay);
     return overlay;
+  }
+
+  createLegend() {
+    const legend = document.createElement("aside");
+    legend.className = "cinematic-legend";
+    legend.hidden = !this.authorEnabled;
+    legend.setAttribute("aria-label", "Cinematic author shortcuts");
+    legend.innerHTML = `
+      <strong>Author Shortcuts</strong>
+      <div class="cinematic-legend__group">
+        <span><kbd>0-7</kbd> play slot</span>
+        <span><kbd>Shift</kbd><kbd>0-7</kbd> edit slot</span>
+        <span><kbd>8</kbd> quick triple orbit</span>
+        <span><kbd>9</kbd> 360 reveal</span>
+      </div>
+      <div class="cinematic-legend__group">
+        <span><kbd>K</kbd> add</span>
+        <span><kbd>Shift</kbd><kbd>K</kbd> update</span>
+        <span><kbd>[</kbd><kbd>]</kbd> select</span>
+        <span><kbd>Del</kbd> remove</span>
+      </div>
+      <div class="cinematic-legend__group">
+        <span><kbd>P</kbd> preview/stop</span>
+        <span><kbd>R</kbd> reset camera</span>
+        <span><kbd>T</kbd> rotate</span>
+        <span><kbd>V</kbd> save start view</span>
+      </div>
+      <div class="cinematic-legend__group">
+        <span><kbd>C</kbd> copy</span>
+        <span><kbd>L</kbd> log</span>
+        <span><kbd>H</kbd> clean viewer</span>
+        <span><kbd>Esc</kbd> release</span>
+      </div>
+    `;
+    document.body.appendChild(legend);
+    return legend;
   }
 
   syncAuthorScene() {
@@ -256,9 +296,42 @@ class CinematicMode {
     this.updateOverlay("AUTHOR");
   }
 
-  createOrbitSlotKeyframes(scene) {
+  getGeneratedOrbitSlotConfig(slot) {
+    if (slot === QUICK_ORBIT_SLOT) {
+      return {
+        duration: QUICK_ORBIT_ROTATIONS * QUICK_ORBIT_SECONDS_PER_ROTATION,
+        steps: QUICK_ORBIT_ROTATIONS * QUICK_ORBIT_STEPS_PER_ROTATION,
+        rotations: QUICK_ORBIT_ROTATIONS,
+        simple: true,
+        unavailableStatus: "Switch to LOD to play the quick triple orbit",
+        missingStatus: "Save this model's starting camera with V first",
+        errorStatus: "Could not create the quick triple orbit",
+        readyStatus: "Slot 8 · quick triple orbit from start view",
+      };
+    }
+
+    if (slot === ORBIT_SLOT) {
+      return {
+        duration: ORBIT_DURATION_SECONDS,
+        steps: ORBIT_STEPS,
+        rotations: 1,
+        simple: false,
+        unavailableStatus: "Switch to LOD to play the 360 orbit",
+        missingStatus: "Save this model's starting camera with V first",
+        errorStatus: "Could not create the 360 orbit",
+        readyStatus: "Slot 9 · automatic cinematic 360 reveal",
+      };
+    }
+
+    return null;
+  }
+
+  createOrbitSlotKeyframes(scene, slot = ORBIT_SLOT) {
+    const config = this.getGeneratedOrbitSlotConfig(slot);
+    if (!config) return [];
+
     if (!scene?.orbitStartViewEnabled) {
-      this.authorStatus = "Switch to LOD to play the 360 orbit";
+      this.authorStatus = config.unavailableStatus;
       return [];
     }
 
@@ -267,17 +340,19 @@ class CinematicMode {
         localStorage.getItem(`${START_VIEW_STORAGE_PREFIX}${scene.sceneId}`) || "null"
       );
       const frames = this.viewer.createOrbitKeyframes?.(startPose, {
-        duration: ORBIT_DURATION_SECONDS,
-        steps: ORBIT_STEPS,
+        duration: config.duration,
+        steps: config.steps,
+        rotations: config.rotations,
+        simple: config.simple,
         coordinateSpace: "local",
       });
       if (!Array.isArray(frames) || frames.length < 2) {
-        this.authorStatus = "Save this model's starting camera with V first";
+        this.authorStatus = config.missingStatus;
         return [];
       }
       return frames;
     } catch (_error) {
-      this.authorStatus = "Could not create the 360 orbit";
+      this.authorStatus = config.errorStatus;
       return [];
     }
   }
@@ -295,18 +370,19 @@ class CinematicMode {
     if (this.authorPreviewActive) this.stop(false);
     this.currentPath = null;
     this.authorSlot = slot;
-    this.authoredKeyframes = slot === ORBIT_SLOT
-      ? this.createOrbitSlotKeyframes(scene)
+    const generatedSlotConfig = this.getGeneratedOrbitSlotConfig(slot);
+    this.authoredKeyframes = generatedSlotConfig
+      ? this.createOrbitSlotKeyframes(scene, slot)
       : this.loadAuthoredKeyframes(scene.sceneId, slot);
-    if (slot === ORBIT_SLOT && this.authoredKeyframes.length) {
+    if (generatedSlotConfig && this.authoredKeyframes.length) {
       this.saveAuthoredKeyframes();
     }
     this.selectedKeyframeIndex = this.authoredKeyframes.length - 1;
     if (this.authoredKeyframes.length) {
-      this.authorStatus = slot === ORBIT_SLOT
-        ? "Slot 9 · automatic cinematic 360 reveal"
+      this.authorStatus = generatedSlotConfig
+        ? generatedSlotConfig.readyStatus
         : `Slot ${slot} loaded with ${this.authoredKeyframes.length} keyframe(s)`;
-    } else if (slot !== ORBIT_SLOT) {
+    } else if (!generatedSlotConfig) {
       this.authorStatus = `Slot ${slot} is empty; press K to add its first keyframe`;
     }
     this.updateOverlay("AUTHOR");
@@ -318,6 +394,12 @@ class CinematicMode {
 
   captureKeyframe(updateSelected = false) {
     const scene = this.syncAuthorScene();
+    if (this.getGeneratedOrbitSlotConfig(this.authorSlot)) {
+      this.authorStatus = "Slots 8 and 9 are generated; use slots 0-7 for editable keyframes";
+      this.updateOverlay("AUTHOR");
+      return;
+    }
+
     const pose = this.viewer.getCinematicCameraPose?.("local");
     if (!scene || !pose) {
       this.authorStatus = "Load a PlayCanvas SOG scene first";
@@ -368,6 +450,12 @@ class CinematicMode {
 
   removeSelectedKeyframe() {
     this.syncAuthorScene();
+    if (this.getGeneratedOrbitSlotConfig(this.authorSlot)) {
+      this.authorStatus = "Slots 8 and 9 are generated; use slots 0-7 for editable keyframes";
+      this.updateOverlay("AUTHOR");
+      return;
+    }
+
     if (this.selectedKeyframeIndex < 0) return;
     this.authoredKeyframes.splice(this.selectedKeyframeIndex, 1);
     this.authoredKeyframes.forEach((frame, index) => {
@@ -592,6 +680,7 @@ class CinematicMode {
   toggleOverlay() {
     this.overlayVisible = !this.overlayVisible;
     this.overlay.hidden = !this.overlayVisible;
+    this.legend.hidden = !this.overlayVisible || !this.authorEnabled;
     document.body.classList.toggle("is-cinematic-ui-hidden", !this.overlayVisible);
   }
 
@@ -606,11 +695,12 @@ class CinematicMode {
     this.overlay.querySelector("[data-cinematic-name]").textContent = this.currentPath?.name || "Cinematic ready";
     this.overlay.querySelector("[data-cinematic-time]").textContent = this.currentPath
       ? `${this.elapsed.toFixed(1)} / ${duration.toFixed(1)} s`
-      : this.authorEnabled ? "Shift+0–9 edit · 0–9 play" : "Press 1–5 to play a path";
+      : this.authorEnabled ? "Author mode" : "Press 1–5 to play a path";
     this.overlay.querySelector("[data-cinematic-state]").textContent = state;
 
     const authorDetails = this.overlay.querySelector("[data-cinematic-author-details]");
     authorDetails.hidden = !this.authorEnabled;
+    this.legend.hidden = !this.authorEnabled || !this.overlayVisible;
     if (this.authorEnabled) {
       const scene = this.syncAuthorScene();
       const pose = this.viewer.getCinematicCameraPose?.("local");
@@ -619,10 +709,10 @@ class CinematicMode {
         ? this.authoredKeyframes[this.authoredKeyframes.length - 1].time
         : 0;
       this.overlay.querySelector("[data-author-scene]").textContent = scene
-        ? `AUTHOR · ${scene.name} (${scene.sceneId})`
-        : "AUTHOR · No active PlayCanvas SOG scene";
+        ? `${scene.name} (${scene.sceneId})`
+        : "No active PlayCanvas SOG scene";
       this.overlay.querySelector("[data-author-summary]").textContent =
-        `slot ${this.authorSlot} · ${this.authoredKeyframes.length} keyframe(s) · selected ${selected || "--"} · ${authoredDuration.toFixed(1)} s`;
+        `${this.authorSlot} · ${this.authoredKeyframes.length} keyframe(s) · selected ${selected || "--"} · ${authoredDuration.toFixed(1)} s`;
       this.overlay.querySelector("[data-author-pose]").textContent = pose
         ? `Position: ${roundVector(pose.position).join(", ")} | Target: ${roundVector(pose.target).join(", ")} | FOV: ${pose.fov?.toFixed?.(1) ?? "--"}`
         : "Position: -- | Target: --";
@@ -696,6 +786,7 @@ class CinematicMode {
     if (this.authorRefreshTimer) window.clearInterval(this.authorRefreshTimer);
     document.body.classList.remove("is-cinematic-ui-hidden");
     this.overlay.remove();
+    this.legend.remove();
   }
 }
 

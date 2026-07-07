@@ -11,6 +11,8 @@ const ORBIT_DAMPING_DECAY_MS = 140;
 const CUTAWAY_DAMPING_DECAY_MS = 110;
 const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
+const DEFAULT_ORBIT_MIN_DISTANCE = 0.2;
+const DEFAULT_ORBIT_MAX_DISTANCE = 200;
 const AUTO_CUTAWAY_FADE_WIDTH = 0.12;
 const SOG_BOX_CULLING_MODIFIER = {
   glsl: `
@@ -184,6 +186,8 @@ class SimpleOrbitController {
     this.onChange = options.onChange || (() => {});
     this.onPanStateChange = options.onPanStateChange || (() => {});
     this.getFieldOfView = options.getFieldOfView || (() => 45);
+    this.minDistance = options.minDistance ?? DEFAULT_ORBIT_MIN_DISTANCE;
+    this.maxDistance = options.maxDistance ?? DEFAULT_ORBIT_MAX_DISTANCE;
     this.dragging = false;
     this.dragMode = "orbit";
     this.lastX = 0;
@@ -195,6 +199,15 @@ class SimpleOrbitController {
     this.activePointerId = null;
     this.ignorePointerEvents = false;
     this.disposeFns = [];
+  }
+
+  setDistanceLimits({ minDistance = DEFAULT_ORBIT_MIN_DISTANCE, maxDistance = DEFAULT_ORBIT_MAX_DISTANCE } = {}) {
+    this.minDistance = Number.isFinite(minDistance) ? minDistance : DEFAULT_ORBIT_MIN_DISTANCE;
+    this.maxDistance = Number.isFinite(maxDistance) ? maxDistance : DEFAULT_ORBIT_MAX_DISTANCE;
+  }
+
+  clampDistance(distance) {
+    return Math.max(this.minDistance, Math.min(this.maxDistance, distance));
   }
 
   bind(state) {
@@ -255,7 +268,7 @@ class SimpleOrbitController {
     const wheel = (event) => {
       event.preventDefault();
       const factor = event.deltaY > 0 ? 1.08 : 0.92;
-      state.distance = Math.max(0.2, Math.min(200, state.distance * factor));
+      state.distance = this.clampDistance(state.distance * factor);
       this.onChange();
     };
 
@@ -306,7 +319,7 @@ class SimpleOrbitController {
         if (this.pinchDistance > 0) {
           const ratio = this.pinchDistance / Math.max(nextDistance, 1);
           const dampedRatio = 1 + (ratio - 1) * 0.65;
-          state.distance = Math.max(0.2, Math.min(200, state.distance * dampedRatio));
+          state.distance = this.clampDistance(state.distance * dampedRatio);
         }
         this.pinchDistance = nextDistance;
         this.touchCenterX = nextCenter.x;
@@ -713,7 +726,13 @@ class PlayCanvasSogViewer {
     return true;
   }
 
-  createOrbitKeyframes(pose, { duration = 14, steps = 16, coordinateSpace = "local" } = {}) {
+  createOrbitKeyframes(pose, {
+    duration = 14,
+    steps = 16,
+    coordinateSpace = "local",
+    rotations = 1,
+    simple = false,
+  } = {}) {
     if (!this.pc || !pose?.position || !pose?.target || steps < 3) return [];
 
     let startPosition = new this.pc.Vec3(...pose.position);
@@ -731,6 +750,7 @@ class PlayCanvasSogViewer {
       : null;
     const safeDuration = Math.max(1, duration);
     const safeSteps = Math.max(3, Math.round(steps));
+    const safeRotations = Math.max(1, rotations);
 
     return Array.from({ length: safeSteps + 1 }, (_, index) => {
       if (index === safeSteps) {
@@ -745,16 +765,17 @@ class PlayCanvasSogViewer {
       const progress = index / safeSteps;
       // Ease only the beginning and end of the complete shot. Internal
       // keyframes remain one continuous move with no stop-start rhythm.
-      const motionProgress = progress * progress * progress *
-        (progress * (progress * 6 - 15) + 10);
-      const angle = motionProgress * Math.PI * 2;
+      const motionProgress = simple
+        ? progress
+        : progress * progress * progress * (progress * (progress * 6 - 15) + 10);
+      const angle = motionProgress * Math.PI * 2 * safeRotations;
       const cosine = Math.cos(angle);
       const sine = Math.sin(angle);
-      const revealArc = Math.sin(Math.PI * progress);
-      const orbitPulse = Math.sin(Math.PI * progress) ** 2;
-      const radialScale = 1 - orbitPulse * 0.14 + Math.sin(Math.PI * 2 * progress) * 0.035;
-      const cameraLift = horizontalRadius * 0.14 * revealArc;
-      const focusLift = horizontalRadius * 0.035 * revealArc;
+      const revealArc = simple ? 0 : Math.sin(Math.PI * progress);
+      const orbitPulse = simple ? 0 : Math.sin(Math.PI * progress) ** 2;
+      const radialScale = simple ? 1 : 1 - orbitPulse * 0.14 + Math.sin(Math.PI * 2 * progress) * 0.035;
+      const cameraLift = simple ? 0 : horizontalRadius * 0.14 * revealArc;
+      const focusLift = simple ? 0 : horizontalRadius * 0.035 * revealArc;
       const worldTarget = new this.pc.Vec3(target.x, target.y + focusLift, target.z);
       const worldPosition = new this.pc.Vec3(
         target.x + (offset.x * cosine + offset.z * sine) * radialScale,
@@ -768,9 +789,11 @@ class PlayCanvasSogViewer {
         ? inverseWorld.transformPoint(worldTarget, new this.pc.Vec3())
         : worldTarget;
       const baseFov = Number.isFinite(pose.fov) ? pose.fov : 60;
-      const cinematicFov = Math.max(30, Math.min(85,
-        baseFov - orbitPulse * 5 + Math.sin(Math.PI * 2 * progress) * 1.5
-      ));
+      const cinematicFov = simple
+        ? baseFov
+        : Math.max(30, Math.min(85,
+            baseFov - orbitPulse * 5 + Math.sin(Math.PI * 2 * progress) * 1.5
+          ));
       return {
         time: progress * safeDuration,
         position: [outputPosition.x, outputPosition.y, outputPosition.z],
@@ -1326,6 +1349,9 @@ class PlayCanvasSogViewer {
       });
     }
 
+    this.orbitController.setDistanceLimits({
+      maxDistance: this.currentAsset?.maxOrbitDistance,
+    });
     this.orbitController.bind(this.goalOrbitState);
     return this.orbitController;
   }
