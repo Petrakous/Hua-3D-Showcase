@@ -1,6 +1,6 @@
 const SCENE_EXPERIENCE_DEFAULTS = {
   defaults: {
-    format: "glb",
+    format: "sog",
     sogRuntime: "playcanvas",
     quality: "web",
     firstPersonMode: "walk"
@@ -143,7 +143,7 @@ const SCENE_EXPERIENCES = {
     category: "outdoor",
     group: "dit",
     defaults: {
-      format: "glb",
+      format: "sog",
       quality: "web",
       firstPersonMode: "walk"
     },

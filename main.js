@@ -1,7 +1,7 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260708diag1";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260708diag1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
-import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260629exp1";
+import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260709lodsafe1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
 import {
   initAnalytics,
@@ -26,6 +26,7 @@ const progressMeta = document.getElementById("progressMeta");
 const statusPill = document.getElementById("statusPill");
 const statusCopy = document.getElementById("statusCopy");
 const viewerStatus = document.getElementById("viewerStatus");
+const statusCancel = document.getElementById("statusCancel");
 const statusRetry = document.getElementById("statusRetry");
 const statusBack = document.getElementById("statusBack");
 const statusDetails = document.getElementById("statusDetails");
@@ -65,6 +66,7 @@ const calibrationTargetButtons = [...document.querySelectorAll("[data-calib-targ
 const timeDial = document.getElementById("timeDial");
 const timeControlGroup = document.getElementById("timeControlGroup");
 const timeStageMarkers = [...document.querySelectorAll(".time-stage-marker")];
+const navigationControl = document.getElementById("navigationControl");
 const navigationGroups = document.getElementById("navigationGroups");
 const formatControl = document.getElementById("formatControl");
 const formatStageMarkers = document.getElementById("formatStageMarkers");
@@ -134,6 +136,8 @@ const SOG_MODE_LABELS = {
   streamed: "Streamed",
 };
 
+const DEFAULT_FORMAT = "sog";
+const GLB_LOAD_TIMEOUT_MS = isMobileDevice ? 35000 : 60000;
 const SOG_CALIBRATION_QUERY_PARAM = "sog-calibration";
 const SOG_CALIBRATION_FLAG_KEY = "hua:sog-calibration-ui-enabled";
 const SOG_CALIBRATION_OVERRIDES_KEY = "hua:sog-calibration-overrides:v1";
@@ -300,7 +304,7 @@ const splatProfile = {
 function sanitizeSelectionPreferences(value = {}) {
   const defaults = {
     timeStage: "day",
-    format: cinematicAuthorEnabled ? "sog" : "glb",
+    format: DEFAULT_FORMAT,
     hdEnabled: false,
     sogMode: "classic",
     fpNavigationMode: "walk",
@@ -969,12 +973,28 @@ function selectStreamingSogAsset(asset) {
 
 async function reloadSogAsset(asset, options = {}) {
   const swapId = ++activeAssetSwapId;
+  if (!options.silent) {
+    setControlsBusy(true);
+    setLoadingState(true);
+    setStatusOverlayState(false);
+    setProgress(0.08);
+    setStatus("Switching scene", `Loading ${describeActiveAsset(asset)}...`, {
+      loading: true,
+    });
+  }
   try {
     await activateSplatAsset(asset, swapId, {
       silent: !!options.silent,
       targetDpr: options.targetDpr,
     });
   } catch (error) {
+    if (swapId !== activeAssetSwapId) {
+      return;
+    }
+    if (!options.silent) {
+      setLoadingState(false);
+      setSplatPreparing(false);
+    }
     trackSceneLoadFailed(getAnalyticsSceneId(asset), error, getAnalyticsAssetMetadata(asset, {
       silent: !!options.silent,
       source: "sog_reload",
@@ -982,7 +1002,21 @@ async function reloadSogAsset(asset, options = {}) {
     if (!options.silent) {
       document.body.classList.add("is-error");
       setStatusOverlayState(false);
-      setStatus("Asset issue", error?.message || "The selected scene did not render correctly.");
+      setStatus("Asset issue", getFriendlyLoadError(error, asset), {
+        severity: "fatal",
+        details: buildErrorDetails(error, asset, { source: "sog_reload" }),
+      });
+    }
+  } finally {
+    if (swapId === activeAssetSwapId && !options.silent) {
+      setLoadingState(false);
+      setControlsBusy(false);
+      updateMaterialToggle();
+      updateQualityToggle();
+      renderSogModeMarkers();
+      renderFpNavMarkers();
+      updateLodToggle();
+      updateCalibrationUi();
     }
   }
 }
@@ -993,8 +1027,8 @@ let activeEnvironmentId = "outside";
 let activeLocationStage = "outdoors";
 let activeBuildingId = "main";
 let activeSceneId = null;
-let activeFormat = cinematicAuthorEnabled ? "sog" : selectionPreferences.format;
-let activeSogMode = selectionPreferences.sogMode;
+let activeFormat = DEFAULT_FORMAT;
+let activeSogMode = "classic";
 let activeFpNavigationMode = selectionPreferences.fpNavigationMode;
 let hdEnabled = selectionPreferences.hdEnabled;
 let clayEnabled = false;
@@ -1018,6 +1052,7 @@ let dialStartAngle = 0;
 let dialDragged = false;
 let skipNextDialClick = false;
 let isViewerMode = false;
+let isSceneLoading = false;
 let performanceToastTimer = null;
 let activeMobileControlsPanel = "";
 const performanceNoticeKeys = new Set();
@@ -1347,6 +1382,9 @@ function setStatus(title, text, options = {}) {
   statusPill.textContent = finalTitle;
   statusCopy.textContent = finalCopy;
   const isError = options.severity === "fatal" || title === "Asset issue";
+  const isLoading = options.loading === true || document.body.classList.contains("is-loading");
+  statusCancel.hidden = !isLoading || isError;
+  statusCancel.disabled = !isLoading || isError;
   statusRetry.hidden = !isError;
   statusBack.hidden = !isError;
   statusRetry.disabled = false;
@@ -1357,6 +1395,15 @@ function setStatus(title, text, options = {}) {
   } else {
     statusDetails.open = false;
     statusDetailsText.textContent = "";
+  }
+}
+
+function setLoadingState(isLoading) {
+  isSceneLoading = !!isLoading;
+  document.body.classList.toggle("is-loading", isSceneLoading);
+  if (!isSceneLoading) {
+    statusCancel.hidden = true;
+    statusCancel.disabled = false;
   }
 }
 
@@ -1418,7 +1465,7 @@ function updateMobileControlsUi() {
     const panel = button.dataset.mobilePanel;
     const available = isMobileControlPanelAvailable(panel);
     button.hidden = !available;
-    button.disabled = !available || document.body.classList.contains("is-error");
+    button.disabled = !available;
   }
 
   mobileControlsDock.hidden = !mobileDockButtons.some((button) => !button.hidden);
@@ -1454,13 +1501,13 @@ function showPerformanceNotice(key, message) {
 function getFriendlyLoadError(error, asset = currentActiveAsset || getActiveAssetDescriptor()) {
   const message = String(error?.message || error || "");
   if (/webgl|graphics device|context/i.test(message)) {
-    return "WebGL is not available or was interrupted. Try reloading the page or using a device with stronger graphics support.";
+    return "The 3D renderer was interrupted. Try a lighter LOD, choose SOG LOD again, or use a desktop device for the highest detail.";
   }
   if (/lod-meta|metadata|json/i.test(message)) {
     return "This streamed space could not load its scene metadata. Check your connection and try again.";
   }
   if (/timeout|timed out|stalled/i.test(message)) {
-    return "This space is taking too long to prepare. Check your connection and try again.";
+    return "This model is taking too long to prepare. You can choose another format or a lighter LOD without leaving the page.";
   }
   if (/failed to load|fetch|network|cors|404|403|asset/i.test(message)) {
     return asset?.streamingEnabled
@@ -1468,9 +1515,9 @@ function getFriendlyLoadError(error, asset = currentActiveAsset || getActiveAsse
       : "This space could not be loaded. Check your connection and try again.";
   }
   if (/memory|budget|allocation/i.test(message)) {
-    return "Your device may not have enough graphics memory for this scene.";
+    return "This model may need more device resources. The highest-detail models are best on desktop; try Fast or Balanced LOD.";
   }
-  return "This space could not be loaded. Please try again.";
+  return "This space could not be loaded. Choose another format or LOD, or go back to all spaces.";
 }
 
 function buildErrorDetails(error, asset = currentActiveAsset || getActiveAssetDescriptor(), extra = {}) {
@@ -1610,6 +1657,7 @@ function enterViewerMode() {
 
 function exitViewerMode() {
   ++activeAssetSwapId;
+  setLoadingState(false);
   setMobileControlsPanel("");
   releaseActiveViewerResources();
   isViewerMode = false;
@@ -1637,7 +1685,7 @@ async function selectSceneCard(cardId) {
   activeSogMode = selectionPreferences.sogMode;
   activeFpNavigationMode = selectionPreferences.fpNavigationMode;
   syncNavigationState();
-  normalizeActiveFormat();
+  preferDefaultFormatForCurrentContext();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -1757,7 +1805,7 @@ function getPreferredFormat(scene) {
 
 function getDefaultFormat(scene = getCurrentSceneEntry()) {
   const availableFormats = getAvailableFormats();
-  if (cinematicAuthorEnabled && availableFormats.includes("sog")) {
+  if (availableFormats.includes(DEFAULT_FORMAT)) {
     return "sog";
   }
 
@@ -1765,6 +1813,24 @@ function getDefaultFormat(scene = getCurrentSceneEntry()) {
   return availableFormats.includes(preferredFormat)
     ? preferredFormat
     : availableFormats[0] || "glb";
+}
+
+function preferDefaultFormatForCurrentContext() {
+  const availableFormats = getAvailableFormats();
+  const defaultFormat = getDefaultFormat();
+  activeFormat = availableFormats.includes(defaultFormat)
+    ? defaultFormat
+    : availableFormats[0] || "glb";
+  if (activeFormat === "sog") {
+    activeSogMode = "classic";
+  }
+  updateSelectionPreferences({
+    format: activeFormat,
+    ...(activeFormat === "sog" ? {
+      sogMode: "classic",
+      lodTier: autoPerformanceProfile.tier,
+    } : {}),
+  });
 }
 
 function getCurrentLocationEntry() {
@@ -1897,7 +1963,7 @@ function getAvailableFormats() {
   if (isCampusOutsideSelected()) {
     const stageAssets = locationEntry.stages?.[activeTimeStage] || {};
     const outdoorFormats = Object.keys(stageAssets);
-    const outdoorPriority = cinematicAuthorEnabled ? ["sog", "glb"] : ["glb", "sog"];
+    const outdoorPriority = ["sog", "glb"];
     return outdoorFormats.sort((left, right) => {
       const leftIndex = outdoorPriority.indexOf(left);
       const rightIndex = outdoorPriority.indexOf(right);
@@ -1928,8 +1994,12 @@ function normalizeActiveFormat() {
     return;
   }
 
-  if (availableFormats.includes(selectionPreferences.format)) {
-    activeFormat = selectionPreferences.format;
+  if (availableFormats.includes(activeFormat)) {
+    return;
+  }
+
+  if (availableFormats.includes(DEFAULT_FORMAT)) {
+    activeFormat = DEFAULT_FORMAT;
   } else {
     activeFormat = getDefaultFormat() || availableFormats[0] || "glb";
   }
@@ -3229,42 +3299,21 @@ function updateTimeUi(direction = 0) {
 }
 
 function setControlsBusy(isBusy) {
-  const timeControlsDisabled = isBusy || !isTimeSelectionVisible() || !hasMultipleAvailableTimeStages();
+  const timeControlsDisabled = !isTimeSelectionVisible() || !hasMultipleAvailableTimeStages();
   timeDial.disabled = timeControlsDisabled;
   timeDial.setAttribute("aria-disabled", String(timeControlsDisabled));
   for (const marker of timeStageMarkers) {
-    const stageEnabled = !isBusy && isTimeSelectionVisible() && isTimeStageAvailable(marker.dataset.stage);
+    const stageEnabled = isTimeSelectionVisible() && isTimeStageAvailable(marker.dataset.stage);
     marker.disabled = !stageEnabled;
     marker.setAttribute("aria-disabled", String(!stageEnabled));
   }
   for (const marker of navigationGroups.querySelectorAll(".nav-marker")) {
-    if (!marker.hasAttribute("aria-disabled") || marker.getAttribute("aria-disabled") === "false") {
-      marker.disabled = isBusy;
-    }
-  }
-  for (const marker of formatStageMarkers.querySelectorAll(".format-stage-marker")) {
-    marker.disabled = isBusy;
-  }
-  for (const marker of sogModeMarkers.querySelectorAll(".location-stage-marker")) {
-    marker.disabled = isBusy;
-  }
-  for (const marker of fpNavMarkers.querySelectorAll(".location-stage-marker")) {
-    marker.disabled = isBusy;
-  }
-  for (const marker of lodMarkers.querySelectorAll(".location-stage-marker")) {
-    marker.disabled = isBusy;
-  }
-  for (const marker of glbQualityMarkers.querySelectorAll(".location-stage-marker")) {
-    marker.disabled = isBusy;
+    marker.disabled = marker.getAttribute("aria-disabled") === "true";
   }
   calibrationToggle.disabled = isBusy || !isSogCalibrationAvailable();
   setCalibrationInputsDisabled(isBusy || !isSogCalibrationAvailable());
 
   if (isBusy) {
-    setMobileControlsPanel("");
-    for (const marker of glbQualityMarkers.querySelectorAll(".location-stage-marker")) {
-      marker.disabled = true;
-    }
     if (materialToggle) {
       materialToggle.disabled = true;
     }
@@ -3305,6 +3354,51 @@ function toggleTurntable() {
   return turntableEnabled;
 }
 
+function waitForModelViewerLoad(element, asset, swapId) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      element.removeEventListener("load", handleLoad);
+      element.removeEventListener("error", handleError);
+      clearTimeout(timeoutId);
+    };
+    const settle = (callback, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+    const handleLoad = () => {
+      settle(resolve);
+    };
+    const handleError = (event) => {
+      const error = new Error(event.detail?.type || "The GLB model did not render correctly.");
+      error.details = {
+        source: asset?.src || null,
+        event_type: event.detail?.type || null,
+      };
+      settle(reject, error);
+    };
+    const timeoutId = setTimeout(() => {
+      if (swapId !== activeAssetSwapId) {
+        settle(resolve);
+        return;
+      }
+      const error = new Error("Timed out while loading GLB model.");
+      error.details = {
+        source: asset?.src || null,
+        timeout_ms: GLB_LOAD_TIMEOUT_MS,
+      };
+      settle(reject, error);
+    }, GLB_LOAD_TIMEOUT_MS);
+
+    element.addEventListener("load", handleLoad);
+    element.addEventListener("error", handleError);
+  });
+}
+
 async function activateGlbAsset(asset, swapId) {
   const resolvedSource = asset.src;
   if (swapId !== activeAssetSwapId) {
@@ -3326,8 +3420,10 @@ async function activateGlbAsset(asset, swapId) {
   updateViewerLayerVisibility("glb");
   modelViewer.autoRotate = turntableEnabled;
   applyGlbView(asset);
+  const loadPromise = waitForModelViewerLoad(modelViewer, asset, swapId);
   modelViewer.src = resolvedSource;
   await modelViewer.updateComplete;
+  await loadPromise;
 }
 
 async function activateSplatAsset(asset, swapId, options = {}) {
@@ -3487,6 +3583,7 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
   const nextAsset = getActiveAssetDescriptor();
   if (!nextAsset) {
     ++activeAssetSwapId;
+    setLoadingState(false);
     releaseActiveViewerResources();
     document.body.classList.remove("is-error");
     setProgress(0);
@@ -3514,9 +3611,12 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
   }
 
   setControlsBusy(true);
+  setLoadingState(true);
   setStatusOverlayState(false);
   setProgress(0.08);
-  setStatus("Switching scene", `Loading ${describeActiveAsset(nextAsset)}...`);
+  setStatus("Switching scene", `Loading ${describeActiveAsset(nextAsset)}...`, {
+    loading: true,
+  });
   trackPageView(getAnalyticsAssetMetadata(nextAsset, { source: "scene_selection" }));
   trackSceneOpen(getAnalyticsSceneId(nextAsset), getAnalyticsAssetMetadata(nextAsset));
   releaseActiveViewerResources();
@@ -3530,6 +3630,7 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
 
       document.body.classList.add("is-loaded");
       document.body.classList.remove("is-error");
+      setLoadingState(false);
       setProgress(1);
       setStatus("3D hero active", describeLoadedAssetStatus(nextAsset));
       requestAnimationFrame(() => {
@@ -3539,6 +3640,7 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
       });
     } else {
       await activateGlbAsset(nextAsset, swapId);
+      setLoadingState(false);
       updateCalibrationUi();
     }
   } catch (error) {
@@ -3547,6 +3649,7 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
     }
 
     setSplatPreparing(false);
+    setLoadingState(false);
     logger.error("scene-loader", "Scene load failed", buildErrorDetails(error, nextAsset), error);
     trackSceneLoadFailed(getAnalyticsSceneId(nextAsset), error, getAnalyticsAssetMetadata(nextAsset));
     document.body.classList.add("is-error");
@@ -3566,6 +3669,29 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
       updateCalibrationUi();
     }
   }
+}
+
+function cancelActiveLoad() {
+  if (!isSceneLoading) {
+    return;
+  }
+
+  ++activeAssetSwapId;
+  setLoadingState(false);
+  setControlsBusy(false);
+  releaseActiveViewerResources();
+  document.body.classList.remove("is-error");
+  setProgress(0);
+  setStatusOverlayState(false);
+  setStatus("Load cancelled", "Choose another format, LOD, or space to continue.");
+  updateLocationUi();
+  updateQualityToggle();
+  updateMaterialToggle();
+  renderSogModeMarkers();
+  renderFpNavMarkers();
+  updateLodToggle();
+  updateCalibrationUi();
+  updateMobileControlsUi();
 }
 
 async function prepareCinematicPath(path) {
@@ -3624,7 +3750,7 @@ async function setActiveTimeStage(stage, direction = 0) {
 
   activeTimeStage = stage;
   updateSelectionPreferences({ timeStage: stage });
-  normalizeActiveFormat();
+  preferDefaultFormatForCurrentContext();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3643,7 +3769,7 @@ async function setActiveSite(siteId) {
     activeBuildingId = CAMPUS_INDOOR_BUILDINGS[0]?.id || "main";
   }
   syncNavigationState();
-  normalizeActiveFormat();
+  preferDefaultFormatForCurrentContext();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3658,7 +3784,7 @@ async function setActiveEnvironment(environmentId) {
 
   activeEnvironmentId = environmentId;
   syncNavigationState();
-  normalizeActiveFormat();
+  preferDefaultFormatForCurrentContext();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3673,7 +3799,7 @@ async function setActiveBuilding(buildingId) {
 
   activeBuildingId = buildingId;
   normalizeActiveScene();
-  normalizeActiveFormat();
+  preferDefaultFormatForCurrentContext();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3687,7 +3813,7 @@ async function setActiveSpace(spaceId) {
   }
 
   activeSceneId = space.sceneId;
-  normalizeActiveFormat();
+  preferDefaultFormatForCurrentContext();
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3701,7 +3827,16 @@ async function setActiveFormat(format) {
   }
 
   activeFormat = format;
-  updateSelectionPreferences({ format });
+  if (format === "sog") {
+    activeSogMode = "classic";
+  }
+  updateSelectionPreferences({
+    format,
+    ...(format === "sog" ? {
+      sogMode: "classic",
+      lodTier: autoPerformanceProfile.tier,
+    } : {}),
+  });
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3836,6 +3971,7 @@ async function handleModelViewerLoad(event) {
     return;
   }
 
+  setLoadingState(false);
   document.body.classList.add("is-loaded");
   document.body.classList.remove("is-error");
   setProgress(1);
@@ -3862,6 +3998,7 @@ function handleModelViewerError(event) {
     return;
   }
 
+  setLoadingState(false);
   document.body.classList.add("is-error");
   setStatusOverlayState(false);
   const error = new Error(event.detail?.type || "The model did not render correctly.");
@@ -3884,17 +4021,39 @@ function handleModelViewerError(event) {
 
 function installGlobalSafetyHandlers() {
   window.addEventListener("error", (event) => {
+    const error = event.error || new Error(event.message || "Unhandled browser error");
     logger.error("app", "Unhandled browser error", {
       source: event.filename || "",
       line: event.lineno || null,
       column: event.colno || null,
-    }, event.error || new Error(event.message || "Unhandled browser error"));
+    }, error);
+    if (isViewerMode && isSceneLoading) {
+      setLoadingState(false);
+      document.body.classList.add("is-error");
+      setStatusOverlayState(false);
+      setStatus("Asset issue", getFriendlyLoadError(error), {
+        severity: "fatal",
+        details: buildErrorDetails(error, currentActiveAsset, { source: "window_error" }),
+      });
+      setControlsBusy(false);
+    }
   });
 
   window.addEventListener("unhandledrejection", (event) => {
+    const error = event.reason instanceof Error ? event.reason : new Error(String(event.reason || "Unhandled promise rejection"));
     logger.error("app", "Unhandled promise rejection", {
       source: "unhandledrejection",
-    }, event.reason instanceof Error ? event.reason : new Error(String(event.reason || "Unhandled promise rejection")));
+    }, error);
+    if (isViewerMode && isSceneLoading) {
+      setLoadingState(false);
+      document.body.classList.add("is-error");
+      setStatusOverlayState(false);
+      setStatus("Asset issue", getFriendlyLoadError(error), {
+        severity: "fatal",
+        details: buildErrorDetails(error, currentActiveAsset, { source: "unhandledrejection" }),
+      });
+      setControlsBusy(false);
+    }
   });
 
   const bindContextLoss = () => {
@@ -3913,6 +4072,7 @@ function installGlobalSafetyHandlers() {
         fatal: true,
       }));
       if (isViewerMode) {
+        setLoadingState(false);
         document.body.classList.add("is-error");
         setStatusOverlayState(false);
         setStatus("Asset issue", "WebGL is not available or was interrupted.", {
@@ -3968,6 +4128,7 @@ window.addEventListener("resize", () => {
 
 viewerBackButton.addEventListener("click", exitViewerMode);
 statusBack.addEventListener("click", exitViewerMode);
+statusCancel.addEventListener("click", cancelActiveLoad);
 
 for (const button of mobileDockButtons) {
   button.addEventListener("click", () => {

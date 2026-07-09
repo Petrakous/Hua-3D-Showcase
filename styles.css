@@ -1116,6 +1116,7 @@ body[data-show-time-control="false"] .time-stage-marker:disabled {
   margin-top: 12px;
 }
 
+.status-cancel,
 .status-retry,
 .status-back {
   min-height: 38px;
@@ -1128,11 +1129,17 @@ body[data-show-time-control="false"] .time-stage-marker:disabled {
   cursor: pointer;
 }
 
+.status-cancel {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .status-back {
   border-color: rgba(255, 255, 255, 0.18);
   background: rgba(255, 255, 255, 0.08);
 }
 
+.status-cancel:disabled,
 .status-retry:disabled {
   cursor: progress;
   opacity: 0.58;
@@ -2558,8 +2565,6 @@ body.is-cinematic-ui-hidden .cinematic-legend {
   }
 
   body:not(.is-viewer-mode) .mobile-controls-dock,
-  body:not(.is-loaded) .mobile-controls-dock,
-  body.is-error .mobile-controls-dock,
   .mobile-controls-dock[hidden],
   .mobile-controls-dock:empty {
     display: none !important;
