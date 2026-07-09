@@ -71,6 +71,23 @@ const SCENE_EXPERIENCES = {
       title: "Campus Day",
       message: "Loading outdoor campus scene...",
       heavyMessage: "Loading high-quality 3D splat data (large payload)..."
+    },
+    future: {
+      hotspots: [
+        {
+          id: "enter-main-hall",
+          type: "scene-link",
+          title: "Enter Main Hall",
+          description: "Go inside the main building and explore the Main Hall.",
+          targetSceneId: "main-hall",
+          targetSceneTitle: "Main Hall",
+          thumbnail: "./assets/thumbnails/main-hall.webp",
+          position: { x: 0, y: 0, z: 0 },
+          radius: 1,
+          icon: "door",
+          enabled: true
+        }
+      ]
     }
   },
   "campus-dusk": {
@@ -430,6 +447,30 @@ const SCENE_EXPERIENCES = {
 };
 
 function normalizeExperience(spec, options = {}) {
+  const normalizeHotspot = (hotspot) => ({
+    id: hotspot.id,
+    type: hotspot.type || "scene-link",
+    title: hotspot.title || "Explore",
+    description: hotspot.description || "",
+    targetSceneId: hotspot.targetSceneId || null,
+    targetSceneTitle: hotspot.targetSceneTitle || "",
+    thumbnail: hotspot.thumbnail || null,
+    position: {
+      x: Number(hotspot.position?.x ?? 0),
+      y: Number(hotspot.position?.y ?? 0),
+      z: Number(hotspot.position?.z ?? 0)
+    },
+    radius: Number.isFinite(hotspot.radius) ? hotspot.radius : 1,
+    icon: hotspot.icon || "portal",
+    enabled: hotspot.enabled !== false
+  });
+  const future = {
+    ...SCENE_EXPERIENCE_DEFAULTS.future,
+    ...spec.future,
+    ...options.future
+  };
+  future.hotspots = (future.hotspots || []).map(normalizeHotspot);
+
   return {
     id: spec.id,
     title: spec.title || "Scene",
@@ -466,11 +507,7 @@ function normalizeExperience(spec, options = {}) {
       ...spec.fallbacks,
       ...options.fallbacks
     },
-    future: {
-      ...SCENE_EXPERIENCE_DEFAULTS.future,
-      ...spec.future,
-      ...options.future
-    }
+    future
   };
 }
 

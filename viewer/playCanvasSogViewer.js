@@ -513,6 +513,9 @@ class PlayCanvasSogViewer {
     this._cameraStartMarkerEntity = null;
     this.manualBoxPreviewVisible = false;
     this._manualBoxLabels = [];
+    this.hotspotMarkerVisible = false;
+    this.hotspotMarkerData = [];
+    this.hotspotMarkerEntities = new Map();
     this.fpNavigationController = null;
     this.fpNavigationMode = "walk";
     this.flyCollisionIgnored = false;
@@ -586,6 +589,58 @@ class PlayCanvasSogViewer {
     const worldPoint = point?.clone?.() || new pc.Vec3(0, 0, 0);
     this.getManualBoxParentWorldMatrix(pc).transformPoint(worldPoint, worldPoint);
     return worldPoint;
+  }
+
+  transformScenePointToWorld(pc, point) {
+    if (!this.splatEntity) {
+      return point?.clone?.() || new pc.Vec3(0, 0, 0);
+    }
+    return this.transformPointToWorld(pc, this.splatEntity, point);
+  }
+
+  worldToContainerPoint(worldPoint) {
+    if (!this.app || !this.camera?.camera || !this.container || !worldPoint) {
+      return null;
+    }
+
+    const width = Math.max(1, this.container.clientWidth || 1);
+    const height = Math.max(1, this.container.clientHeight || 1);
+    const deviceWidth = Math.max(1, this.app.graphicsDevice?.width || width);
+    const deviceHeight = Math.max(1, this.app.graphicsDevice?.height || height);
+    const screen = this.camera.camera.worldToScreen(worldPoint, new this.pc.Vec3());
+    if (!screen || ![screen.x, screen.y, screen.z].every(Number.isFinite)) {
+      return null;
+    }
+
+    const margin = 72;
+    const directVisible =
+      screen.x >= -margin &&
+      screen.y >= -margin &&
+      screen.x <= width + margin &&
+      screen.y <= height + margin;
+    if (directVisible || screen.z < 0) {
+      return {
+        x: screen.x,
+        y: screen.y,
+        z: screen.z,
+        visible: screen.z >= 0 && directVisible,
+      };
+    }
+
+    const scaledX = screen.x * width / deviceWidth;
+    const scaledY = screen.y * height / deviceHeight;
+    const scaledVisible =
+      scaledX >= -margin &&
+      scaledY >= -margin &&
+      scaledX <= width + margin &&
+      scaledY <= height + margin;
+
+    return {
+      x: scaledX,
+      y: scaledY,
+      z: screen.z,
+      visible: screen.z >= 0 && scaledVisible,
+    };
   }
 
   resolveOrbitStateFromCamera(pc, target, cameraPosition) {
@@ -1031,6 +1086,144 @@ class PlayCanvasSogViewer {
     if (this.app) this.app.renderNextFrame = true;
   }
 
+  projectWorldPoint(position, options = {}) {
+    if (!this.app || !this.pc || !this.camera?.camera || !this.container) {
+      return null;
+    }
+
+    const values = Array.isArray(position)
+      ? position
+      : [position?.x, position?.y, position?.z];
+    const [x, y, z] = values.map(Number);
+    if (![x, y, z].every(Number.isFinite)) {
+      return null;
+    }
+
+    const localPoint = new this.pc.Vec3(x, y, z);
+    const point = options.coordinateSpace === "world"
+      ? localPoint
+      : this.transformScenePointToWorld(this.pc, localPoint);
+    const projected = this.worldToContainerPoint(point);
+    if (!projected) {
+      return null;
+    }
+
+    const cameraPosition = this.camera.getPosition();
+    const toPoint = point.clone().sub(cameraPosition);
+
+    return {
+      x: projected.x,
+      y: projected.y,
+      z: projected.z,
+      visible: projected.visible,
+      distance: toPoint.length(),
+    };
+  }
+
+  setHotspotMarkers(hotspots = [], options = {}) {
+    this.hotspotMarkerData = Array.isArray(hotspots) ? hotspots.map((hotspot) => ({
+      id: hotspot.id,
+      selected: hotspot.selected === true,
+      position: Array.isArray(hotspot.position)
+        ? [...hotspot.position]
+        : [
+            Number(hotspot.position?.x ?? 0),
+            Number(hotspot.position?.y ?? 0),
+            Number(hotspot.position?.z ?? 0),
+          ],
+    })) : [];
+    this.hotspotMarkerVisible = options.visible !== false && this.hotspotMarkerData.length > 0;
+    this.syncHotspotMarkerEntities();
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  clearHotspotMarkers() {
+    this.hotspotMarkerData = [];
+    this.hotspotMarkerVisible = false;
+    for (const entity of this.hotspotMarkerEntities.values()) {
+      entity.destroy();
+    }
+    this.hotspotMarkerEntities.clear();
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  createHotspotMarkerEntity(id) {
+    if (!this.pc || !this.app) return null;
+    const marker = new this.pc.Entity(`HotspotMarker:${id}`);
+    marker.addComponent("render", { type: "sphere" });
+    const material = new this.pc.StandardMaterial();
+    material.useLighting = false;
+    material.diffuse = new this.pc.Color(0, 0, 0);
+    material.emissive = new this.pc.Color(0.15, 0.95, 1.0);
+    material.opacity = 0.9;
+    material.blendType = this.pc.BLEND_NORMAL;
+    material.depthTest = false;
+    material.depthWrite = false;
+    material.update();
+    for (const meshInstance of marker.render?.meshInstances || []) {
+      meshInstance.material = material;
+      meshInstance.drawOrder = 1e6;
+    }
+    marker.setLocalScale(0.42, 0.42, 0.42);
+    this.app.root.addChild(marker);
+    return marker;
+  }
+
+  syncHotspotMarkerEntities() {
+    if (!this.pc || !this.app) return;
+    const activeIds = new Set(this.hotspotMarkerData.map((hotspot) => hotspot.id));
+    for (const [id, entity] of this.hotspotMarkerEntities.entries()) {
+      if (!activeIds.has(id)) {
+        entity.destroy();
+        this.hotspotMarkerEntities.delete(id);
+      }
+    }
+
+    for (const hotspot of this.hotspotMarkerData) {
+      if (!hotspot.id || !hotspot.position.every(Number.isFinite)) continue;
+      let entity = this.hotspotMarkerEntities.get(hotspot.id);
+      if (!entity) {
+        entity = this.createHotspotMarkerEntity(hotspot.id);
+        if (entity) this.hotspotMarkerEntities.set(hotspot.id, entity);
+      }
+      if (!entity) continue;
+      const world = this.transformScenePointToWorld(this.pc, new this.pc.Vec3(...hotspot.position));
+      entity.setPosition(world);
+      const scale = hotspot.selected ? 0.55 : 0.42;
+      entity.setLocalScale(scale, scale, scale);
+      entity.enabled = this.hotspotMarkerVisible;
+    }
+  }
+
+  focusWorldPoint(position, options = {}) {
+    if (!this.pc || !this.goalOrbitState) {
+      return false;
+    }
+
+    const values = Array.isArray(position)
+      ? position
+      : [position?.x, position?.y, position?.z];
+    const [x, y, z] = values.map(Number);
+    if (![x, y, z].every(Number.isFinite)) {
+      return false;
+    }
+
+    this.stopFirstPersonNavigation();
+    this.ensureOrbitController(this.currentAsset?.viewPreset);
+    const localTarget = new this.pc.Vec3(x, y, z);
+    const target = options.coordinateSpace === "world"
+      ? localTarget
+      : this.transformScenePointToWorld(this.pc, localTarget);
+    const currentDistance = this.orbitState?.distance || this.goalOrbitState.distance || 8;
+    this.goalOrbitState.target.copy(target);
+    this.goalOrbitState.distance = Math.max(
+      0.85,
+      Math.min(currentDistance * (options.distanceMultiplier ?? 0.42), options.maxDistance ?? 14)
+    );
+    if (this.app) this.app.renderNextFrame = true;
+    return true;
+  }
+
   setEditorAxesVisible(visible) {
     this.editorAxesVisible = visible === true;
     if (this.app) this.app.renderNextFrame = true;
@@ -1182,21 +1375,17 @@ class PlayCanvasSogViewer {
 
     this._ensureManualBoxLabels();
     const faces = [[-0.5, 0, 0], [0.5, 0, 0], [0, 0.5, 0], [0, -0.5, 0], [0, 0, 0.5], [0, 0, -0.5]];
-    const width = Math.max(1, this.container.clientWidth || 1);
-    const height = Math.max(1, this.container.clientHeight || 1);
     faces.forEach((face, index) => {
       const world = matrix.transformPoint(new pc.Vec3(...face));
-      const screen = this.camera?.camera?.worldToScreen?.(world, new pc.Vec3());
+      const screen = this.worldToContainerPoint(world);
       const label = this._manualBoxLabels[index];
-      if (!screen || screen.z < 0) {
+      if (!screen || !screen.visible) {
         label.hidden = true;
         return;
       }
       label.hidden = false;
-      const deviceWidth = Math.max(1, this.app.graphicsDevice?.width || width);
-      const deviceHeight = Math.max(1, this.app.graphicsDevice?.height || height);
-      label.style.left = `${screen.x * width / deviceWidth}px`;
-      label.style.top = `${screen.y * height / deviceHeight}px`;
+      label.style.left = `${screen.x}px`;
+      label.style.top = `${screen.y}px`;
     });
   }
 
@@ -2792,8 +2981,16 @@ class PlayCanvasSogViewer {
           this.startFirstPersonNavigation(pc);
         }
       }
+      this.container?.dispatchEvent?.(
+        new CustomEvent("sog-camera-frame", {
+          detail: {
+            firstPerson: this.firstPersonActive,
+          },
+        })
+      );
       this.syncCutawayState(pc, { deltaSeconds });
       try {
+        this.syncHotspotMarkerEntities();
         this.drawEditorGuides(pc);
         this.drawSpawnMarker(pc);
         this.drawCameraStartMarker(pc);
@@ -3052,6 +3249,7 @@ class PlayCanvasSogViewer {
     for (const label of this._manualBoxLabels || []) label.remove();
     this._manualBoxLabels = [];
     this.manualBoxPreviewVisible = false;
+    this.clearHotspotMarkers();
     if (this.collisionPreviewAsset && this.app) {
       this.app.assets.remove(this.collisionPreviewAsset);
       this.collisionPreviewAsset.unload();

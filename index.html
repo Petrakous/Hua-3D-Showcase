@@ -108,6 +108,13 @@
             loading="eager"
           ></model-viewer>
           <div id="splatViewerMount" class="splat-viewer-layer" hidden aria-hidden="true"></div>
+          <div id="hotspotOverlay" class="hotspot-overlay" aria-live="polite"></div>
+          <div id="hotspotTransitionOverlay" class="hotspot-transition" hidden aria-hidden="true">
+            <div class="hotspot-transition__panel">
+              <span class="hotspot-transition__ring" aria-hidden="true"></span>
+              <p id="hotspotTransitionText">Entering space...</p>
+            </div>
+          </div>
           <div id="orbitTargetIndicator" class="orbit-target-indicator" aria-hidden="true"></div>
 
           <div class="hero-gradient"></div>
@@ -277,6 +284,24 @@
               <input id="calibrationShowBox" type="checkbox" checked />
               <span>Show labeled culling box</span>
             </label>
+            <div class="hotspot-calibration" id="hotspotCalibrationControls" hidden>
+              <span class="calibration-target__label">Hotspot placement</span>
+              <div class="hotspot-calibration__row">
+                <select id="hotspotCalibrationSelect" aria-label="Select hotspot"></select>
+                <select id="hotspotCalibrationStep" aria-label="Hotspot move step">
+                  <option value="0.01">0.01</option>
+                  <option value="0.1" selected>0.1</option>
+                  <option value="1">1</option>
+                </select>
+              </div>
+              <p class="hotspot-calibration__position" id="hotspotCalibrationPosition">x 0.000 · y 0.000 · z 0.000</p>
+              <p class="hotspot-calibration__hint">Select a hotspot, then use A/D, W/S and Q/E to nudge X, Z and Y.</p>
+              <div class="calibration-panel__actions calibration-panel__actions--wrap">
+                <button class="calibration-action" id="hotspotCopyPosition" type="button">Copy position</button>
+                <button class="calibration-action" id="hotspotCopyJson" type="button">Copy hotspot JSON</button>
+                <button class="calibration-action" id="hotspotCopyAllJson" type="button">Copy all hotspots JSON</button>
+              </div>
+            </div>
 
             <div class="calibration-target" id="calibrationTargetControl" hidden>
               <span class="calibration-target__label">Editing</span>
