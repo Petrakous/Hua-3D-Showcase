@@ -228,7 +228,7 @@ const SCENE_EXPERIENCES = {
     id: "systasis",
     title: "Systasis",
     subtitle: "Geo building space",
-    description: "Explore the geological systasis and research setup.",
+    description: "Explore the systasis and research setup.",
     category: "lab",
     group: "campus",
     defaults: {
@@ -250,7 +250,7 @@ const SCENE_EXPERIENCES = {
     },
     loading: {
       title: "Systasis",
-      message: "Loading geological research lab..."
+      message: "Loading research lab..."
     }
   },
   "fitness": {
@@ -373,7 +373,7 @@ const SCENE_EXPERIENCES = {
     id: "geo3-3",
     title: "Geo 3.3",
     subtitle: "Geo building space",
-    description: "Step into classroom Geo 3.3 for spatial studies.",
+    description: "Step into lab 3.3 for chemical studies.",
     category: "indoor",
     group: "campus",
     defaults: {
@@ -394,8 +394,8 @@ const SCENE_EXPERIENCES = {
       desktopQuality: "hd"
     },
     loading: {
-      title: "Geo 3.3 Classroom",
-      message: "Loading Geo 3.3 classroom interior..."
+      title: "Geo 3.3 Laboratory",
+      message: "Loading Geo 3.3 laboratory environment..."
     }
   },
   "kitchen": {
