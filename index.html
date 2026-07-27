@@ -129,7 +129,21 @@
               </a>
             </div>
           </div>
+          <div class="scene-filter-bar" id="sceneFilterBar">
+            <input class="scene-filter-search" id="sceneFilterSearch" type="search" placeholder="Search spaces…" aria-label="Search spaces" autocomplete="off" />
+            <div class="scene-filter-chips" id="sceneFilterChips" role="group" aria-label="Filter by category">
+              <button class="scene-filter-chip" data-filter="all" data-active="true" type="button">All</button>
+              <button class="scene-filter-chip" data-filter="outdoor" type="button">Outdoor</button>
+              <button class="scene-filter-chip" data-filter="indoor" type="button">Indoor</button>
+              <button class="scene-filter-chip" data-filter="lab" type="button">Lab</button>
+            </div>
+          </div>
           <div class="scene-card-grid" id="sceneCardGrid" aria-live="polite"></div>
+          <div class="scene-cards-empty" id="sceneCardsEmpty" hidden>
+            <span class="scene-cards-empty__icon" aria-hidden="true">🔍</span>
+            <p>No spaces match your search.</p>
+            <button class="scene-cards-empty__reset" id="sceneCardsEmptyReset" type="button">Show all spaces</button>
+          </div>
         </section>
 
         <div class="hero-time-control">
@@ -197,6 +211,15 @@
 
         <div class="hero-overlay">
           <div class="hero-button-row">
+            <button class="secondary-link icon-button" id="controlsHelpToggle" type="button" aria-label="Controls help" title="Controls help">
+              <span class="control-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+              </span>
+            </button>
             <button class="secondary-link icon-button" id="resetCamera" type="button" aria-label="Reset" title="Reset">
               <span class="control-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
@@ -341,6 +364,11 @@
           <button class="mobile-dock-button" type="button" data-mobile-panel="more" aria-expanded="false">
             <span>More</span>
           </button>
+        </div>
+
+        <div class="controls-help-overlay" id="controlsHelpOverlay" aria-hidden="true">
+          <p class="controls-help-overlay__title">Controls</p>
+          <div class="controls-help-grid" id="controlsHelpGrid"></div>
         </div>
 
         <div class="performance-toast" id="performanceToast" role="status" aria-live="polite" aria-hidden="true"></div>

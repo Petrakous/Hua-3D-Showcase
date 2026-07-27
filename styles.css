@@ -2799,6 +2799,276 @@ body.is-cinematic-ui-hidden .cinematic-legend {
   }
 }
 
+/* ── Scene filter bar ─────────────────────────────── */
+.scene-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.scene-filter-search {
+  flex: 1 1 180px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid rgba(235, 244, 240, 0.13);
+  border-radius: 999px;
+  background: rgba(239, 245, 241, 0.06);
+  color: #ebf4f0;
+  font: 400 0.88rem/1 Manrope, sans-serif;
+  outline: none;
+  transition: border-color 180ms ease, background 180ms ease;
+}
+
+.scene-filter-search::placeholder {
+  color: rgba(235, 244, 240, 0.38);
+}
+
+.scene-filter-search:focus {
+  border-color: rgba(168, 205, 181, 0.45);
+  background: rgba(239, 245, 241, 0.1);
+}
+
+.scene-filter-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.scene-filter-chip {
+  appearance: none;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(235, 244, 240, 0.13);
+  border-radius: 999px;
+  background: rgba(239, 245, 241, 0.055);
+  color: rgba(235, 244, 240, 0.62);
+  font: 700 0.72rem/1 Manrope, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease, border-color 180ms ease;
+}
+
+.scene-filter-chip:hover {
+  background: rgba(239, 245, 241, 0.1);
+  color: rgba(235, 244, 240, 0.82);
+}
+
+.scene-filter-chip[data-active="true"] {
+  background: rgba(168, 205, 181, 0.2);
+  border-color: rgba(168, 205, 181, 0.35);
+  color: #e9f4ed;
+}
+
+/* ── Device recommendation badge ────────────────── */
+.scene-card__device-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font: 700 0.62rem/1 Manrope, sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.scene-card__device-badge--good {
+  background: rgba(76, 175, 120, 0.18);
+  color: #8fd9a8;
+}
+
+.scene-card__device-badge--warn {
+  background: rgba(225, 183, 100, 0.18);
+  color: #e5c97a;
+}
+
+/* ── Empty state ──────────────────────────────────── */
+.scene-cards-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  color: rgba(235, 244, 240, 0.5);
+  font-size: 0.92rem;
+}
+
+.scene-cards-empty__icon {
+  font-size: 2.4rem;
+  opacity: 0.6;
+}
+
+.scene-cards-empty__reset {
+  appearance: none;
+  min-height: 38px;
+  padding: 0 18px;
+  border: 1px solid rgba(168, 205, 181, 0.3);
+  border-radius: 999px;
+  background: rgba(168, 205, 181, 0.1);
+  color: #e9f4ed;
+  font: 700 0.78rem/1 Manrope, sans-serif;
+  cursor: pointer;
+  transition: background 180ms ease;
+}
+
+.scene-cards-empty__reset:hover {
+  background: rgba(168, 205, 181, 0.2);
+}
+
+/* ── Controls help overlay ────────────────────────── */
+.controls-help-overlay {
+  position: fixed;
+  bottom: 80px;
+  left: 24px;
+  z-index: 31;
+  width: min(320px, calc(100vw - 48px));
+  padding: 18px 20px;
+  border: 1px solid rgba(235, 244, 240, 0.13);
+  border-radius: 20px;
+  background: rgba(7, 17, 27, 0.86);
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  color: #ebf4f0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(10px);
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.controls-help-overlay.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.controls-help-overlay__title {
+  margin: 0 0 12px;
+  font: 800 0.72rem/1 Manrope, sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #a8cdb5;
+}
+
+.controls-help-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  align-items: center;
+}
+
+.controls-help-grid kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 26px;
+  padding: 2px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(238, 248, 255, 0.88);
+  font: 700 0.68rem/1 Manrope, sans-serif;
+  white-space: nowrap;
+}
+
+.controls-help-grid span {
+  color: rgba(235, 244, 240, 0.62);
+  font-size: 0.78rem;
+}
+
+/* ── Error state visual treatment ───────────────── */
+.hero-status .status-network-hint {
+  display: block;
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(235, 244, 240, 0.58);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.hero-status .status-network-hint strong {
+  color: rgba(235, 244, 240, 0.78);
+}
+
+/* ── Progress bar pulse animation ───────────────── */
+@keyframes progress-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+body.is-loading .progress-bar {
+  animation: progress-pulse 1.8s ease-in-out infinite;
+}
+
+/* ── LOD Auto badge ───────────────────────────────── */
+.detail-stage-marker[data-lod-tier="auto"] {
+  position: relative;
+}
+
+.detail-stage-marker[data-lod-tier="auto"]::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8fd9a8;
+  box-shadow: 0 0 4px rgba(76, 175, 120, 0.5);
+}
+
+.detail-stage-marker[data-lod-tier="auto"][data-active="true"]::after {
+  background: #071521;
+  box-shadow: none;
+}
+
+/* ── Streamed mobile warning ──────────────────────── */
+.sog-mode-note {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  padding: 0;
+  color: rgba(225, 183, 100, 0.72);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* ── Mobile filter bar responsive ─────────────────── */
+@media (max-width: 480px) {
+  .scene-filter-bar {
+    gap: 8px;
+  }
+
+  .scene-filter-search {
+    flex-basis: 100%;
+    min-height: 42px;
+  }
+
+  .scene-filter-chip {
+    min-height: 34px;
+    padding: 0 12px;
+    font-size: 0.68rem;
+  }
+}
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 920px) {
+  .controls-help-overlay {
+    right: calc(var(--safe-right) + 12px);
+    bottom: calc(var(--mobile-dock-bottom, 24px) + var(--mobile-dock-height, 58px) + 12px);
+    left: calc(var(--safe-left) + 12px);
+    width: auto;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

@@ -83,6 +83,16 @@ const performanceToast = document.getElementById("performanceToast");
 const mobileControlsDock = document.getElementById("mobileControlsDock");
 const mobileControlsScrim = document.getElementById("mobileControlsScrim");
 const mobileDockButtons = [...document.querySelectorAll("[data-mobile-panel]")];
+const controlsHelpToggle = document.getElementById("controlsHelpToggle");
+const controlsHelpOverlay = document.getElementById("controlsHelpOverlay");
+const controlsHelpGrid = document.getElementById("controlsHelpGrid");
+const sceneFilterSearch = document.getElementById("sceneFilterSearch");
+const sceneFilterChips = document.getElementById("sceneFilterChips");
+const sceneCardsEmpty = document.getElementById("sceneCardsEmpty");
+const sceneCardsEmptyReset = document.getElementById("sceneCardsEmptyReset");
+let activeFilter = "all";
+let searchQuery = "";
+let helpOverlayTimer = null;
 const calibrationInputs = {
   position: [
     document.getElementById("calibrationPositionX"),
@@ -308,7 +318,7 @@ function sanitizeSelectionPreferences(value = {}) {
     hdEnabled: false,
     sogMode: "classic",
     fpNavigationMode: "walk",
-    lodTier: autoPerformanceProfile.tier,
+    lodTier: "auto",
   };
 
   return {
@@ -317,7 +327,7 @@ function sanitizeSelectionPreferences(value = {}) {
     hdEnabled: value.hdEnabled === true,
     sogMode: ["classic", "streamed"].includes(value.sogMode) ? value.sogMode : defaults.sogMode,
     fpNavigationMode: ["walk", "fly"].includes(value.fpNavigationMode) ? value.fpNavigationMode : defaults.fpNavigationMode,
-    lodTier: ["lod0", "lod1", "lod2", "lod3", "lod4"].includes(value.lodTier) ? value.lodTier : defaults.lodTier,
+    lodTier: ["auto", "lod0", "lod1", "lod2", "lod3", "lod4"].includes(value.lodTier) ? value.lodTier : defaults.lodTier,
   };
 }
 
@@ -839,6 +849,10 @@ function evaluateSogPerformance(asset, fps, timestamp, monitor) {
       }
     }
 
+    return;
+  }
+
+  if (selectionPreferences.lodTier !== "auto") {
     return;
   }
 
@@ -1500,24 +1514,25 @@ function showPerformanceNotice(key, message) {
 
 function getFriendlyLoadError(error, asset = currentActiveAsset || getActiveAssetDescriptor()) {
   const message = String(error?.message || error || "");
+  const networkAdvice = " If this persists, try switching to a different network, using mobile data, or connecting to a personal hotspot.";
   if (/webgl|graphics device|context/i.test(message)) {
     return "The 3D renderer was interrupted. Try a lighter LOD, choose SOG LOD again, or use a desktop device for the highest detail.";
   }
   if (/lod-meta|metadata|json/i.test(message)) {
-    return "This streamed space could not load its scene metadata. Check your connection and try again.";
+    return "This streamed space could not load its scene metadata." + networkAdvice;
   }
   if (/timeout|timed out|stalled/i.test(message)) {
     return "This model is taking too long to prepare. You can choose another format or a lighter LOD without leaving the page.";
   }
   if (/failed to load|fetch|network|cors|404|403|asset/i.test(message)) {
-    return asset?.streamingEnabled
-      ? "Some 3D data failed to download. Check your connection and try again."
-      : "This space could not be loaded. Check your connection and try again.";
+    return (asset?.streamingEnabled
+      ? "Some 3D data failed to download. Check your connection."
+      : "This space could not be loaded. Check your connection.") + networkAdvice;
   }
   if (/memory|budget|allocation/i.test(message)) {
     return "This model may need more device resources. The highest-detail models are best on desktop; try Fast or Balanced LOD.";
   }
-  return "This space could not be loaded. Choose another format or LOD, or go back to all spaces.";
+  return "This space could not be loaded. Choose another format or LOD, or go back to all spaces." + networkAdvice;
 }
 
 function buildErrorDetails(error, asset = currentActiveAsset || getActiveAssetDescriptor(), extra = {}) {
@@ -1593,7 +1608,32 @@ function getSceneCardEntries() {
 }
 
 function renderSceneCards() {
-  const cards = getSceneCardEntries();
+  const allCards = getSceneCardEntries();
+  const searchLower = searchQuery.trim().toLowerCase();
+
+  const cards = allCards.filter((card) => {
+    if (activeFilter === "outdoor" && card.section !== "outdoor") return false;
+    if (activeFilter === "indoor" && card.section !== "interiors") return false;
+    if (activeFilter === "lab" && card.section !== "labs") return false;
+
+    if (searchLower) {
+      const matchTitle = card.title.toLowerCase().includes(searchLower);
+      const matchDesc = card.description.toLowerCase().includes(searchLower);
+      const matchContext = card.context.toLowerCase().includes(searchLower);
+      if (!matchTitle && !matchDesc && !matchContext) return false;
+    }
+    return true;
+  });
+
+  const isEmpty = cards.length === 0;
+  sceneCardsEmpty.hidden = !isEmpty;
+  sceneCardGrid.hidden = isEmpty;
+
+  if (isEmpty) {
+    sceneCardGrid.innerHTML = "";
+    return;
+  }
+
   const sections = [
     { id: "outdoor", eyebrow: "Campus & buildings", title: "Explore from the outside" },
     { id: "interiors", eyebrow: "Teaching & community", title: "Step inside" },
@@ -1610,6 +1650,20 @@ function renderSceneCards() {
         ? `<img src="${escapeHtml(card.thumbnail)}" alt="" loading="lazy" />`
         : `<span class="scene-card__monogram" aria-hidden="true">${escapeHtml(card.title.slice(0, 2).toUpperCase())}</span>`;
       const formats = card.formats.map((format) => `<span>${escapeHtml(FORMAT_LABELS[format] || format.toUpperCase())}</span>`).join("");
+
+      const sceneId = card.selection.scene || (card.selection.site === "campus" ? "campus-day" : "dit-main");
+      const exp = resolveSceneExperience(sceneId);
+      let badgeHtml = "";
+      if (isMobileDevice) {
+        if (exp?.performance?.weight === "heavy") {
+          badgeHtml = `<span class="scene-card__device-badge scene-card__device-badge--warn">⚠️ Best on desktop</span>`;
+        } else {
+          badgeHtml = `<span class="scene-card__device-badge scene-card__device-badge--good">✓ Recommended for device</span>`;
+        }
+      } else {
+        badgeHtml = `<span class="scene-card__device-badge scene-card__device-badge--good">✓ Optimized for desktop</span>`;
+      }
+
       return `
       <article class="scene-card" style="--card-index:${index}" data-card-id="${escapeHtml(card.id)}">
         <div class="scene-card__media${card.thumbnail ? " scene-card__media--thumbnail" : ""}">${media}</div>
@@ -1618,6 +1672,7 @@ function renderSceneCards() {
             <span>${escapeHtml(card.context)}</span>
             <span class="scene-card__formats">${formats}</span>
           </div>
+          ${badgeHtml}
           <h2>${escapeHtml(card.title)}</h2>
           <p>${escapeHtml(card.description)}</p>
           <button class="scene-card__cta" type="button" data-scene-card="${escapeHtml(card.id)}">
@@ -1653,6 +1708,7 @@ function enterViewerMode() {
   sceneSelection.setAttribute("aria-hidden", "true");
   viewerBackButton.hidden = false;
   updateMobileControlsUi();
+  showControlsHelpOverlay();
 }
 
 function exitViewerMode() {
@@ -1663,12 +1719,14 @@ function exitViewerMode() {
   isViewerMode = false;
   document.body.classList.remove("is-viewer-mode");
   document.body.classList.add("is-scene-selection");
+  document.body.classList.remove("is-error");
   sceneSelection.hidden = false;
   sceneSelection.setAttribute("aria-hidden", "false");
   sceneSelection.scrollTop = 0;
   viewerBackButton.hidden = true;
   setStatusOverlayState(true);
   updateMobileControlsUi();
+  hideControlsHelpOverlay();
 }
 
 async function selectSceneCard(cardId) {
@@ -2025,14 +2083,17 @@ function getFpNavigationModesForAsset(asset) {
 }
 
 function normalizeActiveFpNavigationMode(asset) {
+  const { modes, exp } = getFpNavigationModesForAsset(asset);
+  const defaultToWalk = isMobileDevice && exp?.navigation?.tapToMove && modes.includes("walk");
+  const preferredMode = defaultToWalk ? "walk" : selectionPreferences.fpNavigationMode;
+
   if (!asset?.streamingEnabled) {
-    activeFpNavigationMode = selectionPreferences.fpNavigationMode;
+    activeFpNavigationMode = preferredMode;
     return;
   }
 
-  const { modes, exp } = getFpNavigationModesForAsset(asset);
-  if (!modes.length || modes.includes(selectionPreferences.fpNavigationMode)) {
-    activeFpNavigationMode = selectionPreferences.fpNavigationMode;
+  if (!modes.length || modes.includes(preferredMode)) {
+    activeFpNavigationMode = preferredMode;
     return;
   }
 
@@ -2059,7 +2120,10 @@ function selectPerformanceSogAsset(asset) {
     return asset;
   }
 
-  const tier = selectionPreferences.lodTier || autoPerformanceProfile.tier;
+  let tier = selectionPreferences.lodTier || autoPerformanceProfile.tier;
+  if (tier === "auto") {
+    tier = autoPerformanceProfile.tier;
+  }
   const performanceSources = asset.performanceSources || {};
   let nextSrc = asset.src;
   let performanceTier = "lod0";
@@ -2962,7 +3026,7 @@ function renderSogModeMarkers() {
     return;
   }
 
-  sogModeMarkers.innerHTML = ["classic", "streamed"]
+  const markersHtml = ["classic", "streamed"]
     .map((mode) => `
       <button
         class="location-stage-marker"
@@ -2972,6 +3036,12 @@ function renderSogModeMarkers() {
       >${SOG_MODE_LABELS[mode]}</button>
     `)
     .join("");
+
+  const noteHtml = isMobileDevice
+    ? `<p class="sog-mode-note">Note: Streamed mode is best on a Wi-Fi connection.</p>`
+    : "";
+
+  sogModeMarkers.innerHTML = markersHtml + noteHtml;
 
   for (const button of sogModeMarkers.querySelectorAll(".location-stage-marker")) {
     button.addEventListener("click", () => {
@@ -3053,20 +3123,19 @@ function renderLodMarkers() {
     return;
   }
 
-  const availableTiers = [];
+  const availableTiers = ["auto"];
   if (currentActiveAsset?.performanceSources?.lod0) availableTiers.push("lod0");
   if (currentActiveAsset?.performanceSources?.lod1) availableTiers.push("lod1");
   if (currentActiveAsset?.performanceSources?.lod2) availableTiers.push("lod2");
   if (currentActiveAsset?.performanceSources?.lod3) availableTiers.push("lod3");
   if (currentActiveAsset?.performanceSources?.lod4) availableTiers.push("lod4");
 
-  if (availableTiers.length > 0 && !availableTiers.includes("lod0")) {
-      availableTiers.unshift("lod0");
-  } else if (availableTiers.length === 0) {
+  if (availableTiers.length > 1 && !availableTiers.includes("lod0")) {
       availableTiers.push("lod0");
   }
 
   const tierLabels = {
+    auto: "Auto",
     lod0: "Max",
     lod1: "High",
     lod2: "Balanced",
@@ -3075,21 +3144,26 @@ function renderLodMarkers() {
   };
 
   lodMarkers.innerHTML = availableTiers
-    .map((tier) => `
-      <button
-        class="location-stage-marker detail-stage-marker"
-        data-lod-tier="${tier}"
-        data-active="${String(tier === currentActiveAsset?.performanceTier)}"
-        aria-label="${tier.toUpperCase()} detail"
-        type="button"
-      ><span>${tierLabels[tier]}</span><small>${tier.toUpperCase()}</small></button>
-    `)
+    .map((tier) => {
+      const isActive = (tier === "auto")
+        ? (selectionPreferences.lodTier === "auto")
+        : (selectionPreferences.lodTier !== "auto" && tier === currentActiveAsset?.performanceTier);
+      return `
+        <button
+          class="location-stage-marker detail-stage-marker"
+          data-lod-tier="${tier}"
+          data-active="${String(isActive)}"
+          aria-label="${tier === "auto" ? "Auto quality" : tier.toUpperCase() + " detail"}"
+          type="button"
+        ><span>${tierLabels[tier]}</span><small>${tier === "auto" ? "AUTO" : tier.toUpperCase()}</small></button>
+      `;
+    })
     .join("");
 
   for (const button of lodMarkers.querySelectorAll(".location-stage-marker")) {
     button.addEventListener("click", () => {
       const tier = button.dataset.lodTier;
-      if (!tier || tier === currentActiveAsset?.performanceTier) {
+      if (!tier) {
         return;
       }
 
@@ -3899,12 +3973,24 @@ async function setActiveLodTier(tier) {
     return;
   }
 
-  if (tier === currentActiveAsset.performanceTier) {
+  if (tier === selectionPreferences.lodTier) {
     return;
   }
 
-  const nextAsset = getSogAssetForPerformanceTier(currentActiveAsset, tier);
+  const targetTier = tier === "auto" ? autoPerformanceProfile.tier : tier;
+  updateSelectionPreferences({ lodTier: tier });
+
+  if (tier === "auto") {
+    startSogPerformanceMonitor(currentActiveAsset);
+    if (currentActiveAsset.performanceTier === targetTier) {
+      updateLodToggle();
+      return;
+    }
+  }
+
+  const nextAsset = getSogAssetForPerformanceTier(currentActiveAsset, targetTier);
   if (!nextAsset) {
+    updateLodToggle();
     return;
   }
 
@@ -3915,12 +4001,15 @@ async function setActiveLodTier(tier) {
     );
   }
 
-  updateSelectionPreferences({ lodTier: tier });
   trackLodSelected(getAnalyticsSceneId(nextAsset), tier, getAnalyticsAssetMetadata(nextAsset, {
     reason: "manual",
     previous_tier: currentActiveAsset.performanceTier,
   }));
-  stopSogPerformanceMonitor();
+
+  if (tier !== "auto") {
+    stopSogPerformanceMonitor();
+  }
+
   await reloadSogAsset(nextAsset, { silent: false });
   updateLodToggle();
 }
@@ -4424,6 +4513,119 @@ for (const input of [
   });
 }
 
+function showControlsHelpOverlay() {
+  if (helpOverlayTimer) {
+    clearTimeout(helpOverlayTimer);
+  }
+
+  let markup = "";
+  if (isMobileDevice) {
+    markup = `
+      <kbd>Drag</kbd> <span>Look around</span>
+      <kbd>Pinch</kbd> <span>Zoom in / out</span>
+      <kbd>Double Tap</kbd> <span>Reset camera</span>
+      <kbd>Tap on Floor</kbd> <span>Move (Indoor walk)</span>
+    `;
+  } else {
+    markup = `
+      <kbd>Left Click + Drag</kbd> <span>Rotate camera</span>
+      <kbd>Right Click + Drag</kbd> <span>Pan camera</span>
+      <kbd>Scroll</kbd> <span>Zoom in / out</span>
+      <kbd>W / A / S / D</kbd> <span>Move (First-person)</span>
+      <kbd>Space / Q</kbd> <span>Go Up / Down</span>
+    `;
+  }
+  if (controlsHelpGrid) {
+    controlsHelpGrid.innerHTML = markup;
+  }
+  if (controlsHelpOverlay) {
+    controlsHelpOverlay.classList.add("is-visible");
+    controlsHelpOverlay.setAttribute("aria-hidden", "false");
+  }
+
+  helpOverlayTimer = setTimeout(() => {
+    hideControlsHelpOverlay();
+  }, 8000);
+}
+
+function hideControlsHelpOverlay() {
+  if (controlsHelpOverlay) {
+    controlsHelpOverlay.classList.remove("is-visible");
+    controlsHelpOverlay.setAttribute("aria-hidden", "true");
+  }
+  if (helpOverlayTimer) {
+    clearTimeout(helpOverlayTimer);
+    helpOverlayTimer = null;
+  }
+}
+
+function bindInteractiveUiEvents() {
+  if (sceneFilterSearch) {
+    sceneFilterSearch.addEventListener("input", (e) => {
+      searchQuery = e.target.value;
+      renderSceneCards();
+    });
+  }
+
+  if (sceneFilterChips) {
+    const chips = sceneFilterChips.querySelectorAll(".scene-filter-chip");
+    for (const chip of chips) {
+      chip.addEventListener("click", () => {
+        for (const other of chips) {
+          other.setAttribute("data-active", "false");
+        }
+        chip.setAttribute("data-active", "true");
+        activeFilter = chip.dataset.filter || "all";
+        renderSceneCards();
+      });
+    }
+  }
+
+  if (sceneCardsEmptyReset) {
+    sceneCardsEmptyReset.addEventListener("click", () => {
+      searchQuery = "";
+      activeFilter = "all";
+      if (sceneFilterSearch) {
+        sceneFilterSearch.value = "";
+      }
+      if (sceneFilterChips) {
+        for (const chip of sceneFilterChips.querySelectorAll(".scene-filter-chip")) {
+          chip.setAttribute("data-active", chip.dataset.filter === "all" ? "true" : "false");
+        }
+      }
+      renderSceneCards();
+    });
+  }
+
+  if (controlsHelpToggle) {
+    controlsHelpToggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isVisible = controlsHelpOverlay && controlsHelpOverlay.classList.contains("is-visible");
+      if (isVisible) {
+        hideControlsHelpOverlay();
+      } else {
+        showControlsHelpOverlay();
+      }
+    });
+  }
+
+  if (controlsHelpOverlay) {
+    controlsHelpOverlay.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hideControlsHelpOverlay();
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (controlsHelpOverlay && controlsHelpOverlay.classList.contains("is-visible")) {
+      if (controlsHelpOverlay.contains(e.target) || (controlsHelpToggle && controlsHelpToggle.contains(e.target))) {
+        return;
+      }
+      hideControlsHelpOverlay();
+    }
+  });
+}
+
 bindModelViewerEvents(modelViewer);
 syncNavigationState();
 updateLocationUi();
@@ -4435,6 +4637,7 @@ updateTurntableUi();
 isViewerMode = false;
 document.body.classList.add("is-scene-selection");
 renderSceneCards();
+bindInteractiveUiEvents();
 updateViewerLayerVisibility("none");
 setStatusOverlayState(true);
 updateMobileControlsUi();
