@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260708diag1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260728occlusion2";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260728calibration1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260709lodsafe1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
@@ -159,29 +159,21 @@ const SOG_MODE_LABELS = {
 const DEFAULT_FORMAT = "sog";
 const GLB_LOAD_TIMEOUT_MS = isMobileDevice ? 35000 : 60000;
 const SOG_CALIBRATION_QUERY_PARAM = "sog-calibration";
-const SOG_CALIBRATION_FLAG_KEY = "hua:sog-calibration-ui-enabled";
 const SOG_CALIBRATION_OVERRIDES_KEY = "hua:sog-calibration-overrides:v1";
 const SOG_STREAMED_TRANSFORMS_KEY = "hua:sog-streamed-transforms:v1";
 const SELECTION_PREFERENCES_KEY = "hua3d.selection.preferences:v1";
 const calibrationQueryEnabled =
   new URLSearchParams(window.location.search).get(SOG_CALIBRATION_QUERY_PARAM) === "1";
-const calibrationFlagEnabled =
-  safeLocalStorageGet(SOG_CALIBRATION_FLAG_KEY) === "1" ||
-  safeLocalStorageGet(SOG_CALIBRATION_FLAG_KEY) === "true";
-const calibrationUiUnlocked = calibrationQueryEnabled || calibrationFlagEnabled;
+const calibrationUiUnlocked = calibrationQueryEnabled;
 const cinematicModeEnabled = new URLSearchParams(window.location.search).get("cinematic") === "1";
 const cinematicAuthorEnabled =
   cinematicModeEnabled && new URLSearchParams(window.location.search).get("author") === "1";
-
-if (calibrationQueryEnabled) {
-  safeLocalStorageSet(SOG_CALIBRATION_FLAG_KEY, "1");
-}
 
 installSceneCalibrationExportHelper();
 
 const streamedTransformsDefaults = SCENE_CALIBRATION_DEFAULTS.streamedTransforms || {};
 const manualBoxDefaults = SCENE_CALIBRATION_DEFAULTS.manualBoxOverrides || {};
-const streamedTransformsOverrides = calibrationUiUnlocked ? loadStreamedTransformsOverrides() : {};
+const streamedTransformsOverrides = loadStreamedTransformsOverrides();
 
 function loadStreamedTransformsOverrides() {
   const raw = safeLocalStorageGet(SOG_STREAMED_TRANSFORMS_KEY);
@@ -1105,7 +1097,7 @@ const FORMAT_LABELS = {
 const FORMAT_PRIORITY = ["sog", "glb"];
 const GITHUB_MEDIA_BASE_URL = "https://media.githubusercontent.com/media/Petrakous/Hua-3D-Showcase/main/";
 const GITHUB_RAW_BASE_URL = "https://raw.githubusercontent.com/Petrakous/Hua-3D-Showcase/main/";
-const calibrationOverrides = calibrationUiUnlocked ? loadCalibrationOverrides() : {};
+const calibrationOverrides = loadCalibrationOverrides();
 const calibrationSessionDefaults = new Map();
 const calibrationSessionSceneDefaults = new Map();
 const calibrationSessionCameraDefaults = new Map();
@@ -1251,7 +1243,7 @@ function applyCalibrationOverrideToAsset(asset) {
           cameraRotationDegrees: streamedOverride.cameraStart.rotationDegrees,
         };
       }
-      if (asset.streamingEnabled && streamedOverride.collision) {
+      if (streamedOverride.collision) {
         updatedAsset.collisionPosition = streamedOverride.collision.position;
         updatedAsset.collisionRotationDegrees = streamedOverride.collision.rotationDegrees;
         updatedAsset.collisionRotation = degreesToQuaternion(streamedOverride.collision.rotationDegrees);
@@ -1821,7 +1813,12 @@ function shouldIgnoreHotspotNudgeEvent(event) {
 }
 
 function handleHotspotNudgeKeydown(event) {
-  if (!calibrationUiUnlocked || !activeHotspots.length || shouldIgnoreHotspotNudgeEvent(event)) {
+  if (
+    !calibrationUiUnlocked ||
+    !calibrationPanelOpen ||
+    !activeHotspots.length ||
+    shouldIgnoreHotspotNudgeEvent(event)
+  ) {
     return;
   }
   const nudge = getHotspotNudgeForKey(event.key, event.code);
@@ -1911,7 +1908,7 @@ function selectHotspotForCalibration(hotspotId) {
 }
 
 function nudgeSelectedHotspot(axis, direction) {
-  if (!calibrationUiUnlocked || !activeHotspots.length) return false;
+  if (!calibrationUiUnlocked || !calibrationPanelOpen || !activeHotspots.length) return false;
   const hotspot = getSelectedHotspot();
   if (!hotspot) return false;
   const step = Number.parseFloat(hotspotCalibrationStep.value) || 0.1;
@@ -3100,7 +3097,7 @@ function updateCalibrationUi() {
   calibrationSave.style.display = "";
   calibrationLodControls.hidden = isStreamed;
   calibrationFlyCollisionControl.hidden = !isStreamed;
-  calibrationCollisionPreviewControl.hidden = !isStreamed;
+  calibrationCollisionPreviewControl.hidden = !currentActiveAsset?.fpCollisionSource;
   calibrationGridControl.hidden = false;
   calibrationAxesControl.hidden = false;
   calibrationTargetControl.hidden = false;
@@ -3109,7 +3106,7 @@ function updateCalibrationUi() {
   calibrationBoxPreviewControl.hidden = isStreamed;
   calibrationSetCurrent.hidden = true;
   calibrationFlyIgnoreCollision.checked = isStreamed && sogViewer.getFlyCollisionIgnored?.() === true;
-  calibrationShowCollision.checked = isStreamed && sogViewer.getCollisionPreviewVisible?.() === true;
+  calibrationShowCollision.checked = sogViewer.getCollisionPreviewVisible?.() === true;
   if (!isStreamed) {
     calibrationCullingEnabled.checked = sogViewer.getCutawayEnabled?.() !== false;
   }
@@ -4941,7 +4938,6 @@ calibrationFlyIgnoreCollision.addEventListener("change", () => {
 });
 
 calibrationShowCollision.addEventListener("change", () => {
-  if (!currentActiveAsset?.streamingEnabled) return;
   sogViewer.setCollisionPreviewVisible?.(calibrationShowCollision.checked);
 });
 

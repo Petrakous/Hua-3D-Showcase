@@ -521,6 +521,7 @@ class PlayCanvasSogViewer {
     this.hotspotOcclusionSource = "";
     this.collisionPreviewEntity = null;
     this.collisionPreviewAsset = null;
+    this.collisionPreviewLoadPromise = null;
     this.collisionPreviewTransform = null;
     this.sceneTransform = null;
     this.collisionPreviewVisible = false;
@@ -967,7 +968,7 @@ class PlayCanvasSogViewer {
   }
 
   async loadCollisionPreview(asset = this.currentAsset, generation = this.loadGeneration) {
-    if (!asset?.streamingEnabled || !asset.fpCollisionSource || !this.app || !this.pc) return;
+    if (!asset?.fpCollisionSource || !this.app || !this.pc) return;
     const app = this.app;
     if (this.collisionPreviewEntity) this.collisionPreviewEntity.destroy();
     if (this.collisionPreviewAsset) {
@@ -1044,6 +1045,28 @@ class PlayCanvasSogViewer {
   setCollisionPreviewVisible(visible) {
     this.collisionPreviewVisible = visible === true;
     if (this.collisionPreviewEntity) this.collisionPreviewEntity.enabled = this.collisionPreviewVisible;
+    if (
+      this.collisionPreviewVisible &&
+      !this.collisionPreviewEntity &&
+      !this.collisionPreviewLoadPromise &&
+      this.currentAsset?.fpCollisionSource
+    ) {
+      const generation = this.loadGeneration;
+      const loadPromise = this.loadCollisionPreview(this.currentAsset, generation)
+        .catch((error) => {
+          if (this.isLoadCurrent(generation)) {
+            logger.warn("sog-loader", "Collision preview failed", {
+              source: this.currentAsset?.fpCollisionSource || null,
+            }, error);
+          }
+        })
+        .finally(() => {
+          if (this.collisionPreviewLoadPromise === loadPromise) {
+            this.collisionPreviewLoadPromise = null;
+          }
+        });
+      this.collisionPreviewLoadPromise = loadPromise;
+    }
     if (this.app) this.app.renderNextFrame = true;
   }
 
@@ -1086,7 +1109,7 @@ class PlayCanvasSogViewer {
   }
 
   rebuildCollisionFromPreview() {
-    if (!this.pc || !this.collisionPreviewEntity || !this.currentAsset?.streamingEnabled) {
+    if (!this.pc || !this.collisionPreviewEntity) {
       return;
     }
     try {
@@ -3814,6 +3837,7 @@ class PlayCanvasSogViewer {
     this.sceneTransform = null;
     if (this.collisionPreviewEntity) this.collisionPreviewEntity.destroy();
     this.collisionPreviewEntity = null;
+    this.collisionPreviewLoadPromise = null;
     // Spawn marker cleanup
     if (this._spawnMarkerEntity) this._spawnMarkerEntity.destroy();
     this._spawnMarkerEntity = null;
