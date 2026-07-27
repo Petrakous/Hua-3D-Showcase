@@ -216,6 +216,7 @@ class SimpleOrbitController {
   constructor(canvas, options = {}) {
     this.canvas = canvas;
     this.onChange = options.onChange || (() => {});
+    this.onUserInteraction = options.onUserInteraction || (() => {});
     this.onPanStateChange = options.onPanStateChange || (() => {});
     this.getFieldOfView = options.getFieldOfView || (() => 45);
     this.minDistance = options.minDistance ?? DEFAULT_ORBIT_MIN_DISTANCE;
@@ -272,6 +273,9 @@ class SimpleOrbitController {
       this.lastX = event.clientX;
       this.lastY = event.clientY;
 
+      if (deltaX || deltaY) {
+        this.onUserInteraction();
+      }
       if (this.dragMode === "pan") {
         this.panOrbitTarget(state, deltaX, deltaY);
       } else {
@@ -299,6 +303,7 @@ class SimpleOrbitController {
 
     const wheel = (event) => {
       event.preventDefault();
+      this.onUserInteraction();
       const factor = event.deltaY > 0 ? 1.08 : 0.92;
       state.distance = this.clampDistance(state.distance * factor);
       this.onChange();
@@ -335,6 +340,9 @@ class SimpleOrbitController {
         const deltaY = touch.clientY - this.lastY;
         this.lastX = touch.clientX;
         this.lastY = touch.clientY;
+        if (deltaX || deltaY) {
+          this.onUserInteraction();
+        }
         state.yaw -= deltaX * 0.25;
         state.pitch = Math.max(-85, Math.min(85, state.pitch + deltaY * 0.2));
         this.onChange();
@@ -343,6 +351,13 @@ class SimpleOrbitController {
         const nextCenter = this.computeTouchCenter(event.touches);
         const deltaX = nextCenter.x - this.touchCenterX;
         const deltaY = nextCenter.y - this.touchCenterY;
+        if (
+          Math.abs(deltaX) > 0.01 ||
+          Math.abs(deltaY) > 0.01 ||
+          Math.abs(nextDistance - this.pinchDistance) > 0.01
+        ) {
+          this.onUserInteraction();
+        }
 
         if (Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01) {
           this.panOrbitTarget(state, deltaX, deltaY);
@@ -1376,22 +1391,39 @@ class PlayCanvasSogViewer {
   }
 
   getHotspotAtCanvasPoint(clientX, clientY) {
-    if (!this.canvas || !this.pc || !this.camera || !this.hotspotMarkerVisible) return "";
+    if (
+      !this.canvas ||
+      !this.pc ||
+      !this.hotspotOverlayCamera?.camera ||
+      !this.hotspotMarkerVisible
+    ) return "";
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return "";
-    const x = (clientX - rect.left) * ((this.canvas.offsetWidth || rect.width) / rect.width);
-    const y = (clientY - rect.top) * ((this.canvas.offsetHeight || rect.height) / rect.height);
+    // PlayCanvas projects into drawing-buffer pixels, while pointer events use
+    // CSS pixels. Converting here keeps the hit target locked to the GPU marker
+    // across browser zoom, DPR changes, and canvas resizing.
+    const renderScaleX = Math.max(1, this.canvas.width || rect.width) / rect.width;
+    const renderScaleY = Math.max(1, this.canvas.height || rect.height) / rect.height;
+    const x = (clientX - rect.left) * renderScaleX;
+    const y = (clientY - rect.top) * renderScaleY;
     let closestId = "";
     let closestScreenDistance = Infinity;
-    for (const hotspot of this.hotspotMarkerData) {
-      if (!hotspot.id || !hotspot.position.every(Number.isFinite)) continue;
-      const world = this.resolveHotspotWorldPoint(hotspot);
-      const projected = this.worldToContainerPoint(world);
-      if (!projected?.visible) continue;
+    for (const [id, entity] of this.hotspotMarkerEntities.entries()) {
+      if (!id || !entity?.enabled) continue;
+      const projected = this.hotspotOverlayCamera.camera.worldToScreen(
+        entity.getPosition(),
+        new this.pc.Vec3()
+      );
+      if (!projected || projected.z < 0 || ![projected.x, projected.y].every(Number.isFinite)) {
+        continue;
+      }
       const screenDistance = Math.hypot(x - projected.x, y - projected.y);
-      if (screenDistance <= 38 && screenDistance < closestScreenDistance) {
+      const renderedDiameter = entity._huaHotspotScreenDiameter || 50;
+      const hitRadius =
+        (renderedDiameter * 0.5 + 4) * Math.max(renderScaleX, renderScaleY);
+      if (screenDistance <= hitRadius && screenDistance < closestScreenDistance) {
         closestScreenDistance = screenDistance;
-        closestId = hotspot.id;
+        closestId = id;
       }
     }
     return closestId;
@@ -1481,6 +1513,7 @@ class PlayCanvasSogViewer {
       entity.setPosition(world);
       entity.lookAt(this.camera.getPosition());
       entity.setLocalScale(worldSize, worldSize, worldSize);
+      entity._huaHotspotScreenDiameter = basePixels;
       entity._huaHotspotVisual?.pulse?.setLocalScale(pulseScale, pulseScale, pulseScale);
       entity.enabled = this.hotspotMarkerVisible;
     }
@@ -1859,6 +1892,17 @@ class PlayCanvasSogViewer {
     if (!this.orbitController) {
       this.orbitController = new SimpleOrbitController(this.canvas, {
         getFieldOfView: () => this.camera?.camera?.fov ?? viewPreset?.fov ?? 60,
+        onUserInteraction: () => {
+          if (!this.autoRotate) {
+            return;
+          }
+          this.stopAutoRotate();
+          this.container?.dispatchEvent?.(
+            new CustomEvent("sog-user-interaction", {
+              detail: { mode: "orbit" },
+            })
+          );
+        },
         onChange: () => {
           if (this.app) {
             this.app.renderNextFrame = true;

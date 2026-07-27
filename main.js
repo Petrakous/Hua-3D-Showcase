@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260708diag1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260711hotspot1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260727interaction1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260709lodsafe1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
@@ -2789,6 +2789,7 @@ function bindModelViewerEvents(element) {
   element.addEventListener("progress", handleModelViewerProgress);
   element.addEventListener("load", handleModelViewerLoad);
   element.addEventListener("error", handleModelViewerError);
+  element.addEventListener("camera-change", handleModelViewerCameraChange);
 }
 
 function replaceModelViewerElement() {
@@ -3875,6 +3876,31 @@ function applyTurntableState() {
   modelViewer.autoRotate = turntableEnabled;
 }
 
+function shouldEnableTurntableByDefault(asset) {
+  return (
+    !cinematicAuthorEnabled &&
+    activeEnvironmentId === "outside" &&
+    !asset?.streamingEnabled
+  );
+}
+
+function disableTurntableFromUserInteraction() {
+  if (!turntableEnabled) {
+    return false;
+  }
+
+  turntableEnabled = false;
+  updateTurntableUi();
+  applyTurntableState();
+  return true;
+}
+
+function handleModelViewerCameraChange(event) {
+  if (event.detail?.source === "user-interaction") {
+    disableTurntableFromUserInteraction();
+  }
+}
+
 function toggleTurntable() {
   turntableEnabled = !turntableEnabled;
   updateTurntableUi();
@@ -3937,7 +3963,7 @@ async function activateGlbAsset(asset, swapId) {
     scene_id: getAnalyticsSceneId(asset),
     source: resolvedSource,
   });
-  turntableEnabled = !cinematicAuthorEnabled;
+  turntableEnabled = shouldEnableTurntableByDefault(asset);
   updateTurntableUi();
 
   sogViewer.dispose();
@@ -3965,11 +3991,7 @@ async function activateSplatAsset(asset, swapId, options = {}) {
     return;
   }
 
-  if (asset.streamingEnabled) {
-    turntableEnabled = false;
-  } else {
-    turntableEnabled = !cinematicAuthorEnabled;
-  }
+  turntableEnabled = shouldEnableTurntableByDefault(asset);
   updateTurntableUi();
 
   if (currentEngineType !== "splat" || currentAssetKey !== asset.key) {
@@ -4845,14 +4867,8 @@ splatViewerMount.addEventListener("sog-pan-visibilitychange", (event) => {
   updateOrbitTargetIndicatorVisibility();
 });
 
-splatViewerMount.addEventListener("fp-user-interaction", () => {
-  if (!turntableEnabled) {
-    return;
-  }
-
-  turntableEnabled = false;
-  updateTurntableUi();
-});
+splatViewerMount.addEventListener("fp-user-interaction", disableTurntableFromUserInteraction);
+splatViewerMount.addEventListener("sog-user-interaction", disableTurntableFromUserInteraction);
 
 splatViewerMount.addEventListener("sog-camera-frame", () => {
   updateHotspotOverlay();
