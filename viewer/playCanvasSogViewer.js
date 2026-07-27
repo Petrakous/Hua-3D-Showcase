@@ -14,6 +14,7 @@ const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
 const HOTSPOT_PICKER_SCALE = 0.25;
 const HOTSPOT_HOVER_LIFT_PIXELS = 10;
 const HOTSPOT_HOVER_LIFT_DECAY_MS = 110;
+const HOTSPOT_OCCLUSION_TARGET_EPSILON = 0.4;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const DEFAULT_ORBIT_MIN_DISTANCE = 0.2;
 const DEFAULT_ORBIT_MAX_DISTANCE = 200;
@@ -514,6 +515,8 @@ class PlayCanvasSogViewer {
     this.streamingReadyState = null;
     this.currentCutawayBoxConfig = null;
     this.fpCollision = null;
+    this.hotspotOcclusionCollision = null;
+    this.hotspotOcclusionSource = "";
     this.collisionPreviewEntity = null;
     this.collisionPreviewAsset = null;
     this.collisionPreviewTransform = null;
@@ -1088,6 +1091,8 @@ class PlayCanvasSogViewer {
       const collision = buildMeshCollisionFromEntity(this.pc, this.collisionPreviewEntity);
       if (collision) {
         this.fpCollision = collision;
+        this.hotspotOcclusionCollision = collision;
+        this.hotspotOcclusionSource = this.currentAsset?.fpCollisionSource || "";
         this.hotspotSurfaceAnchors.clear();
         this.fpNavigationController?.setCollision?.(collision);
       }
@@ -1331,19 +1336,64 @@ class PlayCanvasSogViewer {
     this.hotspotOverlayCamera.camera.rect = this.camera.camera.rect;
   }
 
+  async prepareHotspotOcclusionCollision(asset = this.currentAsset, generation = this.loadGeneration) {
+    if (!asset?.fpCollisionSource || asset.fpCollisionStrategy === "box" || !this.app || !this.pc) {
+      this.hotspotOcclusionCollision = this.fpCollision;
+      this.hotspotOcclusionSource = "";
+      return;
+    }
+    if (
+      this.hotspotOcclusionCollision &&
+      this.hotspotOcclusionSource === asset.fpCollisionSource
+    ) {
+      return;
+    }
+
+    const app = this.app;
+    this.hotspotOcclusionCollision = null;
+    this.hotspotOcclusionSource = "";
+    this.hotspotSurfaceAnchors.clear();
+    try {
+      const collision = this.fpCollision || await loadMeshCollisionFromGlb(
+        app,
+        this.pc,
+        asset.fpCollisionSource,
+        {
+          position: asset.collisionPosition || asset.position,
+          rotation: asset.collisionRotation || asset.rotation,
+          scale: asset.collisionScale || asset.scale,
+        }
+      );
+      if (!this.isLoadCurrent(generation) || this.app !== app) return;
+      this.hotspotOcclusionCollision = collision;
+      this.hotspotOcclusionSource = collision ? asset.fpCollisionSource : "";
+      this.hotspotSurfaceAnchors.clear();
+      this.app.renderNextFrame = true;
+    } catch (error) {
+      if (!this.isLoadCurrent(generation) || this.app !== app) return;
+      this.hotspotOcclusionCollision = this.fpCollision;
+      this.hotspotOcclusionSource = "";
+      logger.warn("sog-loader", "Hotspot occlusion collision failed", {
+        source: asset.fpCollisionSource,
+        scene_source: asset.src,
+      }, error);
+    }
+  }
+
   resolveHotspotWorldPoint(hotspot) {
+    const surfaceCollision = this.hotspotOcclusionCollision || this.fpCollision;
     const signature = hotspot.position.map((value) => Number(value).toFixed(5)).join("|");
     const cached = this.hotspotSurfaceAnchors.get(hotspot.id);
     if (
       cached?.signature === signature &&
-      (cached.snapped || !this.fpCollision?.queryClosestPoint)
+      (cached.snapped || !surfaceCollision?.queryClosestPoint)
     ) {
       return cached.point.clone();
     }
 
     const local = new this.pc.Vec3(...hotspot.position);
     const configuredWorld = this.transformScenePointToWorld(this.pc, local);
-    const snapped = this.fpCollision?.queryClosestPoint?.(
+    const snapped = surfaceCollision?.queryClosestPoint?.(
       configuredWorld.x,
       configuredWorld.y,
       configuredWorld.z,
@@ -1359,6 +1409,28 @@ class PlayCanvasSogViewer {
       snapDistance: snapped?.distance ?? null,
     });
     return point;
+  }
+
+  isHotspotOccluded(worldPoint) {
+    const collision = this.hotspotOcclusionCollision || this.fpCollision;
+    if (!collision?.queryRay || !this.camera) return false;
+
+    const cameraPosition = this.camera.getPosition();
+    const direction = worldPoint.clone().sub(cameraPosition);
+    const distance = direction.length();
+    const maxDistance = distance - HOTSPOT_OCCLUSION_TARGET_EPSILON;
+    if (maxDistance <= 0.01) return false;
+    direction.mulScalar(1 / distance);
+
+    return !!collision.queryRay(
+      cameraPosition.x,
+      cameraPosition.y,
+      cameraPosition.z,
+      direction.x,
+      direction.y,
+      direction.z,
+      maxDistance
+    );
   }
 
   createHotspotMarkerEntity(id) {
@@ -1591,6 +1663,7 @@ class PlayCanvasSogViewer {
       if (!entity) continue;
 
       const world = this.resolveHotspotWorldPoint(hotspot);
+      const occluded = this.isHotspotOccluded(world);
       const hovered = hotspot.id === this.hotspotHoveredId;
       const basePixels = hotspot.selected ? 56 : 50;
       const distance = Math.max(0.1, world.distance(this.camera.getPosition()));
@@ -1614,7 +1687,10 @@ class PlayCanvasSogViewer {
       entity.lookAt(this.camera.getPosition());
       entity.setLocalScale(worldSize, worldSize, worldSize);
       entity._huaHotspotVisual?.pulse?.setLocalScale(pulseScale, pulseScale, pulseScale);
-      entity.enabled = this.hotspotMarkerVisible;
+      entity.enabled = this.hotspotMarkerVisible && !occluded;
+      if (occluded && hovered) {
+        this.setHotspotHover("");
+      }
     }
 
     if (this.hotspotMaterials?.pulse) {
@@ -2200,6 +2276,8 @@ class PlayCanvasSogViewer {
       });
       if (!this.isLoadCurrent(generation)) return asset;
       this.fpCollision = collision;
+      this.hotspotOcclusionCollision = collision;
+      this.hotspotOcclusionSource = collision ? asset.fpCollisionSource : "";
       if (!collision) {
         return asset;
       }
@@ -3347,6 +3425,7 @@ class PlayCanvasSogViewer {
         : null;
       this.syncCutawayState(this.pc, { immediate: true });
       this.configureStreaming(asset);
+      void this.prepareHotspotOcclusionCollision(asset, generation);
       if (asset.streamingEnabled) {
         this.firstPersonTransitionPending = false;
         this.startFirstPersonNavigation(this.pc);
@@ -3521,6 +3600,7 @@ class PlayCanvasSogViewer {
       rotationDegrees: preparedAsset.rotationDegrees || [r.x, r.y, r.z],
       scale: preparedAsset.scale || [1, 1, 1],
     };
+    void this.prepareHotspotOcclusionCollision(preparedAsset, generation);
 
     const aabb = splatEntity.gsplat?.customAabb || splatEntity.gsplat?.aabb || splatAsset.resource?.aabb;
     const center = aabb?.center?.clone?.() || new pc.Vec3(0, 0, 0);
@@ -3671,6 +3751,8 @@ class PlayCanvasSogViewer {
     this.activeFpCollisionBoxConfig = null;
     this.currentAsset = null;
     this.fpCollision = null;
+    this.hotspotOcclusionCollision = null;
+    this.hotspotOcclusionSource = "";
     if (this._collisionRebuildTimer) {
       clearTimeout(this._collisionRebuildTimer);
       this._collisionRebuildTimer = null;
