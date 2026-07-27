@@ -15,13 +15,15 @@ $blenderCandidates = @(
     "C:\Program Files\Blender Foundation\Blender 5.1\blender.exe",
     "C:\Program Files\Blender Foundation\Blender 5.0\blender.exe",
     "C:\Program Files\Blender Foundation\Blender 4.5\blender.exe"
-) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+)
+$blender = $blenderCandidates |
+    Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
+    Select-Object -First 1
 
-if (-not $blenderCandidates) {
+if (-not $blender) {
     throw "Blender was not found. Install Blender 4.5+ or add blender.exe to PATH."
 }
 
-$blender = $blenderCandidates[0]
 $inputGlb = Join-Path $repositoryRoot "dist-r2-assets\assets\outdoors\campus-day\glb\hd.glb"
 $pilotDirectory = Join-Path $repositoryRoot ".collision-pilot\campus-day"
 $voxelTag = $VoxelSize.ToString("0.###", [Globalization.CultureInfo]::InvariantCulture).Replace(".", "p")
