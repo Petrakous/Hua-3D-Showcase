@@ -97,6 +97,7 @@ def clean_mesh(obj: bpy.types.Object, merge_distance: float) -> None:
     bm.to_mesh(mesh)
     bm.free()
     mesh.update()
+    mesh.validate(verbose=False, clean_customdata=True)
 
     mesh.materials.clear()
     for uv_layer in list(mesh.uv_layers):
