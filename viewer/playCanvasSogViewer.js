@@ -11,7 +11,9 @@ const CANVAS_PIXEL_BUDGET = {
 const ORBIT_DAMPING_DECAY_MS = 140;
 const CUTAWAY_DAMPING_DECAY_MS = 110;
 const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
-const HOTSPOT_PICKER_SCALE = 0.5;
+const HOTSPOT_PICKER_SCALE = 0.25;
+const HOTSPOT_HOVER_LIFT_PIXELS = 10;
+const HOTSPOT_HOVER_LIFT_DECAY_MS = 110;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const DEFAULT_ORBIT_MIN_DISTANCE = 0.2;
 const DEFAULT_ORBIT_MAX_DISTANCE = 200;
@@ -1512,7 +1514,7 @@ class PlayCanvasSogViewer {
       this.hotspotPointerStart = {
         x: event.clientX,
         y: event.clientY,
-        idPromise: this.queueHotspotPick(event.clientX, event.clientY),
+        id: this.hotspotHoveredId || "",
       };
     };
     const onPointerMove = (event) => {
@@ -1528,11 +1530,11 @@ class PlayCanvasSogViewer {
       const start = this.hotspotPointerStart;
       this.hotspotPointerStart = null;
       if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) return;
-      const [startId, id] = await Promise.all([
-        start.idPromise,
-        this.queueHotspotPick(event.clientX, event.clientY),
-      ]);
-      if (!startId || id !== startId) return;
+      const id =
+        start.id && start.id === this.hotspotHoveredId
+          ? start.id
+          : await this.queueHotspotPick(event.clientX, event.clientY);
+      if (!id) return;
       this.container?.dispatchEvent?.(new CustomEvent("sog-hotspot-activate", { detail: { id } }));
     };
     const onPointerLeave = () => {
@@ -1554,7 +1556,7 @@ class PlayCanvasSogViewer {
     this.hotspotInteractionDisposeFns.push(() => canvas.removeEventListener("pointerleave", onPointerLeave));
   }
 
-  syncHotspotMarkerEntities() {
+  syncHotspotMarkerEntities(deltaSeconds = 0) {
     if (!this.pc || !this.app || !this.camera?.camera) return;
     if (!this.ensureHotspotOverlayRenderer()) return;
     this.syncHotspotOverlayCamera();
@@ -1571,6 +1573,13 @@ class PlayCanvasSogViewer {
 
     const time = performance.now() * 0.001;
     const fovRadians = ((this.camera.camera.fov || 60) * Math.PI) / 180;
+    const cameraUp = this.camera
+      .getRotation()
+      .transformVector(new this.pc.Vec3(0, 1, 0))
+      .normalize();
+    const liftAlpha = deltaSeconds > 0
+      ? 1 - Math.exp(-(deltaSeconds * 1000) / HOTSPOT_HOVER_LIFT_DECAY_MS)
+      : 1;
 
     for (const hotspot of this.hotspotMarkerData) {
       if (!hotspot.id || !hotspot.position.every(Number.isFinite)) continue;
@@ -1583,14 +1592,25 @@ class PlayCanvasSogViewer {
 
       const world = this.resolveHotspotWorldPoint(hotspot);
       const hovered = hotspot.id === this.hotspotHoveredId;
-      const basePixels = hotspot.selected ? 56 : hovered ? 55 : 50;
+      const basePixels = hotspot.selected ? 56 : 50;
       const distance = Math.max(0.1, world.distance(this.camera.getPosition()));
       const worldPerPixel = (2 * distance * Math.tan(fovRadians * 0.5)) / canvasHeight;
       const worldSize = worldPerPixel * basePixels;
+      const targetLift = hovered ? 1 : 0;
+      const currentLift = Number(entity._huaHotspotHoverLift || 0);
+      const nextLift = currentLift + (targetLift - currentLift) * liftAlpha;
+      entity._huaHotspotHoverLift = Math.abs(targetLift - nextLift) < 0.001
+        ? targetLift
+        : nextLift;
+      const renderPosition = world.clone().add(
+        cameraUp.clone().mulScalar(
+          worldPerPixel * HOTSPOT_HOVER_LIFT_PIXELS * entity._huaHotspotHoverLift
+        )
+      );
       const pulseProgress = (time * 0.62) % 1;
       const pulseScale = 1.12 + pulseProgress * 0.48;
 
-      entity.setPosition(world);
+      entity.setPosition(renderPosition);
       entity.lookAt(this.camera.getPosition());
       entity.setLocalScale(worldSize, worldSize, worldSize);
       entity._huaHotspotVisual?.pulse?.setLocalScale(pulseScale, pulseScale, pulseScale);
@@ -3404,7 +3424,7 @@ class PlayCanvasSogViewer {
       }
       this.syncCutawayState(pc, { deltaSeconds });
       try {
-        this.syncHotspotMarkerEntities();
+        this.syncHotspotMarkerEntities(deltaSeconds);
         this.drawEditorGuides(pc);
         this.drawSpawnMarker(pc);
         this.drawCameraStartMarker(pc);
