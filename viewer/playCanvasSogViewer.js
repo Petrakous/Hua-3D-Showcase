@@ -1,5 +1,5 @@
 import { computeAutoCutaway } from "./autoCutaway.js?v=20260625fp22";
-import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260711hotspot1";
+import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260728ray1";
 import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629tap1";
 import { logger } from "./logger.js";
 
@@ -15,6 +15,8 @@ const HOTSPOT_PICKER_SCALE = 0.25;
 const HOTSPOT_HOVER_LIFT_PIXELS = 10;
 const HOTSPOT_HOVER_LIFT_DECAY_MS = 110;
 const HOTSPOT_OCCLUSION_TARGET_EPSILON = 0.4;
+const HOTSPOT_OCCLUSION_MIN_INTERVAL_MS = 50;
+const HOTSPOT_OCCLUSION_POSITION_EPSILON = 0.02;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const DEFAULT_ORBIT_MIN_DISTANCE = 0.2;
 const DEFAULT_ORBIT_MAX_DISTANCE = 200;
@@ -1094,6 +1096,7 @@ class PlayCanvasSogViewer {
         this.hotspotOcclusionCollision = collision;
         this.hotspotOcclusionSource = this.currentAsset?.fpCollisionSource || "";
         this.hotspotSurfaceAnchors.clear();
+        this.invalidateHotspotOcclusionCache();
         this.fpNavigationController?.setCollision?.(collision);
       }
     } catch (error) {
@@ -1368,6 +1371,7 @@ class PlayCanvasSogViewer {
       this.hotspotOcclusionCollision = collision;
       this.hotspotOcclusionSource = collision ? asset.fpCollisionSource : "";
       this.hotspotSurfaceAnchors.clear();
+      this.invalidateHotspotOcclusionCache();
       this.app.renderNextFrame = true;
     } catch (error) {
       if (!this.isLoadCurrent(generation) || this.app !== app) return;
@@ -1377,6 +1381,14 @@ class PlayCanvasSogViewer {
         source: asset.fpCollisionSource,
         scene_source: asset.src,
       }, error);
+    }
+  }
+
+  invalidateHotspotOcclusionCache() {
+    for (const entity of this.hotspotMarkerEntities.values()) {
+      entity._huaHotspotOcclusionCheckedAt = -Infinity;
+      entity._huaHotspotOcclusionCameraPosition = null;
+      entity._huaHotspotOcclusionWorldPoint = null;
     }
   }
 
@@ -1411,18 +1423,50 @@ class PlayCanvasSogViewer {
     return point;
   }
 
-  isHotspotOccluded(worldPoint) {
+  isHotspotOccluded(worldPoint, entity = null, now = performance.now()) {
     const collision = this.hotspotOcclusionCollision || this.fpCollision;
     if (!collision?.queryRay || !this.camera) return false;
 
     const cameraPosition = this.camera.getPosition();
+    const lastCameraPosition = entity?._huaHotspotOcclusionCameraPosition;
+    const lastWorldPoint = entity?._huaHotspotOcclusionWorldPoint;
+    const positionEpsilonSq = HOTSPOT_OCCLUSION_POSITION_EPSILON ** 2;
+    const cameraMovedSq = lastCameraPosition
+      ? (
+          (cameraPosition.x - lastCameraPosition.x) ** 2 +
+          (cameraPosition.y - lastCameraPosition.y) ** 2 +
+          (cameraPosition.z - lastCameraPosition.z) ** 2
+        )
+      : Infinity;
+    const markerMovedSq = lastWorldPoint
+      ? (
+          (worldPoint.x - lastWorldPoint.x) ** 2 +
+          (worldPoint.y - lastWorldPoint.y) ** 2 +
+          (worldPoint.z - lastWorldPoint.z) ** 2
+        )
+      : Infinity;
+    const lastCheckedAt = Number(entity?._huaHotspotOcclusionCheckedAt ?? -Infinity);
+    if (
+      entity &&
+      cameraMovedSq <= positionEpsilonSq &&
+      markerMovedSq <= positionEpsilonSq
+    ) {
+      return entity._huaHotspotOccluded === true;
+    }
+    if (
+      entity &&
+      now - lastCheckedAt < HOTSPOT_OCCLUSION_MIN_INTERVAL_MS
+    ) {
+      return entity._huaHotspotOccluded === true;
+    }
+
     const direction = worldPoint.clone().sub(cameraPosition);
     const distance = direction.length();
     const maxDistance = distance - HOTSPOT_OCCLUSION_TARGET_EPSILON;
     if (maxDistance <= 0.01) return false;
     direction.mulScalar(1 / distance);
 
-    return !!collision.queryRay(
+    const occluded = !!collision.queryRay(
       cameraPosition.x,
       cameraPosition.y,
       cameraPosition.z,
@@ -1431,6 +1475,13 @@ class PlayCanvasSogViewer {
       direction.z,
       maxDistance
     );
+    if (entity) {
+      entity._huaHotspotOccluded = occluded;
+      entity._huaHotspotOcclusionCheckedAt = now;
+      entity._huaHotspotOcclusionCameraPosition = cameraPosition.clone();
+      entity._huaHotspotOcclusionWorldPoint = worldPoint.clone();
+    }
+    return occluded;
   }
 
   createHotspotMarkerEntity(id) {
@@ -1663,7 +1714,7 @@ class PlayCanvasSogViewer {
       if (!entity) continue;
 
       const world = this.resolveHotspotWorldPoint(hotspot);
-      const occluded = this.isHotspotOccluded(world);
+      const occluded = this.isHotspotOccluded(world, entity, time * 1000);
       const hovered = hotspot.id === this.hotspotHoveredId;
       const basePixels = hotspot.selected ? 56 : 50;
       const distance = Math.max(0.1, world.distance(this.camera.getPosition()));
@@ -2278,6 +2329,7 @@ class PlayCanvasSogViewer {
       this.fpCollision = collision;
       this.hotspotOcclusionCollision = collision;
       this.hotspotOcclusionSource = collision ? asset.fpCollisionSource : "";
+      this.invalidateHotspotOcclusionCache();
       if (!collision) {
         return asset;
       }

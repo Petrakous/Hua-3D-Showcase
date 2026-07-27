@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260708diag1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260727occlusion1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260728occlusion2";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260709lodsafe1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";

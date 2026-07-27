@@ -320,19 +320,74 @@ class MeshCollision {
     return ids;
   }
 
+  collectRayCandidateTriangleIds(ox, oy, oz, dx, dy, dz, distance) {
+    const ids = new Set();
+    const cellSize = this.hashCellSize;
+    let ix = this.cellIndex(ox);
+    let iy = this.cellIndex(oy);
+    let iz = this.cellIndex(oz);
+    const stepX = Math.sign(dx);
+    const stepY = Math.sign(dy);
+    const stepZ = Math.sign(dz);
+    const tDeltaX = stepX ? cellSize / Math.abs(dx) : Infinity;
+    const tDeltaY = stepY ? cellSize / Math.abs(dy) : Infinity;
+    const tDeltaZ = stepZ ? cellSize / Math.abs(dz) : Infinity;
+    let tMaxX = stepX
+      ? (((stepX > 0 ? ix + 1 : ix) * cellSize) - ox) / dx
+      : Infinity;
+    let tMaxY = stepY
+      ? (((stepY > 0 ? iy + 1 : iy) * cellSize) - oy) / dy
+      : Infinity;
+    let tMaxZ = stepZ
+      ? (((stepZ > 0 ? iz + 1 : iz) * cellSize) - oz) / dz
+      : Infinity;
+    tMaxX = Math.max(0, tMaxX);
+    tMaxY = Math.max(0, tMaxY);
+    tMaxZ = Math.max(0, tMaxZ);
+
+    // Amanatides-Woo traversal visits only the hash cells crossed by the ray.
+    // The previous axis-aligned bounding-box scan could visit millions of cells
+    // for a long diagonal ray across an outdoor scene.
+    const endIx = this.cellIndex(ox + dx * distance);
+    const endIy = this.cellIndex(oy + dy * distance);
+    const endIz = this.cellIndex(oz + dz * distance);
+    const maxSteps =
+      Math.abs(endIx - ix) +
+      Math.abs(endIy - iy) +
+      Math.abs(endIz - iz) +
+      6;
+    for (let step = 0; step < maxSteps; step += 1) {
+      const bucket = this.spatialHash.get(this.hashKey(ix, iy, iz));
+      if (bucket) {
+        for (const triangleIndex of bucket) ids.add(triangleIndex);
+      }
+
+      const nextT = Math.min(tMaxX, tMaxY, tMaxZ);
+      if (!Number.isFinite(nextT) || nextT > distance) break;
+      const tieEpsilon = 1e-9;
+      if (tMaxX <= nextT + tieEpsilon) {
+        ix += stepX;
+        tMaxX += tDeltaX;
+      }
+      if (tMaxY <= nextT + tieEpsilon) {
+        iy += stepY;
+        tMaxY += tDeltaY;
+      }
+      if (tMaxZ <= nextT + tieEpsilon) {
+        iz += stepZ;
+        tMaxZ += tDeltaZ;
+      }
+    }
+
+    return ids;
+  }
+
   queryRay(ox, oy, oz, dx, dy, dz, maxDist = Infinity) {
     const distance = Number.isFinite(maxDist) ? maxDist : 1000;
-    const endX = ox + dx * distance;
-    const endY = oy + dy * distance;
-    const endZ = oz + dz * distance;
-    const padding = this.hashCellSize * 0.15;
-    const candidates = this.collectCandidateTriangleIds(
-      Math.min(ox, endX) - padding,
-      Math.min(oy, endY) - padding,
-      Math.min(oz, endZ) - padding,
-      Math.max(ox, endX) + padding,
-      Math.max(oy, endY) + padding,
-      Math.max(oz, endZ) + padding
+    const candidates = this.collectRayCandidateTriangleIds(
+      ox, oy, oz,
+      dx, dy, dz,
+      distance
     );
 
     let bestDistance = distance;
