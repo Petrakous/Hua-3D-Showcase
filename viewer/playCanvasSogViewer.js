@@ -14,13 +14,7 @@ const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
 const HOTSPOT_PICKER_SCALE = 0.25;
 const HOTSPOT_HOVER_LIFT_PIXELS = 10;
 const HOTSPOT_HOVER_LIFT_DECAY_MS = 110;
-const HOTSPOT_OCCLUSION_TARGET_EPSILON = 0.4;
-const HOTSPOT_OCCLUSION_MIN_INTERVAL_MS = 50;
-const HOTSPOT_OCCLUSION_POSITION_EPSILON = 0.02;
-const HOTSPOT_OCCLUSION_SAMPLE_RADIUS_PIXELS = 10;
-const HOTSPOT_OCCLUSION_REQUIRED_HITS = 4;
-const HOTSPOT_OCCLUSION_HIDE_CONFIRM_MS = 120;
-const HOTSPOT_OCCLUSION_SHOW_CONFIRM_MS = 60;
+const HOTSPOT_SURFACE_OFFSET_PIXELS = 2;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const DEFAULT_ORBIT_MIN_DISTANCE = 0.2;
 const DEFAULT_ORBIT_MAX_DISTANCE = 200;
@@ -521,8 +515,6 @@ class PlayCanvasSogViewer {
     this.streamingReadyState = null;
     this.currentCutawayBoxConfig = null;
     this.fpCollision = null;
-    this.hotspotOcclusionCollision = null;
-    this.hotspotOcclusionSource = "";
     this.collisionPreviewEntity = null;
     this.collisionPreviewAsset = null;
     this.collisionPreviewLoadPromise = null;
@@ -545,6 +537,11 @@ class PlayCanvasSogViewer {
     this.hotspotMarkerData = [];
     this.hotspotMarkerEntities = new Map();
     this.hotspotSurfaceAnchors = new Map();
+    this.hotspotOccluderLayer = null;
+    this.hotspotOccluderEntity = null;
+    this.hotspotOccluderAsset = null;
+    this.hotspotOccluderMaterial = null;
+    this.hotspotOccluderSource = "";
     this.hotspotOverlayLayer = null;
     this.hotspotOverlayCamera = null;
     this.hotspotMaterials = null;
@@ -1089,7 +1086,9 @@ class PlayCanvasSogViewer {
 
   setCollisionPreviewTransform(transform) {
     this.collisionPreviewTransform = transform;
-    if (!this.collisionPreviewEntity || !transform) return;
+    if (!transform) return;
+    this.applyHotspotOccluderTransform(this.currentAsset, transform);
+    if (!this.collisionPreviewEntity) return;
     this.collisionPreviewEntity.setLocalPosition(...transform.position);
     this.collisionPreviewEntity.setLocalEulerAngles(...transform.rotationDegrees);
     this.collisionPreviewEntity.setLocalScale(...transform.scale);
@@ -1120,10 +1119,7 @@ class PlayCanvasSogViewer {
       const collision = buildMeshCollisionFromEntity(this.pc, this.collisionPreviewEntity);
       if (collision) {
         this.fpCollision = collision;
-        this.hotspotOcclusionCollision = collision;
-        this.hotspotOcclusionSource = this.currentAsset?.fpCollisionSource || "";
         this.hotspotSurfaceAnchors.clear();
-        this.invalidateHotspotOcclusionCache();
         this.fpNavigationController?.setCollision?.(collision);
       }
     } catch (error) {
@@ -1307,8 +1303,24 @@ class PlayCanvasSogViewer {
     material.opacityMapChannel = "a";
     material.opacity = opacity;
     material.blendType = this.pc.BLEND_NORMAL;
-    material.depthTest = false;
+    material.depthTest = true;
     material.depthWrite = false;
+    material.cull = this.pc.CULLFACE_NONE;
+    material.update();
+    return material;
+  }
+
+  createHotspotOccluderMaterial() {
+    const material = new this.pc.StandardMaterial();
+    material.name = "HuaHotspotDepthOccluder";
+    material.useLighting = false;
+    material.blendType = this.pc.BLEND_NONE;
+    material.depthTest = true;
+    material.depthWrite = true;
+    material.redWrite = false;
+    material.greenWrite = false;
+    material.blueWrite = false;
+    material.alphaWrite = false;
     material.cull = this.pc.CULLFACE_NONE;
     material.update();
     return material;
@@ -1316,6 +1328,14 @@ class PlayCanvasSogViewer {
 
   ensureHotspotOverlayRenderer() {
     if (!this.pc || !this.app || !this.camera?.camera) return false;
+    if (!this.hotspotOccluderLayer) {
+      const layer = new this.pc.Layer({
+        name: "HotspotDepthOccluder",
+        opaqueSortMode: this.pc.SORTMODE_MANUAL,
+      });
+      this.app.scene.layers.pushOpaque(layer);
+      this.hotspotOccluderLayer = layer;
+    }
     if (!this.hotspotOverlayLayer) {
       const layer = new this.pc.Layer({
         name: "HotspotOverlay",
@@ -1336,7 +1356,7 @@ class PlayCanvasSogViewer {
         nearClip: this.camera.camera.nearClip,
         farClip: this.camera.camera.farClip,
         fov: this.camera.camera.fov,
-        layers: [this.hotspotOverlayLayer.id],
+        layers: [this.hotspotOccluderLayer.id, this.hotspotOverlayLayer.id],
       });
       this.app.root.addChild(overlayCamera);
       this.hotspotOverlayCamera = overlayCamera;
@@ -1350,6 +1370,93 @@ class PlayCanvasSogViewer {
         pulse: this.createHotspotMaterial(pulseTexture, 0.5),
       };
     }
+    if (!this.hotspotOccluderMaterial) {
+      this.hotspotOccluderMaterial = this.createHotspotOccluderMaterial();
+    }
+    return true;
+  }
+
+  applyHotspotOccluderTransform(asset = this.currentAsset, transform = null) {
+    if (!this.hotspotOccluderEntity) return;
+    if (transform) {
+      this.hotspotOccluderEntity.setLocalPosition(...(transform.position || [0, 0, 0]));
+      this.hotspotOccluderEntity.setLocalEulerAngles(...(transform.rotationDegrees || [0, 0, 0]));
+      this.hotspotOccluderEntity.setLocalScale(...(transform.scale || [1, 1, 1]));
+    } else {
+      this.hotspotOccluderEntity.setLocalPosition(...(asset?.collisionPosition || asset?.position || [0, 0, 0]));
+      const rotation = asset?.collisionRotation || asset?.rotation || [0, 0, 0, 1];
+      this.hotspotOccluderEntity.setLocalRotation(
+        rotation[0],
+        rotation[1],
+        rotation[2],
+        rotation[3]
+      );
+      this.hotspotOccluderEntity.setLocalScale(...(asset?.collisionScale || asset?.scale || [1, 1, 1]));
+    }
+    this.hotspotOccluderEntity.syncHierarchy();
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  releaseHotspotDepthOccluder() {
+    this.hotspotOccluderEntity?.destroy?.();
+    this.hotspotOccluderEntity = null;
+    if (this.hotspotOccluderAsset && this.app) {
+      this.app.assets.remove(this.hotspotOccluderAsset);
+      this.hotspotOccluderAsset.unload();
+    }
+    this.hotspotOccluderAsset = null;
+    this.hotspotOccluderSource = "";
+  }
+
+  async loadHotspotDepthOccluder(asset = this.currentAsset, generation = this.loadGeneration) {
+    if (!asset?.fpCollisionSource || !this.app || !this.pc) return false;
+    if (
+      this.hotspotOccluderEntity &&
+      this.hotspotOccluderSource === asset.fpCollisionSource
+    ) {
+      this.applyHotspotOccluderTransform(asset);
+      return true;
+    }
+    if (!this.ensureHotspotOverlayRenderer()) return false;
+
+    this.releaseHotspotDepthOccluder();
+    const app = this.app;
+    const occluderAsset = new this.pc.Asset(
+      "Hotspot depth occluder",
+      "container",
+      { url: asset.fpCollisionSource }
+    );
+    await new Promise((resolve, reject) => {
+      occluderAsset.once("load", resolve);
+      occluderAsset.once("error", reject);
+      app.assets.add(occluderAsset);
+      app.assets.load(occluderAsset);
+    });
+    if (!this.isLoadCurrent(generation) || this.app !== app || !occluderAsset.resource) {
+      app.assets.remove(occluderAsset);
+      occluderAsset.unload();
+      return false;
+    }
+
+    this.hotspotOccluderAsset = occluderAsset;
+    const entity = occluderAsset.resource.instantiateRenderEntity();
+    entity.name = "HotspotDepthOccluder";
+    const applyDepthOnlyRenderState = (node) => {
+      if (node.render) {
+        node.render.layers = [this.hotspotOccluderLayer.id];
+        for (const meshInstance of node.render.meshInstances || []) {
+          meshInstance.material = this.hotspotOccluderMaterial;
+          meshInstance.castShadow = false;
+          meshInstance.receiveShadow = false;
+        }
+      }
+      for (const child of node.children || []) applyDepthOnlyRenderState(child);
+    };
+    applyDepthOnlyRenderState(entity);
+    app.root.addChild(entity);
+    this.hotspotOccluderEntity = entity;
+    this.hotspotOccluderSource = asset.fpCollisionSource;
+    this.applyHotspotOccluderTransform(asset);
     return true;
   }
 
@@ -1372,214 +1479,41 @@ class PlayCanvasSogViewer {
     onState
   ) {
     if (!asset?.fpCollisionSource || asset.fpCollisionStrategy === "box" || !this.app || !this.pc) {
-      this.hotspotOcclusionCollision = this.fpCollision;
-      this.hotspotOcclusionSource = "";
-      return;
-    }
-    if (
-      this.hotspotOcclusionCollision &&
-      this.hotspotOcclusionSource === asset.fpCollisionSource
-    ) {
+      this.releaseHotspotDepthOccluder();
       return;
     }
 
     const app = this.app;
-    this.hotspotOcclusionCollision = null;
-    this.hotspotOcclusionSource = "";
     this.hotspotSurfaceAnchors.clear();
     const startedAt = performance.now();
     onState?.({
       status: "loading",
       title: "Preparing interactions",
-      message: "Loading scene collision for hotspots and navigation.",
+      message: "Preparing depth-aware hotspots.",
       progress: 0.92,
     });
     try {
-      const collision = this.fpCollision || await loadMeshCollisionFromGlb(
-        app,
-        this.pc,
-        asset.fpCollisionSource,
-        {
-          position: asset.collisionPosition || asset.position,
-          rotation: asset.collisionRotation || asset.rotation,
-          scale: asset.collisionScale || asset.scale,
-        }
-      );
+      const ready = await this.loadHotspotDepthOccluder(asset, generation);
       if (!this.isLoadCurrent(generation) || this.app !== app) return;
-      this.hotspotOcclusionCollision = collision;
-      this.hotspotOcclusionSource = collision ? asset.fpCollisionSource : "";
-      this.hotspotSurfaceAnchors.clear();
-      this.invalidateHotspotOcclusionCache();
       this.app.renderNextFrame = true;
-      logger.info("sog-loader", "Scene collision ready", {
+      logger.info("sog-loader", "Hotspot depth occluder ready", {
         source: asset.fpCollisionSource,
-        triangles: collision?.triangleCount || 0,
         elapsed_ms: Math.round(performance.now() - startedAt),
-        reused_first_person_collision: collision === this.fpCollision,
+        ready,
       });
     } catch (error) {
       if (!this.isLoadCurrent(generation) || this.app !== app) return;
-      this.hotspotOcclusionCollision = this.fpCollision;
-      this.hotspotOcclusionSource = "";
-      logger.warn("sog-loader", "Hotspot occlusion collision failed", {
+      this.releaseHotspotDepthOccluder();
+      logger.warn("sog-loader", "Hotspot depth occluder failed", {
         source: asset.fpCollisionSource,
         scene_source: asset.src,
       }, error);
     }
   }
 
-  invalidateHotspotOcclusionCache() {
-    for (const entity of this.hotspotMarkerEntities.values()) {
-      entity._huaHotspotOcclusionCheckedAt = -Infinity;
-      entity._huaHotspotOcclusionCameraPosition = null;
-      entity._huaHotspotOcclusionWorldPoint = null;
-      entity._huaHotspotOcclusionPending = null;
-    }
-  }
-
   resolveHotspotWorldPoint(hotspot) {
     const local = new this.pc.Vec3(...hotspot.position);
     return this.transformScenePointToWorld(this.pc, local);
-  }
-
-  isHotspotOccluded(worldPoint, entity = null, now = performance.now()) {
-    const collision = this.hotspotOcclusionCollision || this.fpCollision;
-    if (!collision?.queryRay || !this.camera) return false;
-
-    const cameraPosition = this.camera.getPosition();
-    const lastCameraPosition = entity?._huaHotspotOcclusionCameraPosition;
-    const lastWorldPoint = entity?._huaHotspotOcclusionWorldPoint;
-    const positionEpsilonSq = HOTSPOT_OCCLUSION_POSITION_EPSILON ** 2;
-    const cameraMovedSq = lastCameraPosition
-      ? (
-          (cameraPosition.x - lastCameraPosition.x) ** 2 +
-          (cameraPosition.y - lastCameraPosition.y) ** 2 +
-          (cameraPosition.z - lastCameraPosition.z) ** 2
-        )
-      : Infinity;
-    const markerMovedSq = lastWorldPoint
-      ? (
-          (worldPoint.x - lastWorldPoint.x) ** 2 +
-          (worldPoint.y - lastWorldPoint.y) ** 2 +
-          (worldPoint.z - lastWorldPoint.z) ** 2
-        )
-      : Infinity;
-    const lastCheckedAt = Number(entity?._huaHotspotOcclusionCheckedAt ?? -Infinity);
-    if (
-      entity &&
-      cameraMovedSq <= positionEpsilonSq &&
-      markerMovedSq <= positionEpsilonSq &&
-      !entity._huaHotspotOcclusionPending
-    ) {
-      return entity._huaHotspotOccluded === true;
-    }
-    if (
-      entity &&
-      now - lastCheckedAt < HOTSPOT_OCCLUSION_MIN_INTERVAL_MS
-    ) {
-      return entity._huaHotspotOccluded === true;
-    }
-
-    const centerDistance = worldPoint.distance(cameraPosition);
-    if (centerDistance <= HOTSPOT_OCCLUSION_TARGET_EPSILON + 0.01) return false;
-
-    // Sample the marker's screen-space footprint rather than trusting one
-    // center ray. A thin branch may cover one sample, while a building/wall
-    // normally covers the majority. This also tolerates small holes in a
-    // decimated collision proxy without making the marker flicker.
-    const canvasHeight = Math.max(1, this.canvas?.offsetHeight || this.container?.clientHeight || 720);
-    const fovRadians = ((this.camera.camera.fov || 60) * Math.PI) / 180;
-    const sampleRadius = (
-      (2 * centerDistance * Math.tan(fovRadians * 0.5)) /
-      canvasHeight
-    ) * HOTSPOT_OCCLUSION_SAMPLE_RADIUS_PIXELS;
-    const cameraRotation = this.camera.getRotation();
-    const cameraRight = cameraRotation
-      .transformVector(new this.pc.Vec3(1, 0, 0))
-      .normalize()
-      .mulScalar(sampleRadius);
-    const cameraUp = cameraRotation
-      .transformVector(new this.pc.Vec3(0, 1, 0))
-      .normalize()
-      .mulScalar(sampleRadius);
-    const peripheralTargets = [
-      worldPoint.clone().add(cameraRight),
-      worldPoint.clone().sub(cameraRight),
-      worldPoint.clone().add(cameraUp),
-      worldPoint.clone().sub(cameraUp),
-    ];
-
-    const rayHitsTarget = (target) => {
-      const direction = target.clone().sub(cameraPosition);
-      const distance = direction.length();
-      const maxDistance = distance - HOTSPOT_OCCLUSION_TARGET_EPSILON;
-      if (maxDistance <= 0.01) return false;
-      direction.mulScalar(1 / distance);
-      return !!collision.queryRay(
-        cameraPosition.x,
-        cameraPosition.y,
-        cameraPosition.z,
-        direction.x,
-        direction.y,
-        direction.z,
-        maxDistance
-      );
-    };
-
-    // The center ray is authoritative. Peripheral samples can prevent a thin
-    // branch from hiding the whole marker, but can never hide a center point
-    // that is directly visible through a doorway or opening.
-    const centerHit = rayHitsTarget(worldPoint);
-    let hitCount = centerHit ? 1 : 0;
-    let rawOccluded = false;
-    if (centerHit) {
-      for (let index = 0; index < peripheralTargets.length; index += 1) {
-        if (rayHitsTarget(peripheralTargets[index])) {
-          hitCount += 1;
-        }
-        const remainingSamples = peripheralTargets.length - index - 1;
-        if (hitCount >= HOTSPOT_OCCLUSION_REQUIRED_HITS) {
-          rawOccluded = true;
-          break;
-        }
-        if (hitCount + remainingSamples < HOTSPOT_OCCLUSION_REQUIRED_HITS) {
-          break;
-        }
-      }
-    }
-
-    let occluded = rawOccluded;
-    if (entity) {
-      const currentOccluded = entity._huaHotspotOccluded === true;
-      const pending = entity._huaHotspotOcclusionPending;
-      if (rawOccluded === currentOccluded) {
-        entity._huaHotspotOcclusionPending = null;
-        occluded = currentOccluded;
-      } else if (!pending || pending.value !== rawOccluded) {
-        entity._huaHotspotOcclusionPending = {
-          value: rawOccluded,
-          since: now,
-        };
-        occluded = currentOccluded;
-      } else {
-        const confirmationMs = rawOccluded
-          ? HOTSPOT_OCCLUSION_HIDE_CONFIRM_MS
-          : HOTSPOT_OCCLUSION_SHOW_CONFIRM_MS;
-        if (now - pending.since >= confirmationMs) {
-          entity._huaHotspotOcclusionPending = null;
-          occluded = rawOccluded;
-        } else {
-          occluded = currentOccluded;
-        }
-      }
-    }
-    if (entity) {
-      entity._huaHotspotOccluded = occluded;
-      entity._huaHotspotOcclusionCheckedAt = now;
-      entity._huaHotspotOcclusionCameraPosition = cameraPosition.clone();
-      entity._huaHotspotOcclusionWorldPoint = worldPoint.clone();
-    }
-    return occluded;
   }
 
   createHotspotMarkerEntity(id) {
@@ -1630,6 +1564,7 @@ class PlayCanvasSogViewer {
       this.pc?.Picker &&
       this.app &&
       this.hotspotOverlayCamera?.camera &&
+      this.hotspotOccluderLayer &&
       this.hotspotOverlayLayer
     ) {
       this.hotspotPicker = new this.pc.Picker(this.app, 1, 1);
@@ -1676,7 +1611,7 @@ class PlayCanvasSogViewer {
     picker.prepare(
       this.hotspotOverlayCamera.camera,
       this.app.scene,
-      [this.hotspotOverlayLayer]
+      [this.hotspotOccluderLayer, this.hotspotOverlayLayer]
     );
     const x = Math.max(0, Math.min(width - 1, Math.floor(
       (clientX - rect.left) * (width / rect.width)
@@ -1812,12 +1747,16 @@ class PlayCanvasSogViewer {
       if (!entity) continue;
 
       const world = this.resolveHotspotWorldPoint(hotspot);
-      const occluded = this.isHotspotOccluded(world, entity, time * 1000);
       const hovered = hotspot.id === this.hotspotHoveredId;
       const basePixels = hotspot.selected ? 56 : 50;
       const distance = Math.max(0.1, world.distance(this.camera.getPosition()));
       const worldPerPixel = (2 * distance * Math.tan(fovRadians * 0.5)) / canvasHeight;
       const worldSize = worldPerPixel * basePixels;
+      const cameraDirection = this.camera
+        .getPosition()
+        .clone()
+        .sub(world)
+        .normalize();
       const targetLift = hovered ? 1 : 0;
       const currentLift = Number(entity._huaHotspotHoverLift || 0);
       const nextLift = currentLift + (targetLift - currentLift) * liftAlpha;
@@ -1828,6 +1767,8 @@ class PlayCanvasSogViewer {
         cameraUp.clone().mulScalar(
           worldPerPixel * HOTSPOT_HOVER_LIFT_PIXELS * entity._huaHotspotHoverLift
         )
+      ).add(
+        cameraDirection.mulScalar(worldPerPixel * HOTSPOT_SURFACE_OFFSET_PIXELS)
       );
       const pulseProgress = (time * 0.62) % 1;
       const pulseScale = 1.12 + pulseProgress * 0.48;
@@ -1836,10 +1777,7 @@ class PlayCanvasSogViewer {
       entity.lookAt(this.camera.getPosition());
       entity.setLocalScale(worldSize, worldSize, worldSize);
       entity._huaHotspotVisual?.pulse?.setLocalScale(pulseScale, pulseScale, pulseScale);
-      entity.enabled = this.hotspotMarkerVisible && !occluded;
-      if (occluded && hovered) {
-        this.setHotspotHover("");
-      }
+      entity.enabled = this.hotspotMarkerVisible;
     }
 
     if (this.hotspotMaterials?.pulse) {
@@ -2425,9 +2363,6 @@ class PlayCanvasSogViewer {
       });
       if (!this.isLoadCurrent(generation)) return asset;
       this.fpCollision = collision;
-      this.hotspotOcclusionCollision = collision;
-      this.hotspotOcclusionSource = collision ? asset.fpCollisionSource : "";
-      this.invalidateHotspotOcclusionCache();
       if (!collision) {
         return asset;
       }
@@ -3907,8 +3842,6 @@ class PlayCanvasSogViewer {
     this.activeFpCollisionBoxConfig = null;
     this.currentAsset = null;
     this.fpCollision = null;
-    this.hotspotOcclusionCollision = null;
-    this.hotspotOcclusionSource = "";
     if (this._collisionRebuildTimer) {
       clearTimeout(this._collisionRebuildTimer);
       this._collisionRebuildTimer = null;
@@ -3945,12 +3878,19 @@ class PlayCanvasSogViewer {
     this.hotspotHoveredId = "";
     this.hotspotPointerStart = null;
     this.clearHotspotMarkers();
+    this.releaseHotspotDepthOccluder();
     this.hotspotOverlayCamera?.destroy?.();
     this.hotspotOverlayCamera = null;
     if (this.hotspotOverlayLayer && this.app?.scene?.layers) {
       this.app.scene.layers.remove(this.hotspotOverlayLayer);
     }
     this.hotspotOverlayLayer = null;
+    if (this.hotspotOccluderLayer && this.app?.scene?.layers) {
+      this.app.scene.layers.remove(this.hotspotOccluderLayer);
+    }
+    this.hotspotOccluderLayer = null;
+    this.hotspotOccluderMaterial?.destroy?.();
+    this.hotspotOccluderMaterial = null;
     for (const material of Object.values(this.hotspotMaterials || {})) {
       material?.destroy?.();
     }
