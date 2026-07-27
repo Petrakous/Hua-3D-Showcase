@@ -11,6 +11,7 @@ const CANVAS_PIXEL_BUDGET = {
 const ORBIT_DAMPING_DECAY_MS = 140;
 const CUTAWAY_DAMPING_DECAY_MS = 110;
 const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
+const HOTSPOT_PICKER_SCALE = 0.5;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const DEFAULT_ORBIT_MIN_DISTANCE = 0.2;
 const DEFAULT_ORBIT_MAX_DISTANCE = 200;
@@ -536,6 +537,11 @@ class PlayCanvasSogViewer {
     this.hotspotOverlayCamera = null;
     this.hotspotMaterials = null;
     this.hotspotTextures = [];
+    this.hotspotPicker = null;
+    this.hotspotPickQueue = Promise.resolve("");
+    this.hotspotHoverPickPending = false;
+    this.hotspotHoverPointer = null;
+    this.hotspotHoverSequence = 0;
     this.hotspotHoveredId = "";
     this.hotspotPointerStart = null;
     this.hotspotInteractionDisposeFns = [];
@@ -1375,11 +1381,16 @@ class PlayCanvasSogViewer {
     for (const meshInstance of pulse.render.meshInstances || []) {
       meshInstance.material = this.hotspotMaterials.pulse;
       meshInstance.drawOrder = 0;
+      meshInstance._huaHotspotId = id;
     }
     for (const meshInstance of base.render.meshInstances || []) {
       meshInstance.material = this.hotspotMaterials.marker;
       meshInstance.drawOrder = 1;
+      meshInstance._huaHotspotId = id;
     }
+    marker._huaHotspotId = id;
+    pulse._huaHotspotId = id;
+    base._huaHotspotId = id;
     pulse.setLocalEulerAngles(90, 0, 0);
     base.setLocalEulerAngles(90, 0, 0);
     pulse.setLocalPosition(0, 0, 0.002);
@@ -1390,47 +1401,108 @@ class PlayCanvasSogViewer {
     return marker;
   }
 
-  getHotspotAtCanvasPoint(clientX, clientY) {
+  ensureHotspotPicker() {
     if (
-      !this.canvas ||
-      !this.pc ||
-      !this.hotspotOverlayCamera?.camera ||
-      !this.hotspotMarkerVisible
-    ) return "";
-    const rect = this.canvas.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return "";
-    // PlayCanvas projects into drawing-buffer pixels, while pointer events use
-    // CSS pixels. Converting here keeps the hit target locked to the GPU marker
-    // across browser zoom, DPR changes, and canvas resizing.
-    const renderScaleX =
-      Math.max(1, this.app?.graphicsDevice?.width || this.canvas.width || rect.width) /
-      rect.width;
-    const renderScaleY =
-      Math.max(1, this.app?.graphicsDevice?.height || this.canvas.height || rect.height) /
-      rect.height;
-    const x = (clientX - rect.left) * renderScaleX;
-    const y = (clientY - rect.top) * renderScaleY;
-    let closestId = "";
-    let closestScreenDistance = Infinity;
-    for (const [id, entity] of this.hotspotMarkerEntities.entries()) {
-      if (!id || !entity?.enabled) continue;
-      const projected = this.hotspotOverlayCamera.camera.worldToScreen(
-        entity.getPosition(),
-        new this.pc.Vec3()
-      );
-      if (!projected || projected.z < 0 || ![projected.x, projected.y].every(Number.isFinite)) {
-        continue;
+      !this.hotspotPicker &&
+      this.pc?.Picker &&
+      this.app &&
+      this.hotspotOverlayCamera?.camera &&
+      this.hotspotOverlayLayer
+    ) {
+      this.hotspotPicker = new this.pc.Picker(this.app, 1, 1);
+    }
+    return this.hotspotPicker;
+  }
+
+  getPickedHotspotId(selection = []) {
+    for (const picked of selection) {
+      if (picked?._huaHotspotId) {
+        return picked._huaHotspotId;
       }
-      const screenDistance = Math.hypot(x - projected.x, y - projected.y);
-      const renderedDiameter = entity._huaHotspotScreenDiameter || 50;
-      const hitRadius =
-        (renderedDiameter * 0.5 + 4) * Math.max(renderScaleX, renderScaleY);
-      if (screenDistance <= hitRadius && screenDistance < closestScreenDistance) {
-        closestScreenDistance = screenDistance;
-        closestId = id;
+      let node = picked?.node || null;
+      while (node) {
+        if (node._huaHotspotId) {
+          return node._huaHotspotId;
+        }
+        node = node.parent || node.getParent?.() || null;
       }
     }
-    return closestId;
+    return "";
+  }
+
+  async pickHotspotAtCanvasPoint(clientX, clientY) {
+    if (!this.canvas || !this.hotspotMarkerVisible) return "";
+    const picker = this.ensureHotspotPicker();
+    if (!picker) return "";
+    const rect = this.canvas.getBoundingClientRect();
+    if (
+      rect.width <= 0 ||
+      rect.height <= 0 ||
+      clientX < rect.left ||
+      clientY < rect.top ||
+      clientX > rect.right ||
+      clientY > rect.bottom
+    ) return "";
+
+    // Picker renders the actual overlay mesh IDs into its own buffer. The only
+    // conversion here maps pointer position into that buffer; no 3D projection
+    // or inferred screen-space hotspot is involved.
+    const width = Math.max(1, Math.round(rect.width * HOTSPOT_PICKER_SCALE));
+    const height = Math.max(1, Math.round(rect.height * HOTSPOT_PICKER_SCALE));
+    picker.resize(width, height);
+    picker.prepare(
+      this.hotspotOverlayCamera.camera,
+      this.app.scene,
+      [this.hotspotOverlayLayer]
+    );
+    const x = Math.max(0, Math.min(width - 1, Math.floor(
+      (clientX - rect.left) * (width / rect.width)
+    )));
+    const y = Math.max(0, Math.min(height - 1, Math.floor(
+      (clientY - rect.top) * (height / rect.height)
+    )));
+    const selection = picker.getSelectionAsync
+      ? await picker.getSelectionAsync(x, y, 1, 1)
+      : picker.getSelection(x, y, 1, 1);
+    if (picker !== this.hotspotPicker) return "";
+    return this.getPickedHotspotId(selection);
+  }
+
+  queueHotspotPick(clientX, clientY) {
+    const run = () => this.pickHotspotAtCanvasPoint(clientX, clientY);
+    const result = this.hotspotPickQueue.then(run, run).catch(() => "");
+    this.hotspotPickQueue = result;
+    return result;
+  }
+
+  setHotspotHover(id) {
+    const nextId = id || "";
+    this.canvas.dataset.hotspotHoverId = nextId;
+    if (nextId !== this.hotspotHoveredId) {
+      this.hotspotHoveredId = nextId;
+      this.canvas.style.cursor = nextId ? "pointer" : "grab";
+      if (this.app) this.app.renderNextFrame = true;
+    }
+  }
+
+  async flushHotspotHoverPick() {
+    if (this.hotspotHoverPickPending) return;
+    this.hotspotHoverPickPending = true;
+    try {
+      while (this.hotspotHoverPointer) {
+        const pointer = this.hotspotHoverPointer;
+        this.hotspotHoverPointer = null;
+        const id = await this.queueHotspotPick(pointer.x, pointer.y);
+        if (
+          pointer.sequence === this.hotspotHoverSequence &&
+          !this.hotspotHoverPointer
+        ) {
+          this.setHotspotHover(id);
+        }
+      }
+    } finally {
+      this.hotspotHoverPickPending = false;
+    }
   }
 
   bindHotspotMarkerInteraction() {
@@ -1440,30 +1512,34 @@ class PlayCanvasSogViewer {
       this.hotspotPointerStart = {
         x: event.clientX,
         y: event.clientY,
-        id: this.getHotspotAtCanvasPoint(event.clientX, event.clientY),
+        idPromise: this.queueHotspotPick(event.clientX, event.clientY),
       };
     };
     const onPointerMove = (event) => {
-      const id = this.getHotspotAtCanvasPoint(event.clientX, event.clientY);
-      this.canvas.dataset.hotspotHoverId = id;
-      if (id !== this.hotspotHoveredId) {
-        this.hotspotHoveredId = id;
-        this.canvas.style.cursor = id ? "pointer" : "grab";
-        if (this.app) this.app.renderNextFrame = true;
-      }
+      this.hotspotHoverSequence += 1;
+      this.hotspotHoverPointer = {
+        x: event.clientX,
+        y: event.clientY,
+        sequence: this.hotspotHoverSequence,
+      };
+      void this.flushHotspotHoverPick();
     };
-    const onPointerUp = (event) => {
+    const onPointerUp = async (event) => {
       const start = this.hotspotPointerStart;
       this.hotspotPointerStart = null;
-      if (!start?.id || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) return;
-      const id = this.getHotspotAtCanvasPoint(event.clientX, event.clientY);
-      if (id !== start.id) return;
+      if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) return;
+      const [startId, id] = await Promise.all([
+        start.idPromise,
+        this.queueHotspotPick(event.clientX, event.clientY),
+      ]);
+      if (!startId || id !== startId) return;
       this.container?.dispatchEvent?.(new CustomEvent("sog-hotspot-activate", { detail: { id } }));
     };
     const onPointerLeave = () => {
-      this.hotspotHoveredId = "";
+      this.hotspotHoverSequence += 1;
+      this.hotspotHoverPointer = null;
       this.hotspotPointerStart = null;
-      this.canvas.style.cursor = "grab";
+      this.setHotspotHover("");
     };
     this.canvas.addEventListener("pointerdown", onPointerDown);
     this.canvas.addEventListener("pointermove", onPointerMove);
@@ -1517,7 +1593,6 @@ class PlayCanvasSogViewer {
       entity.setPosition(world);
       entity.lookAt(this.camera.getPosition());
       entity.setLocalScale(worldSize, worldSize, worldSize);
-      entity._huaHotspotScreenDiameter = basePixels;
       entity._huaHotspotVisual?.pulse?.setLocalScale(pulseScale, pulseScale, pulseScale);
       entity.enabled = this.hotspotMarkerVisible;
     }
@@ -3602,6 +3677,12 @@ class PlayCanvasSogViewer {
         disposeInteraction();
       } catch {}
     }
+    this.hotspotPicker?.destroy?.();
+    this.hotspotPicker = null;
+    this.hotspotPickQueue = Promise.resolve("");
+    this.hotspotHoverPickPending = false;
+    this.hotspotHoverPointer = null;
+    this.hotspotHoverSequence += 1;
     this.hotspotHoveredId = "";
     this.hotspotPointerStart = null;
     this.clearHotspotMarkers();
