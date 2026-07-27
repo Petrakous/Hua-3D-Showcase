@@ -17,8 +17,10 @@ const HOTSPOT_HOVER_LIFT_DECAY_MS = 110;
 const HOTSPOT_OCCLUSION_TARGET_EPSILON = 0.4;
 const HOTSPOT_OCCLUSION_MIN_INTERVAL_MS = 50;
 const HOTSPOT_OCCLUSION_POSITION_EPSILON = 0.02;
-const HOTSPOT_OCCLUSION_SAMPLE_RADIUS_PIXELS = 18;
-const HOTSPOT_OCCLUSION_REQUIRED_HITS = 3;
+const HOTSPOT_OCCLUSION_SAMPLE_RADIUS_PIXELS = 10;
+const HOTSPOT_OCCLUSION_REQUIRED_HITS = 4;
+const HOTSPOT_OCCLUSION_HIDE_CONFIRM_MS = 120;
+const HOTSPOT_OCCLUSION_SHOW_CONFIRM_MS = 60;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const DEFAULT_ORBIT_MIN_DISTANCE = 0.2;
 const DEFAULT_ORBIT_MAX_DISTANCE = 200;
@@ -1431,6 +1433,7 @@ class PlayCanvasSogViewer {
       entity._huaHotspotOcclusionCheckedAt = -Infinity;
       entity._huaHotspotOcclusionCameraPosition = null;
       entity._huaHotspotOcclusionWorldPoint = null;
+      entity._huaHotspotOcclusionPending = null;
     }
   }
 
@@ -1465,7 +1468,8 @@ class PlayCanvasSogViewer {
     if (
       entity &&
       cameraMovedSq <= positionEpsilonSq &&
-      markerMovedSq <= positionEpsilonSq
+      markerMovedSq <= positionEpsilonSq &&
+      !entity._huaHotspotOcclusionPending
     ) {
       return entity._huaHotspotOccluded === true;
     }
@@ -1498,42 +1502,75 @@ class PlayCanvasSogViewer {
       .transformVector(new this.pc.Vec3(0, 1, 0))
       .normalize()
       .mulScalar(sampleRadius);
-    const sampleTargets = [
-      worldPoint,
+    const peripheralTargets = [
       worldPoint.clone().add(cameraRight),
       worldPoint.clone().sub(cameraRight),
       worldPoint.clone().add(cameraUp),
       worldPoint.clone().sub(cameraUp),
     ];
 
-    let hitCount = 0;
-    let occluded = false;
-    for (let index = 0; index < sampleTargets.length; index += 1) {
-      const direction = sampleTargets[index].clone().sub(cameraPosition);
+    const rayHitsTarget = (target) => {
+      const direction = target.clone().sub(cameraPosition);
       const distance = direction.length();
       const maxDistance = distance - HOTSPOT_OCCLUSION_TARGET_EPSILON;
-      if (maxDistance > 0.01) {
-        direction.mulScalar(1 / distance);
-        if (collision.queryRay(
-          cameraPosition.x,
-          cameraPosition.y,
-          cameraPosition.z,
-          direction.x,
-          direction.y,
-          direction.z,
-          maxDistance
-        )) {
+      if (maxDistance <= 0.01) return false;
+      direction.mulScalar(1 / distance);
+      return !!collision.queryRay(
+        cameraPosition.x,
+        cameraPosition.y,
+        cameraPosition.z,
+        direction.x,
+        direction.y,
+        direction.z,
+        maxDistance
+      );
+    };
+
+    // The center ray is authoritative. Peripheral samples can prevent a thin
+    // branch from hiding the whole marker, but can never hide a center point
+    // that is directly visible through a doorway or opening.
+    const centerHit = rayHitsTarget(worldPoint);
+    let hitCount = centerHit ? 1 : 0;
+    let rawOccluded = false;
+    if (centerHit) {
+      for (let index = 0; index < peripheralTargets.length; index += 1) {
+        if (rayHitsTarget(peripheralTargets[index])) {
           hitCount += 1;
         }
+        const remainingSamples = peripheralTargets.length - index - 1;
+        if (hitCount >= HOTSPOT_OCCLUSION_REQUIRED_HITS) {
+          rawOccluded = true;
+          break;
+        }
+        if (hitCount + remainingSamples < HOTSPOT_OCCLUSION_REQUIRED_HITS) {
+          break;
+        }
       }
+    }
 
-      if (hitCount >= HOTSPOT_OCCLUSION_REQUIRED_HITS) {
-        occluded = true;
-        break;
-      }
-      const remainingSamples = sampleTargets.length - index - 1;
-      if (hitCount + remainingSamples < HOTSPOT_OCCLUSION_REQUIRED_HITS) {
-        break;
+    let occluded = rawOccluded;
+    if (entity) {
+      const currentOccluded = entity._huaHotspotOccluded === true;
+      const pending = entity._huaHotspotOcclusionPending;
+      if (rawOccluded === currentOccluded) {
+        entity._huaHotspotOcclusionPending = null;
+        occluded = currentOccluded;
+      } else if (!pending || pending.value !== rawOccluded) {
+        entity._huaHotspotOcclusionPending = {
+          value: rawOccluded,
+          since: now,
+        };
+        occluded = currentOccluded;
+      } else {
+        const confirmationMs = rawOccluded
+          ? HOTSPOT_OCCLUSION_HIDE_CONFIRM_MS
+          : HOTSPOT_OCCLUSION_SHOW_CONFIRM_MS;
+        if (now - pending.since >= confirmationMs) {
+          entity._huaHotspotOcclusionPending = null;
+          occluded = rawOccluded;
+        } else {
+          occluded = currentOccluded;
+        }
       }
     }
     if (entity) {
