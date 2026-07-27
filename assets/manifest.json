@@ -90,7 +90,18 @@
           "assetPath": "assets/outdoors/campus-day/collision/collision.glb",
           "r2Key": "assets/outdoors/campus-day/collision/collision.glb"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG), paired with a photogrammetry-derived mesh (GLB) for collision/LOD",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "glb",
+          "sog"
+        ]
+      }
     },
     "campus-dusk": {
       "label": "Campus Dusk",
@@ -162,7 +173,18 @@
           "assetPath": "assets/outdoors/campus-dusk/collision/collision.glb",
           "r2Key": "assets/outdoors/campus-dusk/collision/collision.glb"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG), paired with a photogrammetry-derived mesh (GLB) for collision/LOD",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "glb",
+          "sog"
+        ]
+      }
     },
     "campus-night": {
       "label": "Campus Night",
@@ -242,7 +264,18 @@
           "assetPath": "assets/outdoors/campus-night/collision/collision.glb",
           "r2Key": "assets/outdoors/campus-night/collision/collision.glb"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG), paired with a photogrammetry-derived mesh (GLB) for collision/LOD",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "glb",
+          "sog"
+        ]
+      }
     },
     "dit-main": {
       "label": "DIT",
@@ -301,7 +334,18 @@
           "assetPath": "assets/dit/main/streamed",
           "r2Key": "assets/dit/main/streamed"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG), paired with a photogrammetry-derived mesh (GLB) for collision/LOD",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "glb",
+          "sog"
+        ]
+      }
     },
     "main-hall": {
       "label": "Main Hall",
@@ -362,7 +406,18 @@
           "assetPath": "assets/indoors/main-hall/streamed",
           "r2Key": "assets/indoors/main-hall/streamed"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG), paired with a photogrammetry-derived mesh (GLB) for collision/LOD",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "glb",
+          "sog"
+        ]
+      }
     },
     "metabolism": {
       "label": "Metabolism",
@@ -423,7 +478,18 @@
           "assetPath": "assets/indoors/metabolism/streamed",
           "r2Key": "assets/indoors/metabolism/streamed"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG), paired with a photogrammetry-derived mesh (GLB) for collision/LOD",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "glb",
+          "sog"
+        ]
+      }
     },
     "systasis": {
       "label": "Systasis",
@@ -484,7 +550,18 @@
           "assetPath": "assets/indoors/systasis/streamed",
           "r2Key": "assets/indoors/systasis/streamed"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG), paired with a photogrammetry-derived mesh (GLB) for collision/LOD",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "glb",
+          "sog"
+        ]
+      }
     },
     "fitness": {
       "label": "Fitness",
@@ -545,7 +622,18 @@
           "assetPath": "assets/indoors/fitness/streamed",
           "r2Key": "assets/indoors/fitness/streamed"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG), paired with a photogrammetry-derived mesh (GLB) for collision/LOD",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "glb",
+          "sog"
+        ]
+      }
     },
     "classroom-5": {
       "label": "Classroom 5",
@@ -606,7 +694,18 @@
           "assetPath": "assets/indoors/classroom-5/streamed",
           "r2Key": "assets/indoors/classroom-5/streamed"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG), paired with a photogrammetry-derived mesh (GLB) for collision/LOD",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "glb",
+          "sog"
+        ]
+      }
     },
     "biology-lab": {
       "label": "Biology Lab",
@@ -658,7 +757,17 @@
           "assetPath": "assets/indoors/biology-lab/streamed",
           "r2Key": "assets/indoors/biology-lab/streamed"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG only, no companion GLB mesh)",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "sog"
+        ]
+      }
     },
     "amphitheater": {
       "label": "Amphitheater",
@@ -710,7 +819,17 @@
           "assetPath": "assets/indoors/amphitheater/streamed",
           "r2Key": "assets/indoors/amphitheater/streamed"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG only, no companion GLB mesh)",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "sog"
+        ]
+      }
     },
     "geo3-3": {
       "label": "Geo 3.3",
@@ -762,7 +881,17 @@
           "assetPath": "assets/indoors/geo3-3/streamed",
           "r2Key": "assets/indoors/geo3-3/streamed"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG only, no companion GLB mesh)",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "sog"
+        ]
+      }
     },
     "kitchen": {
       "label": "Kitchen",
@@ -814,7 +943,17 @@
           "assetPath": "assets/indoors/kitchen/streamed",
           "r2Key": "assets/indoors/kitchen/streamed"
         }
-      ]
+      ],
+      "credits": {
+        "captureMethod": "3D Gaussian Splatting capture (SOG only, no companion GLB mesh)",
+        "contributors": [
+          "Harokopio University Computer Vision Group"
+        ],
+        "dateScanned": null,
+        "modelFormat": [
+          "sog"
+        ]
+      }
     }
   }
 }

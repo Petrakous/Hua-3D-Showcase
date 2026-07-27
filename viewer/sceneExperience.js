@@ -46,7 +46,7 @@ const SCENE_EXPERIENCES = {
     id: "campus-day",
     title: "Campus Day",
     subtitle: "Outdoor campus",
-    description: "Explore the university grounds in bright daylight.",
+    description: "Walk, fly, or orbit around the full Harokopio University campus under bright midday sun. Great for getting your bearings before diving into individual buildings.",
     category: "outdoor",
     group: "campus",
     defaults: {
@@ -94,7 +94,7 @@ const SCENE_EXPERIENCES = {
     id: "campus-dusk",
     title: "Campus Dusk",
     subtitle: "Outdoor campus",
-    description: "Explore the university grounds in calm dusk light.",
+    description: "The same campus grounds captured at dusk, with warm low-angle light and long shadows across the courtyards.",
     category: "outdoor",
     group: "campus",
     defaults: {
@@ -125,7 +125,7 @@ const SCENE_EXPERIENCES = {
     id: "campus-night",
     title: "Campus Night",
     subtitle: "Outdoor campus",
-    description: "Explore the university grounds under night lighting.",
+    description: "The campus after dark, lit by its own building and pathway lighting rather than daylight — a good stress test of the splat renderer's low-light detail.",
     category: "outdoor",
     group: "campus",
     defaults: {
@@ -156,7 +156,7 @@ const SCENE_EXPERIENCES = {
     id: "dit-main",
     title: "DIT",
     subtitle: "University building",
-    description: "View the Department of Informatics and Telematics in 3D.",
+    description: "The exterior of the Department of Informatics and Telematics (DIT) building, captured at dusk. Orbit around the building or walk its immediate surroundings.",
     category: "outdoor",
     group: "dit",
     defaults: {
@@ -186,7 +186,7 @@ const SCENE_EXPERIENCES = {
     id: "main-hall",
     title: "Main Hall",
     subtitle: "Main building space",
-    description: "Step inside the grand main lobby of the campus.",
+    description: "The main building's central lobby — the widest indoor space in the showcase, and the default entry point when you head indoors. Walk or fly through it to reach other indoor spaces.",
     category: "indoor",
     group: "campus",
     defaults: {
@@ -216,7 +216,7 @@ const SCENE_EXPERIENCES = {
     id: "metabolism",
     title: "Metabolism",
     subtitle: "Diet building space",
-    description: "Inspect the metabolism laboratory and equipment.",
+    description: "A teaching laboratory in the Diet building used for metabolism-related coursework. Walk between the benches and equipment at ground level, or orbit for a full overview.",
     category: "lab",
     group: "campus",
     defaults: {
@@ -245,7 +245,7 @@ const SCENE_EXPERIENCES = {
     id: "systasis",
     title: "Systasis",
     subtitle: "Geo building space",
-    description: "Explore the systasis and research setup.",
+    description: "A research and composition ('systasis') space in the Geo building, set up for lab-based coursework and equipment demonstrations.",
     category: "lab",
     group: "campus",
     defaults: {
@@ -274,7 +274,7 @@ const SCENE_EXPERIENCES = {
     id: "fitness",
     title: "Fitness",
     subtitle: "Geo building space",
-    description: "Inspect the fitness gym and training center.",
+    description: "The campus fitness and training center, with its full layout of equipment captured in 3D. Walk through it to get a sense of scale that photos alone don't give.",
     category: "indoor",
     group: "campus",
     defaults: {
@@ -303,7 +303,7 @@ const SCENE_EXPERIENCES = {
     id: "classroom-5",
     title: "Classroom 5",
     subtitle: "Main building space",
-    description: "Step inside a standard university lecture classroom.",
+    description: "A standard university lecture classroom, captured as a representative example of the campus's everyday teaching spaces.",
     category: "indoor",
     group: "campus",
     defaults: {
@@ -332,7 +332,7 @@ const SCENE_EXPERIENCES = {
     id: "biology-lab",
     title: "Biology Lab",
     subtitle: "Main building space",
-    description: "Explore the biology and research laboratory environment.",
+    description: "A biology research laboratory, with its benches and equipment preserved at full scale. This scene is splat-only (no GLB mesh), so it's best viewed via the SOG renderer.",
     category: "lab",
     group: "campus",
     defaults: {
@@ -361,7 +361,7 @@ const SCENE_EXPERIENCES = {
     id: "amphitheater",
     title: "Amphitheater",
     subtitle: "Main building space",
-    description: "View the large central university lecture theater.",
+    description: "The university's large, tiered lecture theater — one of the biggest indoor volumes in the showcase. Orbit from the stage or walk up through the seating rows.",
     category: "indoor",
     group: "campus",
     defaults: {
@@ -390,7 +390,7 @@ const SCENE_EXPERIENCES = {
     id: "geo3-3",
     title: "Geo 3.3",
     subtitle: "Geo building space",
-    description: "Step into lab 3.3 for chemical studies.",
+    description: "Laboratory room 3.3 in the Geo building, a working teaching lab captured with its fittings and equipment in place.",
     category: "indoor",
     group: "campus",
     defaults: {
@@ -419,7 +419,7 @@ const SCENE_EXPERIENCES = {
     id: "kitchen",
     title: "Kitchen",
     subtitle: "Diet building space",
-    description: "View the nutritional and dietary preparation kitchen.",
+    description: "A teaching kitchen in the Diet building, used for nutritional science and food preparation coursework.",
     category: "indoor",
     group: "campus",
     defaults: {
