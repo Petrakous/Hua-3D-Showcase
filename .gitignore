@@ -54,6 +54,7 @@ token.json
 # Local deployment reports
 upload_report.json
 wrangler-*.log
+.collision-pilot/
 
 # Local chat context and handoff files
 CHAT_CONTEXT.md
