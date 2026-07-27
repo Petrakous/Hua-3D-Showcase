@@ -4,6 +4,7 @@ param(
     [double]$VoxelSize = 0.5,
     [int]$TargetFaces = 80000,
     [int64]$MaxDenseVoxels = 25000000,
+    [double]$NormalizeLongestAxis = 2.0,
     [switch]$Overwrite
 )
 
@@ -50,7 +51,8 @@ $arguments = @(
     "--report", $reportJson,
     "--voxel-size", $VoxelSize.ToString([Globalization.CultureInfo]::InvariantCulture),
     "--target-faces", $TargetFaces.ToString(),
-    "--max-dense-voxels", $MaxDenseVoxels.ToString()
+    "--max-dense-voxels", $MaxDenseVoxels.ToString(),
+    "--normalize-longest-axis", $NormalizeLongestAxis.ToString([Globalization.CultureInfo]::InvariantCulture)
 )
 
 if ($Mode -eq "Inspect") {
@@ -66,6 +68,7 @@ Write-Host "Input: $inputGlb"
 Write-Host "Output: $outputGlb"
 Write-Host "Voxel size: $VoxelSize m"
 Write-Host "Target faces: $TargetFaces"
+Write-Host "Normalized longest axis: $NormalizeLongestAxis"
 Write-Host "Log: $logPath"
 Write-Host ""
 

@@ -170,7 +170,7 @@ const collisionPilotEnabled =
   ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
   new URLSearchParams(window.location.search).get("collision-pilot") === "1";
 const CAMPUS_DAY_COLLISION_PILOT_URL =
-  "./.collision-pilot/campus-day/campus-day-structural-v0p5-f80000.glb?v=20260728pilot1";
+  "./.collision-pilot/campus-day/campus-day-structural-v0p5-f80000.glb?v=20260728pilot2";
 const cinematicModeEnabled = new URLSearchParams(window.location.search).get("cinematic") === "1";
 const cinematicAuthorEnabled =
   cinematicModeEnabled && new URLSearchParams(window.location.search).get("author") === "1";

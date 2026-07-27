@@ -36,6 +36,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--merge-distance", type=float, default=0.001)
     parser.add_argument("--adaptivity", type=float, default=0.0)
     parser.add_argument("--max-dense-voxels", type=int, default=25_000_000)
+    parser.add_argument("--normalize-longest-axis", type=float, default=0.0)
+    parser.add_argument("--normalize-only", action="store_true")
     parser.add_argument("--inspect-only", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args(argv)
@@ -97,7 +99,6 @@ def clean_mesh(obj: bpy.types.Object, merge_distance: float) -> None:
     bm.to_mesh(mesh)
     bm.free()
     mesh.update()
-    mesh.validate(verbose=False, clean_customdata=True)
 
     mesh.materials.clear()
     for uv_layer in list(mesh.uv_layers):
@@ -195,6 +196,27 @@ def triangulate(obj: bpy.types.Object) -> None:
         raise RuntimeError(f"Triangulation failed: {result}")
 
 
+def normalize_longest_axis(obj: bpy.types.Object, target_size: float) -> dict:
+    minimum, maximum = world_bounds(obj)
+    center = (minimum + maximum) * 0.5
+    dimensions = maximum - minimum
+    longest_axis = max(dimensions)
+    if longest_axis <= 0:
+        raise RuntimeError("Cannot normalize a mesh with zero-sized bounds.")
+    uniform_scale = target_size / longest_axis
+    obj.scale = (uniform_scale, uniform_scale, uniform_scale)
+    obj.location = tuple(-value * uniform_scale for value in center)
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    return {
+        "source_center": [round(value, 9) for value in center],
+        "source_longest_axis": round(longest_axis, 9),
+        "target_longest_axis": target_size,
+        "uniform_scale": round(uniform_scale, 12),
+    }
+
+
 def export_glb(obj: bpy.types.Object, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.object.select_all(action="DESELECT")
@@ -231,6 +253,8 @@ def main() -> int:
             "merge_distance": args.merge_distance,
             "adaptivity": args.adaptivity,
             "max_dense_voxels": args.max_dense_voxels,
+            "normalize_longest_axis": args.normalize_longest_axis,
+            "normalize_only": args.normalize_only,
             "inspect_only": args.inspect_only,
         },
         "timings_seconds": {},
@@ -252,8 +276,32 @@ def main() -> int:
         stage(report, "reset_scene", reset_scene)
         meshes = stage(report, "import_glb", lambda: import_glb(input_path))
         obj = stage(report, "join_and_apply_transforms", lambda: join_meshes(meshes))
-        stage(report, "clean_input", lambda: clean_mesh(obj, args.merge_distance))
+        # glTF may split vertices at normal/attribute seams. Weld only effectively
+        # identical positions during post-processing; the regular 1 mm cleanup
+        # tolerance is too large for an already-decimated proxy.
+        input_merge_distance = min(args.merge_distance, 0.000001) if args.normalize_only else args.merge_distance
+        stage(report, "clean_input", lambda: clean_mesh(obj, input_merge_distance))
         report["input_stats"] = mesh_stats(obj, include_topology=True)
+        if args.normalize_only:
+            if args.normalize_longest_axis <= 0:
+                raise ValueError(
+                    "--normalize-only requires a positive --normalize-longest-axis"
+                )
+            report["normalization"] = stage(
+                report,
+                "normalize_bounds",
+                lambda: normalize_longest_axis(obj, args.normalize_longest_axis),
+            )
+            report["output_stats"] = mesh_stats(obj, include_topology=True)
+            if report["output_stats"]["non_manifold_edges"] > 0:
+                raise RuntimeError(
+                    "Validation failed: normalized output contains "
+                    f"{report['output_stats']['non_manifold_edges']:,} non-manifold edges."
+                )
+            stage(report, "export_glb", lambda: export_glb(obj, output_path))
+            report["output_bytes"] = output_path.stat().st_size
+            report["status"] = "completed"
+            return 0
         dense_voxels = estimate_dense_grid_voxels(
             report["input_stats"],
             args.voxel_size,
@@ -284,12 +332,24 @@ def main() -> int:
         # Do not merge nearby vertices after decimation. On a coarse voxel mesh,
         # that can join unrelated surfaces and introduce non-manifold edges.
         stage(report, "final_cleanup", lambda: clean_mesh(obj, 0.0))
-        report["output_stats"] = mesh_stats(obj, include_topology=True)
-        if report["output_stats"]["non_manifold_edges"] > 0:
+        topology_stats = mesh_stats(obj, include_topology=True)
+        if topology_stats["non_manifold_edges"] > 0:
             raise RuntimeError(
                 "Validation failed: output contains "
-                f"{report['output_stats']['non_manifold_edges']:,} non-manifold edges."
+                f"{topology_stats['non_manifold_edges']:,} non-manifold edges."
             )
+        if args.normalize_longest_axis > 0:
+            report["normalization"] = stage(
+                report,
+                "normalize_bounds",
+                lambda: normalize_longest_axis(obj, args.normalize_longest_axis),
+            )
+        # A uniform transform cannot change topology. Rebuilding a second BMesh
+        # here can crash Blender 5.1 after a large decimation, so retain the
+        # validated topology fields and refresh only transformed bounds/counts.
+        report["output_stats"] = mesh_stats(obj, include_topology=False)
+        for key in ("boundary_edges", "non_manifold_edges", "manifold"):
+            report["output_stats"][key] = topology_stats[key]
         stage(report, "export_glb", lambda: export_glb(obj, output_path))
         report["output_bytes"] = output_path.stat().st_size
         report["status"] = "completed"
