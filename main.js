@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260708diag1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260728marker1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260728collisionready1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260709lodsafe1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
@@ -1382,6 +1382,7 @@ function setStatus(title, text, options = {}) {
     "Loading SOG": "Loading your space",
     "Loading scene metadata": "Loading scene metadata",
     "Preparing FP": "Preparing navigation",
+    "Preparing interactions": "Preparing interactions",
     "Preparing streamed LOD": "Preparing streamed view",
     "Finalizing first view": "Finalizing first view",
     "Switching scene": "Preparing your space",

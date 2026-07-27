@@ -1362,7 +1362,11 @@ class PlayCanvasSogViewer {
     this.hotspotOverlayCamera.camera.rect = this.camera.camera.rect;
   }
 
-  async prepareHotspotOcclusionCollision(asset = this.currentAsset, generation = this.loadGeneration) {
+  async prepareHotspotOcclusionCollision(
+    asset = this.currentAsset,
+    generation = this.loadGeneration,
+    onState
+  ) {
     if (!asset?.fpCollisionSource || asset.fpCollisionStrategy === "box" || !this.app || !this.pc) {
       this.hotspotOcclusionCollision = this.fpCollision;
       this.hotspotOcclusionSource = "";
@@ -1379,6 +1383,13 @@ class PlayCanvasSogViewer {
     this.hotspotOcclusionCollision = null;
     this.hotspotOcclusionSource = "";
     this.hotspotSurfaceAnchors.clear();
+    const startedAt = performance.now();
+    onState?.({
+      status: "loading",
+      title: "Preparing interactions",
+      message: "Loading scene collision for hotspots and navigation.",
+      progress: 0.92,
+    });
     try {
       const collision = this.fpCollision || await loadMeshCollisionFromGlb(
         app,
@@ -1396,6 +1407,12 @@ class PlayCanvasSogViewer {
       this.hotspotSurfaceAnchors.clear();
       this.invalidateHotspotOcclusionCache();
       this.app.renderNextFrame = true;
+      logger.info("sog-loader", "Scene collision ready", {
+        source: asset.fpCollisionSource,
+        triangles: collision?.triangleCount || 0,
+        elapsed_ms: Math.round(performance.now() - startedAt),
+        reused_first_person_collision: collision === this.fpCollision,
+      });
     } catch (error) {
       if (!this.isLoadCurrent(generation) || this.app !== app) return;
       this.hotspotOcclusionCollision = this.fpCollision;
@@ -3412,6 +3429,10 @@ class PlayCanvasSogViewer {
   }
 
   async load(asset, profile = { maxDpr: 1.05 }, onState) {
+    // A reload may reuse the existing PlayCanvas app. Remove markers from the
+    // previous scene immediately so they cannot appear over an incomplete SOG.
+    this.clearHotspotMarkers();
+
     if (this.app && this.pc && this.splatEntity && this.currentAsset?.key === asset.key) {
       const generation = ++this.loadGeneration;
       this.disposed = false;
@@ -3474,7 +3495,8 @@ class PlayCanvasSogViewer {
         : null;
       this.syncCutawayState(this.pc, { immediate: true });
       this.configureStreaming(asset);
-      void this.prepareHotspotOcclusionCollision(asset, generation);
+      await this.prepareHotspotOcclusionCollision(asset, generation, onState);
+      if (!this.isLoadCurrent(generation) || this.app !== app) return;
       if (asset.streamingEnabled) {
         this.firstPersonTransitionPending = false;
         this.startFirstPersonNavigation(this.pc);
@@ -3649,7 +3671,8 @@ class PlayCanvasSogViewer {
       rotationDegrees: preparedAsset.rotationDegrees || [r.x, r.y, r.z],
       scale: preparedAsset.scale || [1, 1, 1],
     };
-    void this.prepareHotspotOcclusionCollision(preparedAsset, generation);
+    await this.prepareHotspotOcclusionCollision(preparedAsset, generation, onState);
+    if (!this.isLoadCurrent(generation) || this.app !== app) return;
 
     const aabb = splatEntity.gsplat?.customAabb || splatEntity.gsplat?.aabb || splatAsset.resource?.aabb;
     const center = aabb?.center?.clone?.() || new pc.Vec3(0, 0, 0);
@@ -3663,7 +3686,7 @@ class PlayCanvasSogViewer {
     this.fpCollision = preparedAsset.streamingEnabled
       ? (this.fpCollision || this.createFallbackBoxCollision(pc, splatEntity, this.activeFpCollisionBoxConfig || this.activeManualBoxConfig))
       : null;
-    if (preparedAsset.streamingEnabled) {
+    if (preparedAsset.streamingEnabled && this.collisionPreviewVisible) {
       this.loadCollisionPreview(preparedAsset, generation).catch((error) => {
         if (this.isLoadCurrent(generation)) {
           logger.warn("sog-loader", "Collision preview failed", {
