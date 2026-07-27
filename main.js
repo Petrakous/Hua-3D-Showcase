@@ -165,6 +165,12 @@ const SELECTION_PREFERENCES_KEY = "hua3d.selection.preferences:v1";
 const calibrationQueryEnabled =
   new URLSearchParams(window.location.search).get(SOG_CALIBRATION_QUERY_PARAM) === "1";
 const calibrationUiUnlocked = calibrationQueryEnabled;
+const collisionPilotEnabled =
+  calibrationUiUnlocked &&
+  ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+  new URLSearchParams(window.location.search).get("collision-pilot") === "1";
+const CAMPUS_DAY_COLLISION_PILOT_URL =
+  "./.collision-pilot/campus-day/campus-day-structural-v0p5-f80000.glb?v=20260728pilot1";
 const cinematicModeEnabled = new URLSearchParams(window.location.search).get("cinematic") === "1";
 const cinematicAuthorEnabled =
   cinematicModeEnabled && new URLSearchParams(window.location.search).get("author") === "1";
@@ -1220,6 +1226,14 @@ function getStreamedTransformOverride(asset) {
 function applyCalibrationOverrideToAsset(asset) {
   if (!asset || asset.type !== "splat") {
     return asset;
+  }
+
+  if (collisionPilotEnabled && asset.sceneCalibrationKey === "outdoors:day") {
+    asset = {
+      ...asset,
+      fpCollisionSource: CAMPUS_DAY_COLLISION_PILOT_URL,
+      collisionPilot: true,
+    };
   }
 
   if (asset.sceneCalibrationKey) {
