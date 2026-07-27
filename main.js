@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260708diag1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260708diag1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260711hotspot1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260709lodsafe1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
@@ -33,6 +33,9 @@ const statusDetails = document.getElementById("statusDetails");
 const statusDetailsText = document.getElementById("statusDetailsText");
 const sceneSelection = document.getElementById("sceneSelection");
 const sceneCardGrid = document.getElementById("sceneCardGrid");
+const hotspotOverlay = document.getElementById("hotspotOverlay");
+const hotspotTransitionOverlay = document.getElementById("hotspotTransitionOverlay");
+const hotspotTransitionText = document.getElementById("hotspotTransitionText");
 const viewerBackButton = document.getElementById("viewerBackButton");
 const fullscreenToggle = document.getElementById("fullscreenToggle");
 const glbQualityControl = document.getElementById("glbQualityControl");
@@ -63,6 +66,13 @@ const calibrationShowBox = document.getElementById("calibrationShowBox");
 const calibrationSetCurrent = document.getElementById("calibrationSetCurrent");
 const calibrationTargetControl = document.getElementById("calibrationTargetControl");
 const calibrationTargetButtons = [...document.querySelectorAll("[data-calib-target]")];
+const hotspotCalibrationControls = document.getElementById("hotspotCalibrationControls");
+const hotspotCalibrationSelect = document.getElementById("hotspotCalibrationSelect");
+const hotspotCalibrationStep = document.getElementById("hotspotCalibrationStep");
+const hotspotCalibrationPosition = document.getElementById("hotspotCalibrationPosition");
+const hotspotCopyPosition = document.getElementById("hotspotCopyPosition");
+const hotspotCopyJson = document.getElementById("hotspotCopyJson");
+const hotspotCopyAllJson = document.getElementById("hotspotCopyAllJson");
 const timeDial = document.getElementById("timeDial");
 const timeControlGroup = document.getElementById("timeControlGroup");
 const timeStageMarkers = [...document.querySelectorAll(".time-stage-marker")];
@@ -1043,6 +1053,12 @@ let pendingSogModeTransitionOrbitState = null;
 let sogPanIndicatorVisible = false;
 let calibrationPanelOpen = false;
 let calibrationInputSyncSuspended = false;
+let activeHotspots = [];
+let activeHotspotId = "";
+let selectedHotspotId = "";
+let lastHotspotPointerType = "mouse";
+let hotspotTransitionActive = false;
+let hotspotCloseTimer = null;
 // Which target the Streamed Move/Rotate/Scale controls edit: "scene" | "collision"
 let streamedCalibTarget = "scene";
 // Which target the regular LOD controls edit: "scene" | "box" | "camera"
@@ -1541,6 +1557,441 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function cloneHotspot(hotspot) {
+  return {
+    ...hotspot,
+    position: {
+      x: Number(hotspot.position?.x ?? 0),
+      y: Number(hotspot.position?.y ?? 0),
+      z: Number(hotspot.position?.z ?? 0),
+    },
+  };
+}
+
+function getActiveExperienceSceneId(asset = currentActiveAsset) {
+  return asset?.sceneId || (asset?.locationId === "outdoors" ? `campus-${activeTimeStage}` : null);
+}
+
+function getHotspotsForAsset(asset = currentActiveAsset) {
+  const sceneId = getActiveExperienceSceneId(asset);
+  if (!sceneId) return [];
+  const exp = resolveSceneExperience(sceneId);
+  return (exp.future?.hotspots || [])
+    .filter((hotspot) => hotspot.enabled || calibrationUiUnlocked)
+    .map(cloneHotspot);
+}
+
+function getActiveHotspotById(id = activeHotspotId) {
+  return activeHotspots.find((hotspot) => hotspot.id === id) || null;
+}
+
+function getSelectedHotspot() {
+  return getActiveHotspotById(selectedHotspotId) || activeHotspots[0] || null;
+}
+
+function hotspotPositionArray(hotspot) {
+  return [
+    Number(hotspot?.position?.x ?? 0),
+    Number(hotspot?.position?.y ?? 0),
+    Number(hotspot?.position?.z ?? 0),
+  ];
+}
+
+function getHotspotTargetScene(hotspot) {
+  return hotspot?.targetSceneId ? getCampusIndoorSceneById(hotspot.targetSceneId) : null;
+}
+
+function resolveHotspotThumbnail(hotspot) {
+  if (hotspot?.thumbnail) return hotspot.thumbnail;
+  const targetScene = getHotspotTargetScene(hotspot);
+  return targetScene?.thumbnail || null;
+}
+
+function renderHotspotCard(hotspot) {
+  const thumbnail = resolveHotspotThumbnail(hotspot);
+  const media = thumbnail
+    ? `<img src="${escapeHtml(thumbnail)}" alt="" loading="lazy" />`
+    : `<span>${escapeHtml((hotspot.title || "Go").slice(0, 2).toUpperCase())}</span>`;
+  return `
+    <div class="hotspot-card__shell">
+      <div class="hotspot-card__media">${media}</div>
+      <div class="hotspot-card__body">
+        <h3>${escapeHtml(hotspot.title)}</h3>
+        <p>${escapeHtml(hotspot.description || "")}</p>
+        <button class="hotspot-card__cta" type="button" data-hotspot-enter="${escapeHtml(hotspot.id)}">Enter</button>
+      </div>
+    </div>
+  `;
+}
+
+function clearHotspotOverlay() {
+  activeHotspots = [];
+  activeHotspotId = "";
+  selectedHotspotId = "";
+  hotspotOverlay.innerHTML = "";
+  sogViewer?.clearHotspotMarkers?.();
+  updateHotspotCalibrationUi();
+}
+
+function renderActiveHotspots() {
+  activeHotspots = getHotspotsForAsset();
+  activeHotspotId = "";
+  // SOG hotspots use the viewer's dedicated GPU overlay layer. Keeping the legacy
+  // DOM overlay out of that path avoids a second coordinate system and projection drift.
+  hotspotOverlay.hidden = currentEngineType === "splat";
+  if (!activeHotspots.some((hotspot) => hotspot.id === selectedHotspotId)) {
+    selectedHotspotId = activeHotspots[0]?.id || "";
+  }
+
+  hotspotOverlay.innerHTML = activeHotspots.map((hotspot) => `
+    <button
+      class="hotspot-marker"
+      type="button"
+      data-hotspot-id="${escapeHtml(hotspot.id)}"
+      data-active="false"
+      data-selected="${String(hotspot.id === selectedHotspotId)}"
+      aria-label="${escapeHtml(hotspot.title)}"
+      title="${escapeHtml(hotspot.title)}"
+    ><span class="hotspot-marker__visual" aria-hidden="true"></span></button>
+    <article class="hotspot-card" data-hotspot-card="${escapeHtml(hotspot.id)}" data-open="false" hidden>
+      ${renderHotspotCard(hotspot)}
+    </article>
+  `).join("");
+
+  for (const marker of hotspotOverlay.querySelectorAll(".hotspot-marker")) {
+    marker.addEventListener("pointerdown", (event) => {
+      lastHotspotPointerType = event.pointerType || "mouse";
+    });
+    marker.addEventListener("mouseenter", () => {
+      if (currentEngineType === "splat") return;
+      if (lastHotspotPointerType !== "touch") openHotspotCard(marker.dataset.hotspotId);
+    });
+    marker.addEventListener("mouseleave", () => {
+      if (lastHotspotPointerType !== "touch") scheduleHotspotCardClose();
+    });
+    marker.addEventListener("focus", () => openHotspotCard(marker.dataset.hotspotId));
+    marker.addEventListener("blur", () => scheduleHotspotCardClose());
+    marker.addEventListener("click", () => {
+      const hotspot = getActiveHotspotById(marker.dataset.hotspotId);
+      if (!hotspot) return;
+      if (calibrationPanelOpen) {
+        selectHotspotForCalibration(hotspot.id);
+        openHotspotCard(hotspot.id);
+        return;
+      }
+      if (currentEngineType === "splat") {
+        activateHotspot(hotspot);
+        return;
+      }
+      if (lastHotspotPointerType === "touch") {
+        if (activeHotspotId === hotspot.id) {
+          closeHotspotCard();
+        } else {
+          openHotspotCard(hotspot.id);
+        }
+        return;
+      }
+      activateHotspot(hotspot);
+    });
+  }
+
+  for (const card of hotspotOverlay.querySelectorAll(".hotspot-card")) {
+    card.addEventListener("mouseenter", cancelHotspotCardClose);
+    card.addEventListener("mouseleave", scheduleHotspotCardClose);
+    card.addEventListener("focusin", cancelHotspotCardClose);
+    card.addEventListener("focusout", scheduleHotspotCardClose);
+  }
+
+  for (const button of hotspotOverlay.querySelectorAll("[data-hotspot-enter]")) {
+    button.addEventListener("click", () => {
+      const hotspot = getActiveHotspotById(button.dataset.hotspotEnter);
+      if (hotspot) activateHotspot(hotspot);
+    });
+  }
+
+  updateHotspotOverlay();
+  syncViewerHotspotMarkers();
+  updateHotspotCalibrationUi();
+}
+
+function openHotspotCard(hotspotId) {
+  cancelHotspotCardClose();
+  activeHotspotId = hotspotId || "";
+  for (const marker of hotspotOverlay.querySelectorAll(".hotspot-marker")) {
+    marker.dataset.active = String(marker.dataset.hotspotId === activeHotspotId);
+  }
+  for (const card of hotspotOverlay.querySelectorAll(".hotspot-card")) {
+    const open = card.dataset.hotspotCard === activeHotspotId;
+    card.hidden = !open;
+    requestAnimationFrame(() => {
+      card.dataset.open = String(open);
+    });
+  }
+  updateHotspotOverlay();
+}
+
+function closeHotspotCard() {
+  cancelHotspotCardClose();
+  activeHotspotId = "";
+  for (const marker of hotspotOverlay.querySelectorAll(".hotspot-marker")) {
+    marker.dataset.active = "false";
+  }
+  for (const card of hotspotOverlay.querySelectorAll(".hotspot-card")) {
+    card.dataset.open = "false";
+    card.hidden = true;
+  }
+}
+
+function cancelHotspotCardClose() {
+  if (hotspotCloseTimer) {
+    clearTimeout(hotspotCloseTimer);
+    hotspotCloseTimer = null;
+  }
+}
+
+function scheduleHotspotCardClose() {
+  cancelHotspotCardClose();
+  hotspotCloseTimer = setTimeout(() => {
+    const activeElement = document.activeElement;
+    if (activeElement?.closest?.(".hotspot-marker, .hotspot-card")) {
+      return;
+    }
+    closeHotspotCard();
+  }, 90);
+}
+
+function getHotspotNudgeForKey(key, code = "") {
+  const codeNudges = {
+    ArrowLeft: ["x", -1],
+    ArrowRight: ["x", 1],
+    KeyA: ["x", -1],
+    KeyD: ["x", 1],
+    KeyQ: ["y", -1],
+    KeyE: ["y", 1],
+    ArrowDown: ["z", -1],
+    ArrowUp: ["z", 1],
+    KeyS: ["z", -1],
+    KeyW: ["z", 1],
+  };
+  if (codeNudges[code]) return codeNudges[code];
+
+  return {
+    ArrowLeft: ["x", -1],
+    ArrowRight: ["x", 1],
+    a: ["x", -1],
+    A: ["x", -1],
+    d: ["x", 1],
+    D: ["x", 1],
+    q: ["y", -1],
+    Q: ["y", -1],
+    e: ["y", 1],
+    E: ["y", 1],
+    ArrowDown: ["z", -1],
+    ArrowUp: ["z", 1],
+    s: ["z", -1],
+    S: ["z", -1],
+    w: ["z", 1],
+    W: ["z", 1],
+  }[key] || null;
+}
+
+function shouldIgnoreHotspotNudgeEvent(event) {
+  if (event.ctrlKey || event.metaKey || event.altKey) return true;
+  const target = event.target;
+  if (target?.isContentEditable) return true;
+  const tagName = target?.tagName?.toLowerCase();
+  return tagName === "textarea";
+}
+
+function handleHotspotNudgeKeydown(event) {
+  if (!calibrationUiUnlocked || !activeHotspots.length || shouldIgnoreHotspotNudgeEvent(event)) {
+    return;
+  }
+  const nudge = getHotspotNudgeForKey(event.key, event.code);
+  if (!nudge) return;
+  if (nudgeSelectedHotspot(nudge[0], nudge[1])) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}
+
+function updateHotspotOverlay() {
+  if (currentEngineType === "splat") {
+    hotspotOverlay.hidden = true;
+    return;
+  }
+  if (!activeHotspots.length || !sogViewer?.projectWorldPoint) {
+    return;
+  }
+
+  for (const hotspot of activeHotspots) {
+    const projection = sogViewer.projectWorldPoint(hotspotPositionArray(hotspot));
+    const marker = hotspotOverlay.querySelector(`[data-hotspot-id="${CSS.escape(hotspot.id)}"]`);
+    const card = hotspotOverlay.querySelector(`[data-hotspot-card="${CSS.escape(hotspot.id)}"]`);
+    const visible = !!projection?.visible;
+    if (marker) {
+      marker.hidden = !visible;
+      marker.dataset.selected = String(hotspot.id === selectedHotspotId && calibrationPanelOpen);
+      const markerVisual = marker.querySelector(".hotspot-marker__visual");
+      if (markerVisual) markerVisual.hidden = false;
+      if (visible) {
+        marker.style.left = `${projection.x}px`;
+        marker.style.top = `${projection.y}px`;
+        marker.style.setProperty("--hotspot-scale", "1");
+      }
+    }
+    if (card) {
+      if (currentEngineType === "splat" || !visible || card.dataset.open !== "true") {
+        card.hidden = true;
+      } else {
+        card.hidden = false;
+        card.style.left = `${Math.max(14, Math.min(projection.x, hotspotOverlay.clientWidth - 14))}px`;
+        card.style.top = `${Math.max(120, Math.min(projection.y, hotspotOverlay.clientHeight - 14))}px`;
+      }
+    }
+  }
+}
+
+function syncViewerHotspotMarkers() {
+  if (currentEngineType !== "splat" || !sogViewer?.setHotspotMarkers) {
+    return;
+  }
+  sogViewer.setHotspotMarkers(activeHotspots.map((hotspot) => ({
+    id: hotspot.id,
+    position: hotspot.position,
+    selected: hotspot.id === selectedHotspotId && calibrationPanelOpen,
+  })), {
+    visible: activeHotspots.length > 0,
+  });
+}
+
+function updateHotspotCalibrationUi() {
+  const available = calibrationUiUnlocked && currentEngineType === "splat" && activeHotspots.length > 0;
+  hotspotCalibrationControls.hidden = !available;
+  if (!available) {
+    hotspotCalibrationSelect.innerHTML = "";
+    hotspotCalibrationPosition.textContent = "x 0.000 · y 0.000 · z 0.000";
+    return;
+  }
+
+  if (!activeHotspots.some((hotspot) => hotspot.id === selectedHotspotId)) {
+    selectedHotspotId = activeHotspots[0]?.id || "";
+  }
+
+  hotspotCalibrationSelect.innerHTML = activeHotspots.map((hotspot) => `
+    <option value="${escapeHtml(hotspot.id)}"${hotspot.id === selectedHotspotId ? " selected" : ""}>${escapeHtml(hotspot.title)}</option>
+  `).join("");
+  const hotspot = getSelectedHotspot();
+  const [x, y, z] = hotspotPositionArray(hotspot);
+  hotspotCalibrationPosition.textContent = `x ${x.toFixed(3)} · y ${y.toFixed(3)} · z ${z.toFixed(3)}`;
+  syncViewerHotspotMarkers();
+  updateHotspotOverlay();
+}
+
+function selectHotspotForCalibration(hotspotId) {
+  selectedHotspotId = hotspotId || selectedHotspotId;
+  updateHotspotCalibrationUi();
+}
+
+function nudgeSelectedHotspot(axis, direction) {
+  if (!calibrationUiUnlocked || !activeHotspots.length) return false;
+  const hotspot = getSelectedHotspot();
+  if (!hotspot) return false;
+  const step = Number.parseFloat(hotspotCalibrationStep.value) || 0.1;
+  hotspot.position[axis] = Number((Number(hotspot.position[axis] ?? 0) + direction * step).toFixed(4));
+  openHotspotCard(hotspot.id);
+  updateHotspotCalibrationUi();
+  return true;
+}
+
+async function copyHotspotPayload(payload, successMessage) {
+  try {
+    await navigator.clipboard.writeText(payload);
+    setStatus("Hotspot copied", successMessage);
+  } catch (_error) {
+    setStatus("Copy unavailable", "Clipboard access is blocked in this browser context.");
+  }
+  setStatusOverlayState(false);
+  requestAnimationFrame(() => setStatusOverlayState(true));
+}
+
+function copySelectedHotspotPosition() {
+  const hotspot = getSelectedHotspot();
+  if (!hotspot) return;
+  copyHotspotPayload(JSON.stringify({ position: hotspot.position }, null, 2), "The hotspot position JSON was copied.");
+}
+
+function copySelectedHotspotJson() {
+  const hotspot = getSelectedHotspot();
+  if (!hotspot) return;
+  copyHotspotPayload(JSON.stringify(hotspot, null, 2), "The selected hotspot JSON was copied.");
+}
+
+function copyAllHotspotsJson() {
+  copyHotspotPayload(JSON.stringify(activeHotspots, null, 2), "All hotspots for this scene were copied.");
+}
+
+function setHotspotTransitionVisible(visible, text = "Entering space...") {
+  hotspotTransitionActive = !!visible;
+  hotspotTransitionText.textContent = text;
+  hotspotTransitionOverlay.hidden = false;
+  hotspotTransitionOverlay.setAttribute("aria-hidden", String(!visible));
+  requestAnimationFrame(() => {
+    hotspotTransitionOverlay.dataset.active = String(visible);
+  });
+  if (!visible) {
+    setTimeout(() => {
+      if (!hotspotTransitionActive) {
+        hotspotTransitionOverlay.hidden = true;
+      }
+    }, 260);
+  }
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function activateHotspot(hotspot) {
+  if (!hotspot || hotspotTransitionActive) return;
+  if (hotspot.type !== "scene-link") {
+    setStatus("Hotspot unavailable", "This hotspot type is not supported yet.");
+    return;
+  }
+
+  const targetScene = getHotspotTargetScene(hotspot);
+  if (!targetScene) {
+    setStatus("Hotspot unavailable", "The linked scene is not available yet.");
+    return;
+  }
+
+  closeHotspotCard();
+  sogViewer.focusWorldPoint?.(hotspotPositionArray(hotspot), { distanceMultiplier: 0.34, maxDistance: 10 });
+  setHotspotTransitionVisible(true, `Entering ${hotspot.targetSceneTitle || targetScene.label || "space"}...`);
+  try {
+    await wait(420);
+
+    activeSiteId = "campus";
+    activeEnvironmentId = "inside";
+    activeBuildingId = CAMPUS_INDOOR_BUILDINGS.find((building) =>
+      building.spaces.some((space) => space.sceneId === hotspot.targetSceneId)
+    )?.id || activeBuildingId;
+    activeSceneId = hotspot.targetSceneId;
+    activeSogMode = selectionPreferences.sogMode;
+    activeFpNavigationMode = selectionPreferences.fpNavigationMode;
+    syncNavigationState();
+    preferDefaultFormatForCurrentContext();
+    updateLocationUi();
+    updateQualityToggle();
+    updateMaterialToggle();
+    updateTimeUi();
+    enterViewerMode();
+    await applyActiveAssetSelection({ forceReload: true });
+  } finally {
+    setHotspotTransitionVisible(false);
+  }
 }
 
 function getSceneCardEntries() {
@@ -2392,6 +2843,7 @@ function revokeObjectUrl(url) {
 
 function releaseActiveViewerResources() {
   setMobileControlsPanel("");
+  clearHotspotOverlay();
   sogViewer.dispose();
   stopSogPerformanceMonitor();
   replaceModelViewerElement();
@@ -2524,8 +2976,10 @@ function setCalibrationPanelOpen(open) {
       sogViewer.setSpawnMarkerVisible?.(false);
       streamedCalibTarget = "scene";
       lodCalibTarget = "box";
+      closeHotspotCard();
     }
   }
+  updateHotspotCalibrationUi();
 }
 
 function setCalibrationInputsDisabled(disabled) {
@@ -3568,6 +4022,7 @@ async function activateSplatAsset(asset, swapId, options = {}) {
   renderFpNavMarkers();
   updateLodToggle();
   updateCalibrationUi();
+  renderActiveHotspots();
   trackSceneLoaded(getAnalyticsSceneId(asset), getAnalyticsAssetMetadata(asset, {
     load_engine: "playcanvas_sog",
     silent: !!options.silent,
@@ -3594,6 +4049,7 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
     renderFpNavMarkers();
     updateLodToggle();
     updateCalibrationUi();
+    clearHotspotOverlay();
     return;
   }
 
@@ -3607,6 +4063,7 @@ async function applyActiveAssetSelection({ forceReload = false } = {}) {
     renderFpNavMarkers();
     updateLodToggle();
     updateCalibrationUi();
+    renderActiveHotspots();
     return;
   }
 
@@ -4285,6 +4742,15 @@ document.addEventListener("fullscreenchange", () => {
   fullscreenToggle.title = fullscreenLabel;
 });
 
+document.addEventListener("keydown", handleHotspotNudgeKeydown, true);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && activeHotspotId) {
+    closeHotspotCard();
+    return;
+  }
+});
+
 splatViewerMount.addEventListener("sog-pan-visibilitychange", (event) => {
   sogPanIndicatorVisible = !!event.detail?.visible;
   updateOrbitTargetIndicatorVisibility();
@@ -4298,6 +4764,33 @@ splatViewerMount.addEventListener("fp-user-interaction", () => {
   turntableEnabled = false;
   updateTurntableUi();
 });
+
+splatViewerMount.addEventListener("sog-camera-frame", () => {
+  updateHotspotOverlay();
+});
+
+splatViewerMount.addEventListener("sog-hotspot-activate", (event) => {
+  const hotspot = getActiveHotspotById(event.detail?.id);
+  if (!hotspot) return;
+  if (calibrationPanelOpen) {
+    selectHotspotForCalibration(hotspot.id);
+    return;
+  }
+  activateHotspot(hotspot);
+});
+
+hotspotCalibrationSelect.addEventListener("change", () => {
+  selectHotspotForCalibration(hotspotCalibrationSelect.value);
+  openHotspotCard(hotspotCalibrationSelect.value);
+});
+
+hotspotCalibrationStep.addEventListener("change", () => {
+  updateHotspotCalibrationUi();
+});
+
+hotspotCopyPosition.addEventListener("click", copySelectedHotspotPosition);
+hotspotCopyJson.addEventListener("click", copySelectedHotspotJson);
+hotspotCopyAllJson.addEventListener("click", copyAllHotspotsJson);
 
 calibrationToggle.addEventListener("click", () => {
   if (!isSogCalibrationAvailable()) {

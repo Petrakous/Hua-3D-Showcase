@@ -1,5 +1,5 @@
 import { computeAutoCutaway } from "./autoCutaway.js?v=20260625fp22";
-import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
+import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260711hotspot1";
 import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629tap1";
 import { logger } from "./logger.js";
 
@@ -513,6 +513,17 @@ class PlayCanvasSogViewer {
     this._cameraStartMarkerEntity = null;
     this.manualBoxPreviewVisible = false;
     this._manualBoxLabels = [];
+    this.hotspotMarkerVisible = false;
+    this.hotspotMarkerData = [];
+    this.hotspotMarkerEntities = new Map();
+    this.hotspotSurfaceAnchors = new Map();
+    this.hotspotOverlayLayer = null;
+    this.hotspotOverlayCamera = null;
+    this.hotspotMaterials = null;
+    this.hotspotTextures = [];
+    this.hotspotHoveredId = "";
+    this.hotspotPointerStart = null;
+    this.hotspotInteractionDisposeFns = [];
     this.fpNavigationController = null;
     this.fpNavigationMode = "walk";
     this.flyCollisionIgnored = false;
@@ -586,6 +597,42 @@ class PlayCanvasSogViewer {
     const worldPoint = point?.clone?.() || new pc.Vec3(0, 0, 0);
     this.getManualBoxParentWorldMatrix(pc).transformPoint(worldPoint, worldPoint);
     return worldPoint;
+  }
+
+  transformScenePointToWorld(pc, point) {
+    if (!this.splatEntity) {
+      return point?.clone?.() || new pc.Vec3(0, 0, 0);
+    }
+    return this.transformPointToWorld(pc, this.splatEntity, point);
+  }
+
+  worldToContainerPoint(worldPoint) {
+    if (!this.app || !this.camera?.camera || !this.container || !worldPoint) {
+      return null;
+    }
+
+    const width = Math.max(1, this.canvas?.offsetWidth || this.container.clientWidth || 1);
+    const height = Math.max(1, this.canvas?.offsetHeight || this.container.clientHeight || 1);
+    const screen = this.camera.camera.worldToScreen(worldPoint, new this.pc.Vec3());
+    if (!screen || ![screen.x, screen.y, screen.z].every(Number.isFinite)) {
+      return null;
+    }
+
+    const x = screen.x;
+    const y = screen.y;
+    const margin = 72;
+    const visible =
+      x >= -margin &&
+      y >= -margin &&
+      x <= width + margin &&
+      y <= height + margin;
+
+    return {
+      x,
+      y,
+      z: screen.z,
+      visible: screen.z >= 0 && visible,
+    };
   }
 
   resolveOrbitStateFromCamera(pc, target, cameraPosition) {
@@ -887,6 +934,7 @@ class PlayCanvasSogViewer {
     this.splatEntity.setLocalEulerAngles(...(transform.rotationDegrees || [0, 0, 0]));
     this.splatEntity.setLocalScale(...(transform.scale || [1, 1, 1]));
     this.splatEntity.syncHierarchy();
+    this.hotspotSurfaceAnchors.clear();
     if (this.app) this.app.renderNextFrame = true;
   }
 
@@ -1017,6 +1065,7 @@ class PlayCanvasSogViewer {
       const collision = buildMeshCollisionFromEntity(this.pc, this.collisionPreviewEntity);
       if (collision) {
         this.fpCollision = collision;
+        this.hotspotSurfaceAnchors.clear();
         this.fpNavigationController?.setCollision?.(collision);
       }
     } catch (error) {
@@ -1029,6 +1078,447 @@ class PlayCanvasSogViewer {
   setEditorGuidesVisible(visible) {
     this.editorGuidesVisible = visible === true;
     if (this.app) this.app.renderNextFrame = true;
+  }
+
+  projectWorldPoint(position, options = {}) {
+    if (!this.app || !this.pc || !this.camera?.camera || !this.container) {
+      return null;
+    }
+
+    const values = Array.isArray(position)
+      ? position
+      : [position?.x, position?.y, position?.z];
+    const [x, y, z] = values.map(Number);
+    if (![x, y, z].every(Number.isFinite)) {
+      return null;
+    }
+
+    const localPoint = new this.pc.Vec3(x, y, z);
+    const point = options.coordinateSpace === "world"
+      ? localPoint
+      : this.transformScenePointToWorld(this.pc, localPoint);
+    const projected = this.worldToContainerPoint(point);
+    if (!projected) {
+      return null;
+    }
+
+    const cameraPosition = this.camera.getPosition();
+    const toPoint = point.clone().sub(cameraPosition);
+
+    return {
+      x: projected.x,
+      y: projected.y,
+      z: projected.z,
+      visible: projected.visible,
+      distance: toPoint.length(),
+    };
+  }
+
+  setHotspotMarkers(hotspots = [], options = {}) {
+    this.hotspotMarkerData = Array.isArray(hotspots) ? hotspots.map((hotspot) => ({
+      id: hotspot.id,
+      selected: hotspot.selected === true,
+      position: Array.isArray(hotspot.position)
+        ? [...hotspot.position]
+        : [
+            Number(hotspot.position?.x ?? 0),
+            Number(hotspot.position?.y ?? 0),
+            Number(hotspot.position?.z ?? 0),
+          ],
+    })) : [];
+    this.hotspotMarkerVisible = options.visible !== false && this.hotspotMarkerData.length > 0;
+    this.syncHotspotMarkerEntities();
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  clearHotspotMarkers() {
+    this.hotspotMarkerData = [];
+    this.hotspotMarkerVisible = false;
+    for (const entity of this.hotspotMarkerEntities.values()) {
+      entity.destroy?.();
+    }
+    this.hotspotMarkerEntities.clear();
+    this.hotspotSurfaceAnchors.clear();
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
+  createHotspotArtworkCanvas(kind = "marker") {
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 256;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+
+    const center = 128;
+    context.clearRect(0, 0, 256, 256);
+    context.lineCap = "round";
+    context.lineJoin = "round";
+
+    if (kind === "pulse") {
+      const glow = context.createRadialGradient(center, center, 66, center, center, 116);
+      glow.addColorStop(0, "rgba(59, 241, 226, 0)");
+      glow.addColorStop(0.62, "rgba(59, 241, 226, 0.08)");
+      glow.addColorStop(0.78, "rgba(110, 255, 242, 0.52)");
+      glow.addColorStop(0.84, "rgba(110, 255, 242, 0.10)");
+      glow.addColorStop(1, "rgba(59, 241, 226, 0)");
+      context.fillStyle = glow;
+      context.fillRect(0, 0, 256, 256);
+    } else {
+      const halo = context.createRadialGradient(center, center, 18, center, center, 122);
+      halo.addColorStop(0, "rgba(141, 255, 244, 0.56)");
+      halo.addColorStop(0.34, "rgba(38, 224, 215, 0.24)");
+      halo.addColorStop(0.68, "rgba(38, 224, 215, 0.07)");
+      halo.addColorStop(1, "rgba(38, 224, 215, 0)");
+      context.fillStyle = halo;
+      context.fillRect(0, 0, 256, 256);
+
+      context.shadowColor = "rgba(41, 236, 222, 0.92)";
+      context.shadowBlur = 18;
+      context.strokeStyle = "rgba(119, 255, 243, 0.9)";
+      context.lineWidth = 5;
+      context.beginPath();
+      context.arc(center, center, 76, 0, Math.PI * 2);
+      context.stroke();
+
+      context.shadowBlur = 10;
+      context.strokeStyle = "rgba(184, 255, 247, 0.48)";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(center, center, 96, 0, Math.PI * 2);
+      context.stroke();
+
+      const glass = context.createRadialGradient(105, 100, 8, center, center, 62);
+      glass.addColorStop(0, "rgba(226, 255, 252, 0.96)");
+      glass.addColorStop(0.22, "rgba(93, 247, 233, 0.94)");
+      glass.addColorStop(0.62, "rgba(14, 155, 161, 0.90)");
+      glass.addColorStop(1, "rgba(5, 55, 70, 0.96)");
+      context.shadowBlur = 22;
+      context.fillStyle = glass;
+      context.beginPath();
+      context.arc(center, center, 53, 0, Math.PI * 2);
+      context.fill();
+      context.shadowBlur = 0;
+      context.strokeStyle = "rgba(210, 255, 250, 0.72)";
+      context.lineWidth = 3;
+      context.stroke();
+
+      // A minimal doorway/entry glyph keeps the marker meaningful at small sizes.
+      context.strokeStyle = "rgba(239, 255, 253, 0.98)";
+      context.fillStyle = "rgba(239, 255, 253, 0.98)";
+      context.lineWidth = 7;
+      context.beginPath();
+      context.rect(109, 94, 38, 55);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(128, 106);
+      context.lineTo(128, 137);
+      context.moveTo(117, 126);
+      context.lineTo(128, 137);
+      context.lineTo(139, 126);
+      context.stroke();
+    }
+
+    return canvas;
+  }
+
+  createHotspotTexture(kind) {
+    const source = this.createHotspotArtworkCanvas(kind);
+    if (!source || !this.pc || !this.app) return null;
+    const texture = new this.pc.Texture(this.app.graphicsDevice, {
+      name: `HuaHotspot:${kind}`,
+      width: source.width,
+      height: source.height,
+      mipmaps: false,
+      minFilter: this.pc.FILTER_LINEAR,
+      magFilter: this.pc.FILTER_LINEAR,
+      addressU: this.pc.ADDRESS_CLAMP_TO_EDGE,
+      addressV: this.pc.ADDRESS_CLAMP_TO_EDGE,
+    });
+    texture.setSource(source);
+    this.hotspotTextures.push(texture);
+    return texture;
+  }
+
+  createHotspotMaterial(texture, opacity = 1) {
+    const material = new this.pc.StandardMaterial();
+    material.useLighting = false;
+    material.diffuse = new this.pc.Color(0, 0, 0);
+    material.emissive = new this.pc.Color(1, 1, 1);
+    material.emissiveMap = texture;
+    material.opacityMap = texture;
+    material.opacityMapChannel = "a";
+    material.opacity = opacity;
+    material.blendType = this.pc.BLEND_NORMAL;
+    material.depthTest = false;
+    material.depthWrite = false;
+    material.cull = this.pc.CULLFACE_NONE;
+    material.update();
+    return material;
+  }
+
+  ensureHotspotOverlayRenderer() {
+    if (!this.pc || !this.app || !this.camera?.camera) return false;
+    if (!this.hotspotOverlayLayer) {
+      const layer = new this.pc.Layer({
+        name: "HotspotOverlay",
+        opaqueSortMode: this.pc.SORTMODE_MANUAL,
+        transparentSortMode: this.pc.SORTMODE_MANUAL,
+      });
+      this.app.scene.layers.pushTransparent(layer);
+      this.hotspotOverlayLayer = layer;
+    }
+
+    if (!this.hotspotOverlayCamera) {
+      const overlayCamera = new this.pc.Entity("HotspotOverlayCamera");
+      overlayCamera.addComponent("camera", {
+        clearColorBuffer: false,
+        clearDepthBuffer: true,
+        clearStencilBuffer: false,
+        priority: (this.camera.camera.priority || 0) + 100,
+        nearClip: this.camera.camera.nearClip,
+        farClip: this.camera.camera.farClip,
+        fov: this.camera.camera.fov,
+        layers: [this.hotspotOverlayLayer.id],
+      });
+      this.app.root.addChild(overlayCamera);
+      this.hotspotOverlayCamera = overlayCamera;
+    }
+
+    if (!this.hotspotMaterials) {
+      const markerTexture = this.createHotspotTexture("marker");
+      const pulseTexture = this.createHotspotTexture("pulse");
+      this.hotspotMaterials = {
+        marker: this.createHotspotMaterial(markerTexture, 0.98),
+        pulse: this.createHotspotMaterial(pulseTexture, 0.5),
+      };
+    }
+    return true;
+  }
+
+  syncHotspotOverlayCamera() {
+    if (!this.hotspotOverlayCamera?.camera || !this.camera?.camera) return;
+    this.hotspotOverlayCamera.setPosition(this.camera.getPosition());
+    this.hotspotOverlayCamera.setRotation(this.camera.getRotation());
+    this.hotspotOverlayCamera.camera.fov = this.camera.camera.fov;
+    this.hotspotOverlayCamera.camera.horizontalFov = this.camera.camera.horizontalFov;
+    this.hotspotOverlayCamera.camera.nearClip = this.camera.camera.nearClip;
+    this.hotspotOverlayCamera.camera.farClip = this.camera.camera.farClip;
+    this.hotspotOverlayCamera.camera.projection = this.camera.camera.projection;
+    this.hotspotOverlayCamera.camera.orthoHeight = this.camera.camera.orthoHeight;
+    this.hotspotOverlayCamera.camera.rect = this.camera.camera.rect;
+  }
+
+  resolveHotspotWorldPoint(hotspot) {
+    const signature = hotspot.position.map((value) => Number(value).toFixed(5)).join("|");
+    const cached = this.hotspotSurfaceAnchors.get(hotspot.id);
+    if (
+      cached?.signature === signature &&
+      (cached.snapped || !this.fpCollision?.queryClosestPoint)
+    ) {
+      return cached.point.clone();
+    }
+
+    const local = new this.pc.Vec3(...hotspot.position);
+    const configuredWorld = this.transformScenePointToWorld(this.pc, local);
+    const snapped = this.fpCollision?.queryClosestPoint?.(
+      configuredWorld.x,
+      configuredWorld.y,
+      configuredWorld.z,
+      4
+    );
+    const point = snapped
+      ? new this.pc.Vec3(snapped.x, snapped.y, snapped.z)
+      : configuredWorld;
+    this.hotspotSurfaceAnchors.set(hotspot.id, {
+      signature,
+      point: point.clone(),
+      snapped: !!snapped,
+      snapDistance: snapped?.distance ?? null,
+    });
+    return point;
+  }
+
+  createHotspotMarkerEntity(id) {
+    if (!this.ensureHotspotOverlayRenderer()) return null;
+    const marker = new this.pc.Entity(`HotspotMarker:${id}`);
+    const pulse = new this.pc.Entity("HotspotPulse");
+    const base = new this.pc.Entity("HotspotBase");
+    pulse.addComponent("render", {
+      type: "plane",
+      material: this.hotspotMaterials.pulse,
+      castShadows: false,
+      receiveShadows: false,
+      layers: [this.hotspotOverlayLayer.id],
+    });
+    base.addComponent("render", {
+      type: "plane",
+      material: this.hotspotMaterials.marker,
+      castShadows: false,
+      receiveShadows: false,
+      layers: [this.hotspotOverlayLayer.id],
+    });
+    for (const meshInstance of pulse.render.meshInstances || []) {
+      meshInstance.material = this.hotspotMaterials.pulse;
+      meshInstance.drawOrder = 0;
+    }
+    for (const meshInstance of base.render.meshInstances || []) {
+      meshInstance.material = this.hotspotMaterials.marker;
+      meshInstance.drawOrder = 1;
+    }
+    pulse.setLocalEulerAngles(90, 0, 0);
+    base.setLocalEulerAngles(90, 0, 0);
+    pulse.setLocalPosition(0, 0, 0.002);
+    marker.addChild(pulse);
+    marker.addChild(base);
+    marker._huaHotspotVisual = { base, pulse };
+    this.app.root.addChild(marker);
+    return marker;
+  }
+
+  getHotspotAtCanvasPoint(clientX, clientY) {
+    if (!this.canvas || !this.pc || !this.camera || !this.hotspotMarkerVisible) return "";
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return "";
+    const x = (clientX - rect.left) * ((this.canvas.offsetWidth || rect.width) / rect.width);
+    const y = (clientY - rect.top) * ((this.canvas.offsetHeight || rect.height) / rect.height);
+    let closestId = "";
+    let closestScreenDistance = Infinity;
+    for (const hotspot of this.hotspotMarkerData) {
+      if (!hotspot.id || !hotspot.position.every(Number.isFinite)) continue;
+      const world = this.resolveHotspotWorldPoint(hotspot);
+      const projected = this.worldToContainerPoint(world);
+      if (!projected?.visible) continue;
+      const screenDistance = Math.hypot(x - projected.x, y - projected.y);
+      if (screenDistance <= 38 && screenDistance < closestScreenDistance) {
+        closestScreenDistance = screenDistance;
+        closestId = hotspot.id;
+      }
+    }
+    return closestId;
+  }
+
+  bindHotspotMarkerInteraction() {
+    if (!this.canvas) return;
+    const onPointerDown = (event) => {
+      if (event.button !== 0) return;
+      this.hotspotPointerStart = {
+        x: event.clientX,
+        y: event.clientY,
+        id: this.getHotspotAtCanvasPoint(event.clientX, event.clientY),
+      };
+    };
+    const onPointerMove = (event) => {
+      const id = this.getHotspotAtCanvasPoint(event.clientX, event.clientY);
+      this.canvas.dataset.hotspotHoverId = id;
+      if (id !== this.hotspotHoveredId) {
+        this.hotspotHoveredId = id;
+        this.canvas.style.cursor = id ? "pointer" : "grab";
+        if (this.app) this.app.renderNextFrame = true;
+      }
+    };
+    const onPointerUp = (event) => {
+      const start = this.hotspotPointerStart;
+      this.hotspotPointerStart = null;
+      if (!start?.id || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) return;
+      const id = this.getHotspotAtCanvasPoint(event.clientX, event.clientY);
+      if (id !== start.id) return;
+      this.container?.dispatchEvent?.(new CustomEvent("sog-hotspot-activate", { detail: { id } }));
+    };
+    const onPointerLeave = () => {
+      this.hotspotHoveredId = "";
+      this.hotspotPointerStart = null;
+      this.canvas.style.cursor = "grab";
+    };
+    this.canvas.addEventListener("pointerdown", onPointerDown);
+    this.canvas.addEventListener("pointermove", onPointerMove);
+    this.canvas.addEventListener("pointerup", onPointerUp);
+    this.canvas.addEventListener("pointercancel", onPointerLeave);
+    this.canvas.addEventListener("pointerleave", onPointerLeave);
+    const canvas = this.canvas;
+    this.hotspotInteractionDisposeFns.push(() => canvas.removeEventListener("pointerdown", onPointerDown));
+    this.hotspotInteractionDisposeFns.push(() => canvas.removeEventListener("pointermove", onPointerMove));
+    this.hotspotInteractionDisposeFns.push(() => canvas.removeEventListener("pointerup", onPointerUp));
+    this.hotspotInteractionDisposeFns.push(() => canvas.removeEventListener("pointercancel", onPointerLeave));
+    this.hotspotInteractionDisposeFns.push(() => canvas.removeEventListener("pointerleave", onPointerLeave));
+  }
+
+  syncHotspotMarkerEntities() {
+    if (!this.pc || !this.app || !this.camera?.camera) return;
+    if (!this.ensureHotspotOverlayRenderer()) return;
+    this.syncHotspotOverlayCamera();
+    const canvasHeight = Math.max(1, this.canvas?.offsetHeight || this.container?.clientHeight || 720);
+
+    const activeIds = new Set(this.hotspotMarkerData.map((hotspot) => hotspot.id));
+    for (const [id, entity] of this.hotspotMarkerEntities.entries()) {
+      if (!activeIds.has(id)) {
+        entity.destroy();
+        this.hotspotMarkerEntities.delete(id);
+        this.hotspotSurfaceAnchors.delete(id);
+      }
+    }
+
+    const time = performance.now() * 0.001;
+    const fovRadians = ((this.camera.camera.fov || 60) * Math.PI) / 180;
+
+    for (const hotspot of this.hotspotMarkerData) {
+      if (!hotspot.id || !hotspot.position.every(Number.isFinite)) continue;
+      let entity = this.hotspotMarkerEntities.get(hotspot.id);
+      if (!entity) {
+        entity = this.createHotspotMarkerEntity(hotspot.id);
+        if (entity) this.hotspotMarkerEntities.set(hotspot.id, entity);
+      }
+      if (!entity) continue;
+
+      const world = this.resolveHotspotWorldPoint(hotspot);
+      const hovered = hotspot.id === this.hotspotHoveredId;
+      const basePixels = hotspot.selected ? 56 : hovered ? 55 : 50;
+      const distance = Math.max(0.1, world.distance(this.camera.getPosition()));
+      const worldPerPixel = (2 * distance * Math.tan(fovRadians * 0.5)) / canvasHeight;
+      const worldSize = worldPerPixel * basePixels;
+      const pulseProgress = (time * 0.62) % 1;
+      const pulseScale = 1.12 + pulseProgress * 0.48;
+
+      entity.setPosition(world);
+      entity.lookAt(this.camera.getPosition());
+      entity.setLocalScale(worldSize, worldSize, worldSize);
+      entity._huaHotspotVisual?.pulse?.setLocalScale(pulseScale, pulseScale, pulseScale);
+      entity.enabled = this.hotspotMarkerVisible;
+    }
+
+    if (this.hotspotMaterials?.pulse) {
+      const pulseProgress = (time * 0.62) % 1;
+      this.hotspotMaterials.pulse.opacity = (1 - pulseProgress) * 0.55;
+      this.hotspotMaterials.pulse.update();
+    }
+  }
+
+  focusWorldPoint(position, options = {}) {
+    if (!this.pc || !this.goalOrbitState) {
+      return false;
+    }
+
+    const values = Array.isArray(position)
+      ? position
+      : [position?.x, position?.y, position?.z];
+    const [x, y, z] = values.map(Number);
+    if (![x, y, z].every(Number.isFinite)) {
+      return false;
+    }
+
+    this.stopFirstPersonNavigation();
+    this.ensureOrbitController(this.currentAsset?.viewPreset);
+    const localTarget = new this.pc.Vec3(x, y, z);
+    const target = options.coordinateSpace === "world"
+      ? localTarget
+      : this.transformScenePointToWorld(this.pc, localTarget);
+    const currentDistance = this.orbitState?.distance || this.goalOrbitState.distance || 8;
+    this.goalOrbitState.target.copy(target);
+    this.goalOrbitState.distance = Math.max(
+      0.85,
+      Math.min(currentDistance * (options.distanceMultiplier ?? 0.42), options.maxDistance ?? 14)
+    );
+    if (this.app) this.app.renderNextFrame = true;
+    return true;
   }
 
   setEditorAxesVisible(visible) {
@@ -1182,21 +1672,17 @@ class PlayCanvasSogViewer {
 
     this._ensureManualBoxLabels();
     const faces = [[-0.5, 0, 0], [0.5, 0, 0], [0, 0.5, 0], [0, -0.5, 0], [0, 0, 0.5], [0, 0, -0.5]];
-    const width = Math.max(1, this.container.clientWidth || 1);
-    const height = Math.max(1, this.container.clientHeight || 1);
     faces.forEach((face, index) => {
       const world = matrix.transformPoint(new pc.Vec3(...face));
-      const screen = this.camera?.camera?.worldToScreen?.(world, new pc.Vec3());
+      const screen = this.worldToContainerPoint(world);
       const label = this._manualBoxLabels[index];
-      if (!screen || screen.z < 0) {
+      if (!screen || !screen.visible) {
         label.hidden = true;
         return;
       }
       label.hidden = false;
-      const deviceWidth = Math.max(1, this.app.graphicsDevice?.width || width);
-      const deviceHeight = Math.max(1, this.app.graphicsDevice?.height || height);
-      label.style.left = `${screen.x * width / deviceWidth}px`;
-      label.style.top = `${screen.y * height / deviceHeight}px`;
+      label.style.left = `${screen.x}px`;
+      label.style.top = `${screen.y}px`;
     });
   }
 
@@ -2754,6 +3240,7 @@ class PlayCanvasSogViewer {
     canvas.className = "viewer-canvas playcanvas-sog-canvas";
     this.container.appendChild(canvas);
     this.canvas = canvas;
+    this.bindHotspotMarkerInteraction();
 
     const app = new pc.Application(canvas, {
       graphicsDeviceOptions: {
@@ -2794,6 +3281,7 @@ class PlayCanvasSogViewer {
       }
       this.syncCutawayState(pc, { deltaSeconds });
       try {
+        this.syncHotspotMarkerEntities();
         this.drawEditorGuides(pc);
         this.drawSpawnMarker(pc);
         this.drawCameraStartMarker(pc);
@@ -2805,6 +3293,15 @@ class PlayCanvasSogViewer {
         this.manualBoxPreviewVisible = false;
         this._hideManualBoxLabels();
       }
+    });
+    app.on("postrender", () => {
+      this.container?.dispatchEvent?.(
+        new CustomEvent("sog-camera-frame", {
+          detail: {
+            firstPerson: this.firstPersonActive,
+          },
+        })
+      );
     });
 
     this.app = app;
@@ -3052,6 +3549,28 @@ class PlayCanvasSogViewer {
     for (const label of this._manualBoxLabels || []) label.remove();
     this._manualBoxLabels = [];
     this.manualBoxPreviewVisible = false;
+    for (const disposeInteraction of this.hotspotInteractionDisposeFns.splice(0)) {
+      try {
+        disposeInteraction();
+      } catch {}
+    }
+    this.hotspotHoveredId = "";
+    this.hotspotPointerStart = null;
+    this.clearHotspotMarkers();
+    this.hotspotOverlayCamera?.destroy?.();
+    this.hotspotOverlayCamera = null;
+    if (this.hotspotOverlayLayer && this.app?.scene?.layers) {
+      this.app.scene.layers.remove(this.hotspotOverlayLayer);
+    }
+    this.hotspotOverlayLayer = null;
+    for (const material of Object.values(this.hotspotMaterials || {})) {
+      material?.destroy?.();
+    }
+    this.hotspotMaterials = null;
+    for (const texture of this.hotspotTextures.splice(0)) {
+      texture?.destroy?.();
+    }
+    this.hotspotSurfaceAnchors.clear();
     if (this.collisionPreviewAsset && this.app) {
       this.app.assets.remove(this.collisionPreviewAsset);
       this.collisionPreviewAsset.unload();

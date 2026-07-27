@@ -359,6 +359,49 @@ class MeshCollision {
     return bestHit;
   }
 
+  queryClosestPoint(x, y, z, maxDistance = 4) {
+    const radius = Math.max(this.hashCellSize, maxDistance);
+    const candidates = this.collectCandidateTriangleIds(
+      x - radius,
+      y - radius,
+      z - radius,
+      x + radius,
+      y + radius,
+      z + radius
+    );
+    let bestDistanceSq = maxDistance * maxDistance;
+    let bestPoint = null;
+
+    for (const triangleIndex of candidates) {
+      const triangle = this.getTriangleVertices(triangleIndex);
+      const closest = closestPointOnTriangle(
+        x, y, z,
+        triangle.ax, triangle.ay, triangle.az,
+        triangle.bx, triangle.by, triangle.bz,
+        triangle.cx, triangle.cy, triangle.cz
+      );
+      const dx = x - closest.x;
+      const dy = y - closest.y;
+      const dz = z - closest.z;
+      const distanceSq = dx * dx + dy * dy + dz * dz;
+      if (distanceSq >= bestDistanceSq) continue;
+
+      const normal = this.getTriangleNormal(triangleIndex);
+      bestDistanceSq = distanceSq;
+      bestPoint = {
+        x: closest.x,
+        y: closest.y,
+        z: closest.z,
+        nx: normal.x,
+        ny: normal.y,
+        nz: normal.z,
+        distance: Math.sqrt(distanceSq),
+      };
+    }
+
+    return bestPoint;
+  }
+
   querySphere(x, y, z, radius, out = { x: 0, y: 0, z: 0 }) {
     let centerX = x;
     let centerY = y;
