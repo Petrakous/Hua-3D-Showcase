@@ -12,7 +12,7 @@ const ORBIT_DAMPING_DECAY_MS = 140;
 const CUTAWAY_DAMPING_DECAY_MS = 110;
 const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
 const HOTSPOT_PICKER_SCALE = 0.25;
-const HOTSPOT_HOVER_PICK_INTERVAL_MS = 32;
+const HOTSPOT_HOVER_HIT_RADIUS_PIXELS = 32;
 const HOTSPOT_HOVER_LIFT_PIXELS = 10;
 const HOTSPOT_HOVER_LIFT_DECAY_MS = 55;
 const HOTSPOT_SURFACE_OFFSET_PIXELS = 2;
@@ -549,11 +549,6 @@ class PlayCanvasSogViewer {
     this.hotspotTextures = [];
     this.hotspotPicker = null;
     this.hotspotPickQueue = Promise.resolve("");
-    this.hotspotHoverPickPending = false;
-    this.hotspotHoverPickTimer = null;
-    this.hotspotLastHoverPickAt = -Infinity;
-    this.hotspotHoverPointer = null;
-    this.hotspotHoverSequence = 0;
     this.hotspotHoveredId = "";
     this.hotspotPointerStart = null;
     this.hotspotInteractionDisposeFns = [];
@@ -1591,7 +1586,7 @@ class PlayCanvasSogViewer {
     return "";
   }
 
-  async pickHotspotAtCanvasPoint(clientX, clientY, options = {}) {
+  async pickHotspotAtCanvasPoint(clientX, clientY) {
     if (!this.canvas || !this.hotspotMarkerVisible) return "";
     const picker = this.ensureHotspotPicker();
     if (!picker) return "";
@@ -1622,7 +1617,7 @@ class PlayCanvasSogViewer {
     const y = Math.max(0, Math.min(height - 1, Math.floor(
       (clientY - rect.top) * (height / rect.height)
     )));
-    const selection = !options.synchronous && picker.getSelectionAsync
+    const selection = picker.getSelectionAsync
       ? await picker.getSelectionAsync(x, y, 1, 1)
       : picker.getSelection(x, y, 1, 1);
     if (picker !== this.hotspotPicker) return "";
@@ -1646,90 +1641,63 @@ class PlayCanvasSogViewer {
     }
   }
 
-  scheduleHotspotHoverPick() {
-    if (this.hotspotHoverPickPending || this.hotspotHoverPickTimer || !this.hotspotHoverPointer) {
-      return;
+  getHotspotHoverIdAtCanvasPoint(clientX, clientY) {
+    if (!this.canvas || !this.hotspotMarkerVisible || !this.camera?.camera) {
+      return "";
     }
-    const delay = Math.max(
-      0,
-      HOTSPOT_HOVER_PICK_INTERVAL_MS - (performance.now() - this.hotspotLastHoverPickAt)
-    );
-    if (delay > 0) {
-      this.hotspotHoverPickTimer = setTimeout(() => {
-        this.hotspotHoverPickTimer = null;
-        void this.flushHotspotHoverPick();
-      }, delay);
-      return;
-    }
-    void this.flushHotspotHoverPick();
-  }
+    const rect = this.canvas.getBoundingClientRect();
+    const pointerX = clientX - rect.left;
+    const pointerY = clientY - rect.top;
+    let closestId = "";
+    let closestDistanceSq = HOTSPOT_HOVER_HIT_RADIUS_PIXELS ** 2;
 
-  async flushHotspotHoverPick() {
-    if (this.hotspotHoverPickPending) return;
-    const pointer = this.hotspotHoverPointer;
-    if (!pointer) return;
-    this.hotspotHoverPointer = null;
-    this.hotspotHoverPickPending = true;
-    this.hotspotLastHoverPickAt = performance.now();
-    try {
-      // Hover favors immediate feedback. The synchronous readback is bounded
-      // to 30 Hz and uses the existing quarter-resolution picker. Clicks keep
-      // the asynchronous path so interaction never waits behind hover work.
-      const id = await this.pickHotspotAtCanvasPoint(
-        pointer.x,
-        pointer.y,
-        { synchronous: true }
-      );
-      if (pointer.sequence === this.hotspotHoverSequence) {
-        this.setHotspotHover(id);
-      }
-    } finally {
-      this.hotspotHoverPickPending = false;
-      if (this.hotspotHoverPointer) {
-        this.scheduleHotspotHoverPick();
+    for (const hotspot of this.hotspotMarkerData) {
+      if (!hotspot.id || !hotspot.position.every(Number.isFinite)) continue;
+      const projected = this.worldToContainerPoint(this.resolveHotspotWorldPoint(hotspot));
+      if (!projected?.visible) continue;
+      const distanceSq =
+        (pointerX - projected.x) ** 2 +
+        (pointerY - projected.y) ** 2;
+      if (distanceSq <= closestDistanceSq) {
+        closestDistanceSq = distanceSq;
+        closestId = hotspot.id;
       }
     }
+    return closestId;
   }
 
   bindHotspotMarkerInteraction() {
     if (!this.canvas) return;
     const onPointerDown = (event) => {
       if (event.button !== 0) return;
+      const hoverCandidate = this.getHotspotHoverIdAtCanvasPoint(
+        event.clientX,
+        event.clientY
+      );
       this.hotspotPointerStart = {
         x: event.clientX,
         y: event.clientY,
-        id: this.hotspotHoveredId || "",
+        pickPromise: hoverCandidate
+          ? this.queueHotspotPick(event.clientX, event.clientY)
+          : Promise.resolve(""),
       };
     };
     const onPointerMove = (event) => {
-      this.hotspotHoverSequence += 1;
-      this.hotspotHoverPointer = {
-        x: event.clientX,
-        y: event.clientY,
-        sequence: this.hotspotHoverSequence,
-      };
       if (event.pointerType !== "touch") {
-        this.scheduleHotspotHoverPick();
+        this.setHotspotHover(
+          this.getHotspotHoverIdAtCanvasPoint(event.clientX, event.clientY)
+        );
       }
     };
     const onPointerUp = async (event) => {
       const start = this.hotspotPointerStart;
       this.hotspotPointerStart = null;
       if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) return;
-      const id =
-        start.id && start.id === this.hotspotHoveredId
-          ? start.id
-          : await this.queueHotspotPick(event.clientX, event.clientY);
+      const id = await start.pickPromise;
       if (!id) return;
       this.container?.dispatchEvent?.(new CustomEvent("sog-hotspot-activate", { detail: { id } }));
     };
     const onPointerLeave = () => {
-      this.hotspotHoverSequence += 1;
-      this.hotspotHoverPointer = null;
-      if (this.hotspotHoverPickTimer) {
-        clearTimeout(this.hotspotHoverPickTimer);
-        this.hotspotHoverPickTimer = null;
-      }
       this.hotspotPointerStart = null;
       this.setHotspotHover("");
     };
@@ -3906,14 +3874,6 @@ class PlayCanvasSogViewer {
     this.hotspotPicker?.destroy?.();
     this.hotspotPicker = null;
     this.hotspotPickQueue = Promise.resolve("");
-    this.hotspotHoverPickPending = false;
-    if (this.hotspotHoverPickTimer) {
-      clearTimeout(this.hotspotHoverPickTimer);
-      this.hotspotHoverPickTimer = null;
-    }
-    this.hotspotLastHoverPickAt = -Infinity;
-    this.hotspotHoverPointer = null;
-    this.hotspotHoverSequence += 1;
     this.hotspotHoveredId = "";
     this.hotspotPointerStart = null;
     this.clearHotspotMarkers();
