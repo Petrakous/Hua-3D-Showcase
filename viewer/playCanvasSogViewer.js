@@ -17,6 +17,8 @@ const HOTSPOT_HOVER_LIFT_DECAY_MS = 110;
 const HOTSPOT_OCCLUSION_TARGET_EPSILON = 0.4;
 const HOTSPOT_OCCLUSION_MIN_INTERVAL_MS = 50;
 const HOTSPOT_OCCLUSION_POSITION_EPSILON = 0.02;
+const HOTSPOT_OCCLUSION_SAMPLE_RADIUS_PIXELS = 18;
+const HOTSPOT_OCCLUSION_REQUIRED_HITS = 3;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const DEFAULT_ORBIT_MIN_DISTANCE = 0.2;
 const DEFAULT_ORBIT_MAX_DISTANCE = 200;
@@ -1474,21 +1476,66 @@ class PlayCanvasSogViewer {
       return entity._huaHotspotOccluded === true;
     }
 
-    const direction = worldPoint.clone().sub(cameraPosition);
-    const distance = direction.length();
-    const maxDistance = distance - HOTSPOT_OCCLUSION_TARGET_EPSILON;
-    if (maxDistance <= 0.01) return false;
-    direction.mulScalar(1 / distance);
+    const centerDistance = worldPoint.distance(cameraPosition);
+    if (centerDistance <= HOTSPOT_OCCLUSION_TARGET_EPSILON + 0.01) return false;
 
-    const occluded = !!collision.queryRay(
-      cameraPosition.x,
-      cameraPosition.y,
-      cameraPosition.z,
-      direction.x,
-      direction.y,
-      direction.z,
-      maxDistance
-    );
+    // Sample the marker's screen-space footprint rather than trusting one
+    // center ray. A thin branch may cover one sample, while a building/wall
+    // normally covers the majority. This also tolerates small holes in a
+    // decimated collision proxy without making the marker flicker.
+    const canvasHeight = Math.max(1, this.canvas?.offsetHeight || this.container?.clientHeight || 720);
+    const fovRadians = ((this.camera.camera.fov || 60) * Math.PI) / 180;
+    const sampleRadius = (
+      (2 * centerDistance * Math.tan(fovRadians * 0.5)) /
+      canvasHeight
+    ) * HOTSPOT_OCCLUSION_SAMPLE_RADIUS_PIXELS;
+    const cameraRotation = this.camera.getRotation();
+    const cameraRight = cameraRotation
+      .transformVector(new this.pc.Vec3(1, 0, 0))
+      .normalize()
+      .mulScalar(sampleRadius);
+    const cameraUp = cameraRotation
+      .transformVector(new this.pc.Vec3(0, 1, 0))
+      .normalize()
+      .mulScalar(sampleRadius);
+    const sampleTargets = [
+      worldPoint,
+      worldPoint.clone().add(cameraRight),
+      worldPoint.clone().sub(cameraRight),
+      worldPoint.clone().add(cameraUp),
+      worldPoint.clone().sub(cameraUp),
+    ];
+
+    let hitCount = 0;
+    let occluded = false;
+    for (let index = 0; index < sampleTargets.length; index += 1) {
+      const direction = sampleTargets[index].clone().sub(cameraPosition);
+      const distance = direction.length();
+      const maxDistance = distance - HOTSPOT_OCCLUSION_TARGET_EPSILON;
+      if (maxDistance > 0.01) {
+        direction.mulScalar(1 / distance);
+        if (collision.queryRay(
+          cameraPosition.x,
+          cameraPosition.y,
+          cameraPosition.z,
+          direction.x,
+          direction.y,
+          direction.z,
+          maxDistance
+        )) {
+          hitCount += 1;
+        }
+      }
+
+      if (hitCount >= HOTSPOT_OCCLUSION_REQUIRED_HITS) {
+        occluded = true;
+        break;
+      }
+      const remainingSamples = sampleTargets.length - index - 1;
+      if (hitCount + remainingSamples < HOTSPOT_OCCLUSION_REQUIRED_HITS) {
+        break;
+      }
+    }
     if (entity) {
       entity._huaHotspotOccluded = occluded;
       entity._huaHotspotOcclusionCheckedAt = now;

@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260708diag1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260728collisionready1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260728multiray1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260709lodsafe1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
@@ -1464,8 +1464,12 @@ function isMobileControlPanelAvailable(panel) {
     return !formatControl.hidden;
   }
 
+  if (panel === "engine") {
+    return !sogModeControl.hidden;
+  }
+
   if (panel === "quality") {
-    return [glbQualityControl, sogModeControl, fpNavControl, lodControl].some((control) => control && !control.hidden);
+    return [glbQualityControl, fpNavControl, lodControl].some((control) => control && !control.hidden);
   }
 
   if (panel === "more") {
@@ -3490,6 +3494,7 @@ function renderSogModeMarkers() {
 
   if (!shouldShowModeControl) {
     sogModeMarkers.innerHTML = "";
+    updateMobileControlsUi();
     return;
   }
 
@@ -3529,6 +3534,7 @@ function renderSogModeMarkers() {
       setActiveSogMode(mode);
     });
   }
+  updateMobileControlsUi();
 }
 
 function renderFpNavMarkers() {

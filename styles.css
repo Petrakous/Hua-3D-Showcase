@@ -2685,8 +2685,8 @@ body.is-cinematic-ui-hidden .cinematic-legend {
 
   body[data-mobile-controls-panel="time"] .hero-time-control .time-control-group:not([hidden]),
   body[data-mobile-controls-panel="format"] #formatControl:not([hidden]),
+  body[data-mobile-controls-panel="engine"] #sogModeControl:not([hidden]),
   body[data-mobile-controls-panel="quality"] #glbQualityControl:not([hidden]),
-  body[data-mobile-controls-panel="quality"] #sogModeControl:not([hidden]),
   body[data-mobile-controls-panel="quality"] #fpNavControl:not([hidden]),
   body[data-mobile-controls-panel="quality"] #lodControl:not([hidden]),
   body[data-mobile-controls-panel="more"] #navigationControl:not([hidden]) {
@@ -2697,8 +2697,8 @@ body.is-cinematic-ui-hidden .cinematic-legend {
     bottom: calc(var(--mobile-dock-bottom) + var(--mobile-dock-height) + 10px);
   }
 
-  body[data-mobile-controls-panel="quality"] #sogModeControl:not([hidden]) {
-    bottom: calc(var(--mobile-dock-bottom) + var(--mobile-dock-height) + 92px);
+  body[data-mobile-controls-panel="engine"] #sogModeControl:not([hidden]) {
+    bottom: calc(var(--mobile-dock-bottom) + var(--mobile-dock-height) + 10px);
   }
 
   body[data-mobile-controls-panel="quality"] #fpNavControl:not([hidden]) {
