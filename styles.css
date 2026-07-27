@@ -758,19 +758,30 @@ body[data-show-time-control="false"] .time-stage-marker:disabled {
   position: absolute;
   width: 44px;
   height: 44px;
+  padding: 0;
   border: 0;
   border-radius: 999px;
-  transform: translate(-50%, -50%) scale(var(--hotspot-scale, 1));
-  background: radial-gradient(circle, rgba(179, 255, 243, 0.96) 0 18%, rgba(40, 210, 224, 0.48) 19% 42%, rgba(40, 210, 224, 0.08) 43% 100%);
+  transform: translate(-50%, -50%);
+  background: transparent;
   color: #d9fff8;
-  box-shadow: 0 0 0 1px rgba(178, 255, 246, 0.55), 0 0 24px rgba(60, 238, 224, 0.38);
   cursor: pointer;
   pointer-events: auto;
-  transition: opacity 160ms ease, transform 180ms ease, filter 180ms ease;
+  transition: opacity 160ms ease;
 }
 
-.hotspot-marker::before,
-.hotspot-marker::after {
+.hotspot-marker__visual {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transform: scale(var(--hotspot-scale, 1));
+  transform-origin: center center;
+  background: radial-gradient(circle, rgba(179, 255, 243, 0.96) 0 18%, rgba(40, 210, 224, 0.48) 19% 42%, rgba(40, 210, 224, 0.08) 43% 100%);
+  box-shadow: 0 0 0 1px rgba(178, 255, 246, 0.55), 0 0 24px rgba(60, 238, 224, 0.38);
+  transition: transform 180ms ease, filter 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.hotspot-marker__visual::before,
+.hotspot-marker__visual::after {
   content: "";
   position: absolute;
   inset: 7px;
@@ -778,7 +789,7 @@ body[data-show-time-control="false"] .time-stage-marker:disabled {
   border-radius: inherit;
 }
 
-.hotspot-marker::after {
+.hotspot-marker__visual::after {
   inset: -5px;
   opacity: 0.42;
   animation: hotspot-pulse 1700ms ease-out infinite;
@@ -789,10 +800,15 @@ body[data-show-time-control="false"] .time-stage-marker:disabled {
 .hotspot-marker[data-active="true"] {
   --hotspot-scale: 1.08;
   outline: none;
+}
+
+.hotspot-marker:hover .hotspot-marker__visual,
+.hotspot-marker:focus-visible .hotspot-marker__visual,
+.hotspot-marker[data-active="true"] .hotspot-marker__visual {
   filter: saturate(1.25) brightness(1.12);
 }
 
-.hotspot-marker[data-selected="true"] {
+.hotspot-marker[data-selected="true"] .hotspot-marker__visual {
   background: radial-gradient(circle, rgba(255, 245, 184, 1) 0 18%, rgba(255, 184, 67, 0.62) 19% 42%, rgba(255, 184, 67, 0.1) 43% 100%);
   box-shadow: 0 0 0 1px rgba(255, 238, 160, 0.75), 0 0 28px rgba(255, 184, 67, 0.5);
 }

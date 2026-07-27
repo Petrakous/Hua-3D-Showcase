@@ -82,7 +82,7 @@ const SCENE_EXPERIENCES = {
           targetSceneId: "main-hall",
           targetSceneTitle: "Main Hall",
           thumbnail: "./assets/thumbnails/main-hall.webp",
-          position: { x: 0, y: 0, z: 0 },
+          position: { x: 0.1, y: -11.6, z: -0.1 },
           radius: 1,
           icon: "door",
           enabled: true
