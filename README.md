@@ -19,8 +19,8 @@ Live site: https://petrakous.github.io/Hua-3D-Showcase/
 This is a static site — no build step is required to run it locally.
 
 ```bash
-python -m http.server 8767
-# then open http://localhost:8767
+python -m http.server 8765
+# then open http://localhost:8765
 ```
 
 (`run.bat` does the same thing on Windows.) Any static file server works; the app is plain HTML/CSS/JS loaded via `<script type="module">`.
@@ -102,6 +102,7 @@ Anonymous, IP-free usage analytics (visits, scenes explored, device/location agg
 
 Ongoing design work that hasn't shipped yet lives in [`docs/`](docs/):
 
+- [`docs/development-roadmap.md`](docs/development-roadmap.md) — consolidated open viewer, navigation, accessibility, and sharing work.
 - [`docs/accessibility-plan.md`](docs/accessibility-plan.md) — reduced motion, simplified controls, high-contrast labels, keyboard-first navigation.
 - [`docs/gallery-mode-plan.md`](docs/gallery-mode-plan.md) — a lightweight, no-3D fallback experience for low-bandwidth/low-power visitors.
 - [`docs/multilingual-plan.md`](docs/multilingual-plan.md) — i18n approach for a currently English-only, hardcoded-string codebase.
