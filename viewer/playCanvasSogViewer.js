@@ -1416,34 +1416,8 @@ class PlayCanvasSogViewer {
   }
 
   resolveHotspotWorldPoint(hotspot) {
-    const surfaceCollision = this.hotspotOcclusionCollision || this.fpCollision;
-    const signature = hotspot.position.map((value) => Number(value).toFixed(5)).join("|");
-    const cached = this.hotspotSurfaceAnchors.get(hotspot.id);
-    if (
-      cached?.signature === signature &&
-      (cached.snapped || !surfaceCollision?.queryClosestPoint)
-    ) {
-      return cached.point.clone();
-    }
-
     const local = new this.pc.Vec3(...hotspot.position);
-    const configuredWorld = this.transformScenePointToWorld(this.pc, local);
-    const snapped = surfaceCollision?.queryClosestPoint?.(
-      configuredWorld.x,
-      configuredWorld.y,
-      configuredWorld.z,
-      4
-    );
-    const point = snapped
-      ? new this.pc.Vec3(snapped.x, snapped.y, snapped.z)
-      : configuredWorld;
-    this.hotspotSurfaceAnchors.set(hotspot.id, {
-      signature,
-      point: point.clone(),
-      snapped: !!snapped,
-      snapDistance: snapped?.distance ?? null,
-    });
-    return point;
+    return this.transformScenePointToWorld(this.pc, local);
   }
 
   isHotspotOccluded(worldPoint, entity = null, now = performance.now()) {
