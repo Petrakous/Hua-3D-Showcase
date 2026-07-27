@@ -276,11 +276,19 @@ def main() -> int:
             "voxel_remesh",
             lambda: voxel_remesh(obj, args.voxel_size, args.adaptivity),
         )
-        report["remeshed_stats"] = mesh_stats(obj, include_topology=False)
+        report["remeshed_stats"] = mesh_stats(obj, include_topology=True)
+        stage(report, "triangulate_remesh", lambda: triangulate(obj))
         stage(report, "decimate", lambda: decimate(obj, args.target_faces))
-        stage(report, "triangulate", lambda: triangulate(obj))
-        stage(report, "final_cleanup", lambda: clean_mesh(obj, args.merge_distance))
+        stage(report, "triangulate_output", lambda: triangulate(obj))
+        # Do not merge nearby vertices after decimation. On a coarse voxel mesh,
+        # that can join unrelated surfaces and introduce non-manifold edges.
+        stage(report, "final_cleanup", lambda: clean_mesh(obj, 0.0))
         report["output_stats"] = mesh_stats(obj, include_topology=True)
+        if report["output_stats"]["non_manifold_edges"] > 0:
+            raise RuntimeError(
+                "Validation failed: output contains "
+                f"{report['output_stats']['non_manifold_edges']:,} non-manifold edges."
+            )
         stage(report, "export_glb", lambda: export_glb(obj, output_path))
         report["output_bytes"] = output_path.stat().st_size
         report["status"] = "completed"
