@@ -1402,8 +1402,12 @@ class PlayCanvasSogViewer {
     // PlayCanvas projects into drawing-buffer pixels, while pointer events use
     // CSS pixels. Converting here keeps the hit target locked to the GPU marker
     // across browser zoom, DPR changes, and canvas resizing.
-    const renderScaleX = Math.max(1, this.canvas.width || rect.width) / rect.width;
-    const renderScaleY = Math.max(1, this.canvas.height || rect.height) / rect.height;
+    const renderScaleX =
+      Math.max(1, this.app?.graphicsDevice?.width || this.canvas.width || rect.width) /
+      rect.width;
+    const renderScaleY =
+      Math.max(1, this.app?.graphicsDevice?.height || this.canvas.height || rect.height) /
+      rect.height;
     const x = (clientX - rect.left) * renderScaleX;
     const y = (clientY - rect.top) * renderScaleY;
     let closestId = "";
