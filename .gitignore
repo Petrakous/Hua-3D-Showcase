@@ -67,3 +67,6 @@ Dev Notes.txt
 .idea/
 *.swp
 *.swo
+
+# Local Windows launcher
+run.bat
