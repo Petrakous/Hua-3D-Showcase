@@ -1,10 +1,10 @@
 {
   "version": 1,
   "name": "HUA 3D Showcase active asset manifest",
-  "assetBaseUrl": "https://pub-26e8c46e8f574b36bf5d19f65ea85855.r2.dev",
+  "assetBaseUrl": "https://3dhua-assets.peterkoutroulis2004.workers.dev",
   "assetBases": {
     "local": "./dist-r2-assets",
-    "remote": "https://pub-26e8c46e8f574b36bf5d19f65ea85855.r2.dev"
+    "remote": "https://3dhua-assets.peterkoutroulis2004.workers.dev"
   },
   "stagingRoot": "dist-r2-assets",
   "pilotScenes": [
