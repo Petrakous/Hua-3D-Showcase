@@ -3042,6 +3042,18 @@ class PlayCanvasSogViewer {
     }
   }
 
+  configureStreamingSceneParameters(asset) {
+    const gsplat = this.app?.scene?.gsplat;
+    if (!gsplat || !this.isStreamingAsset(asset)) {
+      return;
+    }
+
+    const settings = asset.streamingSettings || {};
+    gsplat.lodBehindPenalty = Math.max(1, Number(settings.lodBehindPenalty) || 1);
+    gsplat.lodUpdateAngle = Math.max(0, Number(settings.lodUpdateAngle) || 0);
+    gsplat.radialSorting = settings.radialSorting !== false;
+  }
+
   configureStreaming(asset) {
     this.clearStreamingHandlers();
     this.streamingState = null;
@@ -3368,6 +3380,7 @@ class PlayCanvasSogViewer {
       this.disposed = false;
       const app = this.app;
       this.stopFirstPersonNavigation();
+      this.configureStreamingSceneParameters(asset);
       const splatAsset = await this.loadGsplatAsset(this.pc, app, asset, generation, onState);
 
       if (!this.isLoadCurrent(generation) || this.app !== app || !this.splatEntity) {
@@ -3542,6 +3555,7 @@ class PlayCanvasSogViewer {
 
     this.camera = camera;
     this.currentAsset = preparedAsset;
+    this.configureStreamingSceneParameters(preparedAsset);
     this.autoRotate = !!preparedAsset.autoRotate;
     this.cutawayEnabled = preparedAsset.cutawayEnabled !== false;
     this.cutawayModifierInstalled = false;

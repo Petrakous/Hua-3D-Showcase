@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261001outline1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002outlinefix1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002fpquality1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig } from "./viewer/cutawayOutline.js?v=20261001outline1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
@@ -121,12 +121,12 @@ const deviceMemory = Number.isFinite(navigator.deviceMemory) ? navigator.deviceM
 const hardwareConcurrency = Number.isFinite(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : null;
 
 const SOG_ADAPTIVE_PERFORMANCE = {
-  minDpr: 0.65,
-  dprStep: 0.15,
-  lowFpsThreshold: 35,
+  minDpr: 0.75,
+  dprStep: 0.1,
+  lowFpsThreshold: 28,
   highFpsThreshold: 50,
   sampleIntervalMs: 1000,
-  downgradeHoldMs: 3000,
+  downgradeHoldMs: 8000,
   upgradeHoldMs: 5000,
   tierChangeCooldownMs: 12000,
   reverseTierChangeCooldownMs: 20000,
@@ -347,73 +347,73 @@ function updateSelectionPreferences(patch = {}) {
 function getStreamingPerformanceProfile() {
   if (isMobileDevice) {
     if ((deviceMemory && deviceMemory <= 4) || (hardwareConcurrency && hardwareConcurrency <= 6)) {
-        return {
-          maxDpr: 0.85,
-          splatBudget: 350000,
-          minSplatBudget: 220000,
-          maxSplatBudget: 700000,
+      return {
+        maxDpr: 0.9,
+        splatBudget: 800000,
+        minSplatBudget: 600000,
+        maxSplatBudget: 1200000,
         lodBaseDistance: 4.5,
         minLodBaseDistance: 3.2,
         maxLodBaseDistance: 14,
         lodMultiplier: 2.8,
         minLodMultiplier: 2.1,
         maxLodMultiplier: 3.5,
-        lodRangeMin: 2,
-          lodUnderfillLimit: 2,
-          coarseFirst: true,
-        };
-    }
-
-      return {
-        maxDpr: 1,
-        splatBudget: 700000,
-        minSplatBudget: 350000,
-        maxSplatBudget: 1400000,
-      lodBaseDistance: 5.5,
-      minLodBaseDistance: 3.4,
-      maxLodBaseDistance: 16,
-      lodMultiplier: 2.45,
-      minLodMultiplier: 1.9,
-      maxLodMultiplier: 3.2,
-      lodRangeMin: 1,
-        lodUnderfillLimit: 2,
-        coarseFirst: true,
-      };
-  }
-
-  if ((deviceMemory && deviceMemory <= 4) || (hardwareConcurrency && hardwareConcurrency <= 4)) {
-      return {
-        maxDpr: 1.1,
-        splatBudget: 1200000,
-        minSplatBudget: 650000,
-        maxSplatBudget: 2200000,
-      lodBaseDistance: 6.5,
-      minLodBaseDistance: 4.2,
-      maxLodBaseDistance: 18,
-      lodMultiplier: 2.2,
-      minLodMultiplier: 1.8,
-      maxLodMultiplier: 3,
-      lodRangeMin: 1,
+        lodRangeMin: 1,
         lodUnderfillLimit: 1,
         coarseFirst: true,
       };
-  }
+    }
 
     return {
-      maxDpr: 1.25,
-      splatBudget: 2400000,
-      minSplatBudget: 1200000,
-      maxSplatBudget: 4200000,
-    lodBaseDistance: 7,
-    minLodBaseDistance: 4.5,
-    maxLodBaseDistance: 22,
-    lodMultiplier: 2,
-    minLodMultiplier: 1.65,
-    maxLodMultiplier: 2.8,
-    lodRangeMin: 0,
+      maxDpr: 1,
+      splatBudget: 1400000,
+      minSplatBudget: 900000,
+      maxSplatBudget: 2200000,
+      lodBaseDistance: 6,
+      minLodBaseDistance: 3.4,
+      maxLodBaseDistance: 16,
+      lodMultiplier: 2.2,
+      minLodMultiplier: 1.9,
+      maxLodMultiplier: 3.2,
+      lodRangeMin: 0,
       lodUnderfillLimit: 1,
       coarseFirst: true,
     };
+  }
+
+  if ((deviceMemory && deviceMemory <= 4) || (hardwareConcurrency && hardwareConcurrency <= 4)) {
+    return {
+      maxDpr: 1.1,
+      splatBudget: 2200000,
+      minSplatBudget: 1500000,
+      maxSplatBudget: 3200000,
+      lodBaseDistance: 7,
+      minLodBaseDistance: 4.2,
+      maxLodBaseDistance: 18,
+      lodMultiplier: 2,
+      minLodMultiplier: 1.8,
+      maxLodMultiplier: 3,
+      lodRangeMin: 0,
+      lodUnderfillLimit: 1,
+      coarseFirst: true,
+    };
+  }
+
+  return {
+    maxDpr: 1.35,
+    splatBudget: 4000000,
+    minSplatBudget: 2500000,
+    maxSplatBudget: 5000000,
+    lodBaseDistance: 7.5,
+    minLodBaseDistance: 4.5,
+    maxLodBaseDistance: 22,
+    lodMultiplier: 1.9,
+    minLodMultiplier: 1.65,
+    maxLodMultiplier: 2.8,
+    lodRangeMin: 0,
+    lodUnderfillLimit: 1,
+    coarseFirst: true,
+  };
   }
 
 const sogStreamingPerformanceProfile = getStreamingPerformanceProfile();
@@ -668,18 +668,20 @@ function adjustStreamingQuality(direction) {
       return true;
     }
 
-    const nextRangeMin = Math.min(lodLevels - 1, currentRangeMin + 1);
-    if (nextRangeMin > currentRangeMin) {
-      sogViewer.applyStreamingQuality({
-        lodRangeMin: nextRangeMin,
-        lodRangeMax: lodLevels - 1,
-      });
-      trackQualityChanged("streaming_lod_range", getAnalyticsAssetMetadata(currentActiveAsset, {
-        direction,
-        previous_value: currentRangeMin,
-        next_value: nextRangeMin,
-      }));
-      return true;
+    if (isMobileDevice) {
+      const nextRangeMin = Math.min(lodLevels - 1, currentRangeMin + 1);
+      if (nextRangeMin > currentRangeMin) {
+        sogViewer.applyStreamingQuality({
+          lodRangeMin: nextRangeMin,
+          lodRangeMax: lodLevels - 1,
+        });
+        trackQualityChanged("streaming_lod_range", getAnalyticsAssetMetadata(currentActiveAsset, {
+          direction,
+          previous_value: currentRangeMin,
+          next_value: nextRangeMin,
+        }));
+        return true;
+      }
     }
 
     const nextBaseDistance = Math.min(
@@ -883,6 +885,9 @@ function evaluateSogPerformance(asset, fps, timestamp, monitor) {
 function buildStreamingSettings(asset) {
   const baseProfile = {
     ...sogStreamingPerformanceProfile,
+    lodBehindPenalty: 1,
+    lodUpdateAngle: 0,
+    radialSorting: true,
   };
 
   if (asset?.locationId === "outdoors") {
