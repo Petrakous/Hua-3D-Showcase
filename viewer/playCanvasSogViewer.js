@@ -3141,7 +3141,7 @@ class PlayCanvasSogViewer {
     onState?.({
       status: "loading",
       title: "Preparing streamed LOD",
-      message: "The streamed model is still preparing. Please wait...",
+      message: "Explore is still preparing this model. Please wait...",
       progress: 0.72,
       details: {
         source: asset.src,
@@ -3176,7 +3176,7 @@ class PlayCanvasSogViewer {
         onState?.({
           status: "loading",
           title: "Finalizing first view",
-          message: "Finalizing the first streamed view...",
+          message: "Finalizing the first Explore view...",
           progress: 0.92,
           details: {
             frame_ready: true,
@@ -3234,7 +3234,7 @@ class PlayCanvasSogViewer {
           onState?.({
             status: "loading",
             title: "Preparing streamed LOD",
-            message: `Loading streamed tiles (${loadingCount} remaining)...`,
+            message: `Loading Explore tiles (${loadingCount} remaining)...`,
             progress: 0.76,
             details: {
               loading_count: loadingCount,
@@ -3290,7 +3290,7 @@ class PlayCanvasSogViewer {
           status: "warning",
           code: "streaming-initial-lod-stalled",
           title: "Preparing streamed LOD",
-          message: "The streamed model is still preparing. Please wait...",
+          message: "Explore is still preparing this model. Please wait...",
           details,
         });
       }, STREAMING_STALL_WARNING_MS);
@@ -3338,7 +3338,7 @@ class PlayCanvasSogViewer {
           status: "loading",
           title: asset.streamingEnabled ? "Loading scene metadata" : "Loading SOG",
           message: asset.streamingEnabled
-            ? `Loading streamed metadata (${Math.round((received / total) * 100)}%)`
+            ? `Loading Explore metadata (${Math.round((received / total) * 100)}%)`
             : `${asset.label || "SOG scene"} loading (${Math.round((received / total) * 100)}%)`,
           received,
           total,

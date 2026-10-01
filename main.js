@@ -1,6 +1,6 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261001outline1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002fpquality1";
-import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002explore1";
+import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002classroom1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig } from "./viewer/cutawayOutline.js?v=20261001outline1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
@@ -133,8 +133,8 @@ const SOG_ADAPTIVE_PERFORMANCE = {
 };
 
 const SOG_MODE_LABELS = {
-  classic: "LOD",
-  streamed: "Streamed",
+  classic: "Overview",
+  streamed: "Explore",
 };
 
 const DEFAULT_FORMAT = "sog";
@@ -308,7 +308,7 @@ function sanitizeSelectionPreferences(value = {}) {
     format: DEFAULT_FORMAT,
     hdEnabled: false,
     sogMode: "classic",
-    fpNavigationMode: "walk",
+    fpNavigationMode: "fly",
     lodTier: autoPerformanceProfile.tier,
   };
 
@@ -1363,7 +1363,7 @@ function setStatus(title, text, options = {}) {
     "Loading SOG": "Loading your space",
     "Loading scene metadata": "Loading scene metadata",
     "Preparing FP": "Preparing navigation",
-    "Preparing streamed LOD": "Preparing streamed view",
+    "Preparing streamed LOD": "Preparing Explore",
     "Finalizing first view": "Finalizing first view",
     "Switching scene": "Preparing your space",
     "Loading scene": "Loading your space",
@@ -1518,13 +1518,13 @@ function showPerformanceNotice(key, message) {
 function getFriendlyLoadError(error, asset = currentActiveAsset || getActiveAssetDescriptor()) {
   const message = String(error?.message || error || "");
   if (/webgl|graphics device|context/i.test(message)) {
-    return "The 3D renderer was interrupted. Try a lighter LOD, choose SOG LOD again, or use a desktop device for the highest detail.";
+    return "The 3D renderer was interrupted. Try a lighter quality level, choose Overview again, or use a desktop device for the highest detail.";
   }
   if (/lod-meta|metadata|json/i.test(message)) {
-    return "This streamed space could not load its scene metadata. Check your connection and try again.";
+    return "Explore could not load this space's scene metadata. Check your connection and try again.";
   }
   if (/timeout|timed out|stalled/i.test(message)) {
-    return "This model is taking too long to prepare. You can choose another format or a lighter LOD without leaving the page.";
+    return "This model is taking too long to prepare. You can choose Overview or a lighter quality level without leaving the page.";
   }
   if (/failed to load|fetch|network|cors|404|403|asset/i.test(message)) {
     return asset?.streamingEnabled
@@ -1532,9 +1532,9 @@ function getFriendlyLoadError(error, asset = currentActiveAsset || getActiveAsse
       : "This space could not be loaded. Check your connection and try again.";
   }
   if (/memory|budget|allocation/i.test(message)) {
-    return "This model may need more device resources. The highest-detail models are best on desktop; try Fast or Balanced LOD.";
+    return "This model may need more device resources. The highest-detail models are best on desktop; try Fast or Balanced quality.";
   }
-  return "This space could not be loaded. Choose another format or LOD, or go back to all spaces.";
+  return "This space could not be loaded. Choose Overview, another format, or go back to all spaces.";
 }
 
 function buildErrorDetails(error, asset = currentActiveAsset || getActiveAssetDescriptor(), extra = {}) {
@@ -2258,7 +2258,7 @@ function describeActiveAsset(asset = getActiveAssetDescriptor()) {
   const tierName = tierMap[asset.performanceTier] || asset.performanceTier;
   const modeSuffix =
     asset?.type === "splat" && asset?.runtime === "playcanvas" && asset?.fileFormat === "sog"
-      ? (asset.streamingEnabled ? ` / ${activeFpNavigationMode === "fly" ? "Fly" : "Walk"}` : " / LOD")
+      ? (asset.streamingEnabled ? ` / Explore · ${activeFpNavigationMode === "fly" ? "Fly" : "Walk"}` : " / Overview")
       : "";
 
   if (isCampusOutsideSelected()) {
@@ -2650,7 +2650,7 @@ function updateCalibrationUi() {
   }
 
   if (isStreamed) {
-    calibrationSceneLabel.textContent = currentActiveAsset?.label || "Active streamed SOG";
+    calibrationSceneLabel.textContent = currentActiveAsset?.label || "Active Explore scene";
     calibrationLodControls.hidden = false;
 
     const editingCollision = streamedCalibTarget === "collision";
@@ -2807,7 +2807,7 @@ function applyCalibrationConfig(config) {
 
     sogViewer.setSceneTransform(config);
     populateCalibrationInputs(sogViewer.getSceneTransform?.());
-    setStatus("Streamed scene updated", `${currentActiveAsset?.label || "SOG scene"} live transform updated.`);
+    setStatus("Explore scene updated", `${currentActiveAsset?.label || "SOG scene"} live transform updated.`);
     return;
   }
 
@@ -3035,7 +3035,7 @@ function renderSogModeMarkers() {
       }
 
       if (mode === "streamed" && !asset?.streamingSource) {
-        setStatus("Streamed mode unavailable", "This scene does not have streamed LOD data yet.");
+        setStatus("Explore unavailable", "This scene does not have Explore data yet.");
         setStatusOverlayState(false);
         requestAnimationFrame(() => {
           setStatusOverlayState(true);
@@ -3566,7 +3566,7 @@ async function activateSplatAsset(asset, swapId, options = {}) {
           if (nextState.status === "warning") {
             showPerformanceNotice(
               `${asset.key}:${nextState.code || nextState.title}`,
-              nextState.message || "The streamed model is still preparing. Please wait..."
+              nextState.message || "Explore is still preparing this model. Please wait..."
             );
             logger.warn("sog-loader", nextState.message || "Recoverable SOG loading warning", {
               scene_id: getAnalyticsSceneId(asset),
@@ -3753,7 +3753,7 @@ function cancelActiveLoad() {
   document.body.classList.remove("is-error");
   setProgress(0);
   setStatusOverlayState(false);
-  setStatus("Load cancelled", "Choose another format, LOD, or space to continue.");
+  setStatus("Load cancelled", "Choose Overview, another format, or another space to continue.");
   updateLocationUi();
   updateQualityToggle();
   updateMaterialToggle();
@@ -3930,14 +3930,16 @@ async function setActiveSogMode(mode) {
       : null;
   if (mode === "streamed") {
     const asset = currentActiveAsset?.type === "splat" ? currentActiveAsset : getActiveAssetDescriptor();
-    const sceneId = asset?.sceneId || (asset?.locationId === "outdoors" ? `campus-${activeTimeStage}` : null);
-    const exp = sceneId ? resolveSceneExperience(sceneId) : null;
-    if (exp?.defaults?.firstPersonMode === "fly" || (!exp?.navigation?.walk && exp?.navigation?.fly)) {
+    const { modes } = getFpNavigationModesForAsset(asset);
+    if (modes.includes("fly")) {
       activeFpNavigationMode = "fly";
     }
   }
   activeSogMode = mode;
-  updateSelectionPreferences({ sogMode: mode });
+  updateSelectionPreferences({
+    sogMode: mode,
+    ...(mode === "streamed" ? { fpNavigationMode: activeFpNavigationMode } : {}),
+  });
   trackQualityChanged(mode, getAnalyticsAssetMetadata(getActiveAssetDescriptor(), {
     control: "sog_mode",
   }));
@@ -4519,7 +4521,7 @@ initAnalyticsDashboard();
 if (cinematicModeEnabled) {
   document.body.classList.add("is-cinematic");
   document.body.classList.toggle("is-cinematic-author", cinematicAuthorEnabled);
-  import("./viewer/cinematicMode.js")
+  import("./viewer/cinematicMode.js?v=20261002overview1")
     .then(({ createCinematicMode }) => {
       window.__huaCinematicMode = createCinematicMode({
         viewer: sogViewer,

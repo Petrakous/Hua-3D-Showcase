@@ -3,7 +3,7 @@ const SCENE_CALIBRATION_DEFAULTS = {
     "indoors:classroom-5": {
       scene: {
         position: [0, 1.4, 0],
-        rotationDegrees: [180, -2, 0],
+        rotationDegrees: [0, 0, 0],
         scale: [1, 1, 1],
       },
       collision: {

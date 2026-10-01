@@ -275,7 +275,7 @@ class CinematicMode {
   saveStartView() {
     const scene = this.syncAuthorScene();
     if (scene && !scene.orbitStartViewEnabled) {
-      this.authorStatus = "Switch to LOD to save this model's orbit start view";
+      this.authorStatus = "Switch to Overview to save this model's orbit start view";
       this.updateOverlay("AUTHOR");
       return;
     }
@@ -303,7 +303,7 @@ class CinematicMode {
         steps: QUICK_ORBIT_ROTATIONS * QUICK_ORBIT_STEPS_PER_ROTATION,
         rotations: QUICK_ORBIT_ROTATIONS,
         simple: true,
-        unavailableStatus: "Switch to LOD to play the quick triple orbit",
+        unavailableStatus: "Switch to Overview to play the quick triple orbit",
         missingStatus: "Save this model's starting camera with V first",
         errorStatus: "Could not create the quick triple orbit",
         readyStatus: "Slot 8 · quick triple orbit from start view",
@@ -316,7 +316,7 @@ class CinematicMode {
         steps: ORBIT_STEPS,
         rotations: 1,
         simple: false,
-        unavailableStatus: "Switch to LOD to play the 360 orbit",
+        unavailableStatus: "Switch to Overview to play the 360 orbit",
         missingStatus: "Save this model's starting camera with V first",
         errorStatus: "Could not create the 360 orbit",
         readyStatus: "Slot 9 · automatic cinematic 360 reveal",
