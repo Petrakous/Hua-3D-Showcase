@@ -1,6 +1,7 @@
 import { computeAutoCutaway } from "./autoCutaway.js?v=20260625fp22";
 import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
 import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629tap1";
+import { MAX_CUTAWAY_OUTLINE_VERTICES, MAX_SPLAT_EXCLUSION_BOXES, buildPaddedOutlineVertices, cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes } from "./cutawayOutline.js?v=20261001outline1";
 import { logger } from "./logger.js";
 
 const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas@2.20.1/+esm";
@@ -27,10 +28,191 @@ const SOG_BOX_CULLING_MODIFIER = {
 uniform mat4 orientedClipBoxWorldToUnit;
 uniform float orientedClipBoxEnabled;
 uniform float orientedClipBoxFadeWidth;
+uniform float splatExclusionBoxCount;
+uniform mat4 splatExclusionBoxWorldToUnit0;
+uniform mat4 splatExclusionBoxWorldToUnit1;
+uniform mat4 splatExclusionBoxWorldToUnit2;
+uniform mat4 splatExclusionBoxWorldToUnit3;
+uniform vec4 splatExclusionBoxFadeWidths;
 uniform vec3 cameraWorldPosition;
 uniform float backfaceCullingEnabled;
 uniform float backfaceThreshold;
 uniform float backfaceFadeWidth;
+uniform float backfaceStrength;
+uniform mat4 cutawayOutlineWorldToLocal;
+uniform float cutawayOutlineEnabled;
+uniform float cutawayOutlineVertexCount;
+uniform mat4 cutawayOutlineVertices0;
+uniform mat4 cutawayOutlineVertices1;
+uniform mat4 cutawayOutlineVertices2;
+uniform mat4 cutawayOutlineVertices3;
+uniform mat4 cutawayOutlineVertices4;
+uniform mat4 cutawayOutlineVertices5;
+uniform mat4 cutawayOutlineEdgeSettings0;
+uniform mat4 cutawayOutlineEdgeSettings1;
+uniform mat4 cutawayOutlineEdgeSettings2;
+uniform mat4 cutawayOutlineEdgeSettings3;
+uniform mat4 cutawayOutlineEdgeSettings4;
+uniform mat4 cutawayOutlineEdgeSettings5;
+uniform mat4 cutawayOutlineEdgeSlopes0;
+uniform mat4 cutawayOutlineEdgeSlopes1;
+uniform mat4 cutawayOutlineEdgeSlopes2;
+uniform mat4 cutawayOutlineEdgeSlopes3;
+uniform mat4 cutawayOutlineEdgeSlopes4;
+uniform mat4 cutawayOutlineEdgeSlopes5;
+uniform vec3 cutawayOutlineCameraLocal;
+uniform float cutawayOutlineFloorY;
+uniform float cutawayOutlineCeilingY;
+uniform float cutawayOutlineTopCutDepth;
+uniform float cutawayOutlineBottomCutDepth;
+uniform float cutawayOutlineFadeWidth;
+uniform float cutawayOutlineCleanupStrength;
+
+float distanceToSegment2d(vec2 point, vec2 start, vec2 end) {
+  vec2 edge = end - start;
+  float edgeLengthSquared = max(dot(edge, edge), 0.000001);
+  float amount = clamp(dot(point - start, edge) / edgeLengthSquared, 0.0, 1.0);
+  return length(point - (start + edge * amount));
+}
+
+vec4 getCutawayOutlineVertex(int index) {
+  if (index < 4) return cutawayOutlineVertices0[index];
+  if (index < 8) return cutawayOutlineVertices1[index - 4];
+  if (index < 12) return cutawayOutlineVertices2[index - 8];
+  if (index < 16) return cutawayOutlineVertices3[index - 12];
+  if (index < 20) return cutawayOutlineVertices4[index - 16];
+  return cutawayOutlineVertices5[index - 20];
+}
+
+vec4 getCutawayOutlineEdgeSettings(int index) {
+  if (index < 4) return cutawayOutlineEdgeSettings0[index];
+  if (index < 8) return cutawayOutlineEdgeSettings1[index - 4];
+  if (index < 12) return cutawayOutlineEdgeSettings2[index - 8];
+  if (index < 16) return cutawayOutlineEdgeSettings3[index - 12];
+  if (index < 20) return cutawayOutlineEdgeSettings4[index - 16];
+  return cutawayOutlineEdgeSettings5[index - 20];
+}
+
+float getCutawayOutlineEdgeSlope(int index) {
+  if (index < 4) return cutawayOutlineEdgeSlopes0[index].x;
+  if (index < 8) return cutawayOutlineEdgeSlopes1[index - 4].x;
+  if (index < 12) return cutawayOutlineEdgeSlopes2[index - 8].x;
+  if (index < 16) return cutawayOutlineEdgeSlopes3[index - 12].x;
+  if (index < 20) return cutawayOutlineEdgeSlopes4[index - 16].x;
+  return cutawayOutlineEdgeSlopes5[index - 20].x;
+}
+
+float getCutawayOutlineVisibility(vec3 worldPoint) {
+  vec3 localPoint3 = (cutawayOutlineWorldToLocal * vec4(worldPoint, 1.0)).xyz;
+  vec2 point = localPoint3.xz;
+  int count = int(cutawayOutlineVertexCount + 0.5);
+  bool inside = false;
+  bool currentLevelInside = false;
+  float boundaryDistance = 1000000.0;
+  float fadeWidth = max(cutawayOutlineFadeWidth, 0.0001);
+  int nearestEdgeIndex = -1;
+  float nearestFloorY = cutawayOutlineFloorY;
+  float nearestCeilingY = cutawayOutlineCeilingY;
+  int levelStartIndex = 0;
+
+  for (int index = 0; index < 24; index++) {
+    if (index >= count) break;
+    vec4 packedStart = getCutawayOutlineVertex(index);
+    vec4 edgeSettings = getCutawayOutlineEdgeSettings(index);
+    bool levelEnds = edgeSettings.w > 1.5;
+    int nextIndex = levelEnds ? levelStartIndex : index + 1;
+    vec4 packedEnd = getCutawayOutlineVertex(nextIndex);
+    vec2 start = packedStart.xy;
+    vec2 end = packedEnd.xy;
+    bool heightMatches = localPoint3.y >= packedStart.z - fadeWidth && localPoint3.y <= packedStart.w + fadeWidth;
+    if (heightMatches) {
+      float distanceToEdge = distanceToSegment2d(point, start, end);
+      if (distanceToEdge < boundaryDistance) {
+        boundaryDistance = distanceToEdge;
+        nearestEdgeIndex = index;
+        nearestFloorY = packedStart.z;
+        nearestCeilingY = packedStart.w;
+      }
+
+      bool crosses = ((start.y > point.y) != (end.y > point.y)) &&
+        (point.x < (end.x - start.x) * (point.y - start.y) / max(abs(end.y - start.y), 0.000001) * sign(end.y - start.y) + start.x);
+      if (crosses) currentLevelInside = !currentLevelInside;
+    }
+    if (levelEnds) {
+      inside = inside || currentLevelInside;
+      currentLevelInside = false;
+      levelStartIndex = index + 1;
+    }
+  }
+
+  // Centers outside the footprint are rejected immediately. The soft cleanup
+  // happens on the inside so large Gaussian ellipses cannot leak past an edge.
+  if (!inside || nearestEdgeIndex < 0) return 0.0;
+
+  vec4 nearestSettings = getCutawayOutlineEdgeSettings(nearestEdgeIndex);
+  float nearestSlope = getCutawayOutlineEdgeSlope(nearestEdgeIndex);
+  float cutVisibility = 1.0;
+  if (nearestSettings.y > 0.5 && (nearestSettings.x > 0.0001 || abs(nearestSlope) > 0.0001)) {
+      float heightAmount = clamp(
+        (localPoint3.y - nearestFloorY) / max(nearestCeilingY - nearestFloorY, 0.0001),
+        0.0,
+        1.0
+      );
+      float effectiveDepth = max(0.0, nearestSettings.x + nearestSlope * heightAmount);
+      if (effectiveDepth > 0.0001) {
+        cutVisibility = smoothstep(
+          max(effectiveDepth - fadeWidth, 0.0),
+          effectiveDepth,
+          boundaryDistance
+        );
+      }
+  }
+
+  float cleanupVisibility = 1.0;
+  if (mod(nearestSettings.w, 2.0) > 0.5 && nearestSettings.z > 0.0001) {
+    float cleanupRamp = smoothstep(0.0, nearestSettings.z, boundaryDistance);
+    cleanupVisibility = mix(1.0, cleanupRamp, clamp(cutawayOutlineCleanupStrength, 0.0, 1.0));
+  }
+  float verticalVisibility = 1.0;
+  if (localPoint3.y < nearestFloorY) {
+    verticalVisibility *= 1.0 - smoothstep(0.0, fadeWidth, nearestFloorY - localPoint3.y);
+  } else if (localPoint3.y > nearestCeilingY) {
+    verticalVisibility *= 1.0 - smoothstep(0.0, fadeWidth, localPoint3.y - nearestCeilingY);
+  }
+  if (cutawayOutlineCameraLocal.y > nearestCeilingY && cutawayOutlineTopCutDepth > 0.0001) {
+    float topDistance = nearestCeilingY - localPoint3.y;
+    verticalVisibility *= smoothstep(
+      max(cutawayOutlineTopCutDepth - fadeWidth, 0.0),
+      cutawayOutlineTopCutDepth,
+      topDistance
+    );
+  }
+  if (cutawayOutlineCameraLocal.y < nearestFloorY && cutawayOutlineBottomCutDepth > 0.0001) {
+    float bottomDistance = localPoint3.y - nearestFloorY;
+    verticalVisibility *= smoothstep(
+      max(cutawayOutlineBottomCutDepth - fadeWidth, 0.0),
+      cutawayOutlineBottomCutDepth,
+      bottomDistance
+    );
+  }
+  return cleanupVisibility * verticalVisibility * cutVisibility;
+}
+
+float getSingleExclusionBoxVisibility(vec3 worldPoint, mat4 worldToUnit, float fadeWidth) {
+  vec3 localPoint = (worldToUnit * vec4(worldPoint, 1.0)).xyz;
+  vec3 outsideDistance = abs(localPoint) - vec3(0.5);
+  float signedOutside = max(max(outsideDistance.x, outsideDistance.y), outsideDistance.z);
+  return smoothstep(0.0, max(fadeWidth, 0.0001), signedOutside);
+}
+
+float getSplatExclusionVisibility(vec3 worldPoint) {
+  float visibility = 1.0;
+  if (splatExclusionBoxCount > 0.5) visibility *= getSingleExclusionBoxVisibility(worldPoint, splatExclusionBoxWorldToUnit0, splatExclusionBoxFadeWidths.x);
+  if (splatExclusionBoxCount > 1.5) visibility *= getSingleExclusionBoxVisibility(worldPoint, splatExclusionBoxWorldToUnit1, splatExclusionBoxFadeWidths.y);
+  if (splatExclusionBoxCount > 2.5) visibility *= getSingleExclusionBoxVisibility(worldPoint, splatExclusionBoxWorldToUnit2, splatExclusionBoxFadeWidths.z);
+  if (splatExclusionBoxCount > 3.5) visibility *= getSingleExclusionBoxVisibility(worldPoint, splatExclusionBoxWorldToUnit3, splatExclusionBoxFadeWidths.w);
+  return visibility;
+}
 
 vec3 rotateByQuaternion(vec3 v, vec4 q) {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
@@ -50,6 +232,22 @@ void modifySplatCenter(inout vec3 center) {
 }
 
 void modifySplatRotationScale(vec3 originalCenter, vec3 modifiedCenter, inout vec4 rotation, inout vec3 scale) {
+  float exclusionVisibility = getSplatExclusionVisibility(modifiedCenter);
+  if (exclusionVisibility <= 0.001) {
+    scale = vec3(0.0);
+    return;
+  }
+  scale *= max(exclusionVisibility, 0.05);
+
+  if (cutawayOutlineEnabled > 0.5) {
+    float outlineVisibility = getCutawayOutlineVisibility(modifiedCenter);
+    if (outlineVisibility <= 0.001) {
+      scale = vec3(0.0);
+      return;
+    }
+    scale *= max(outlineVisibility, 0.05);
+  }
+
   if (orientedClipBoxEnabled > 0.5) {
     vec3 clipLocalPoint = (orientedClipBoxWorldToUnit * vec4(modifiedCenter, 1.0)).xyz;
     vec3 outsideDistance = abs(clipLocalPoint) - vec3(0.5);
@@ -73,6 +271,7 @@ void modifySplatRotationScale(vec3 originalCenter, vec3 modifiedCenter, inout ve
       backfaceThreshold + max(backfaceFadeWidth, 0.0001),
       facingDot
     );
+    visibility = mix(1.0, visibility, clamp(backfaceStrength, 0.0, 1.0));
     if (visibility <= 0.001) {
       scale = vec3(0.0);
       return;
@@ -82,7 +281,11 @@ void modifySplatRotationScale(vec3 originalCenter, vec3 modifiedCenter, inout ve
 }
 
 void modifySplatColor(vec3 center, inout vec4 color) {
-  float visibility = 1.0;
+  float visibility = getSplatExclusionVisibility(center);
+
+  if (cutawayOutlineEnabled > 0.5) {
+    visibility *= getCutawayOutlineVisibility(center);
+  }
 
   if (orientedClipBoxEnabled < 0.5) {
   } else {
@@ -96,10 +299,6 @@ void modifySplatColor(vec3 center, inout vec4 color) {
     }
   }
 
-  if (backfaceCullingEnabled > 0.5) {
-    color.a *= visibility;
-  }
-
   color.a *= visibility;
 }
 `,
@@ -107,10 +306,189 @@ void modifySplatColor(vec3 center, inout vec4 color) {
 uniform orientedClipBoxWorldToUnit: mat4x4f;
 uniform orientedClipBoxEnabled: f32;
 uniform orientedClipBoxFadeWidth: f32;
+uniform splatExclusionBoxCount: f32;
+uniform splatExclusionBoxWorldToUnit0: mat4x4f;
+uniform splatExclusionBoxWorldToUnit1: mat4x4f;
+uniform splatExclusionBoxWorldToUnit2: mat4x4f;
+uniform splatExclusionBoxWorldToUnit3: mat4x4f;
+uniform splatExclusionBoxFadeWidths: vec4f;
 uniform cameraWorldPosition: vec3f;
 uniform backfaceCullingEnabled: f32;
 uniform backfaceThreshold: f32;
 uniform backfaceFadeWidth: f32;
+uniform backfaceStrength: f32;
+uniform cutawayOutlineWorldToLocal: mat4x4f;
+uniform cutawayOutlineEnabled: f32;
+uniform cutawayOutlineVertexCount: f32;
+uniform cutawayOutlineVertices0: mat4x4f;
+uniform cutawayOutlineVertices1: mat4x4f;
+uniform cutawayOutlineVertices2: mat4x4f;
+uniform cutawayOutlineVertices3: mat4x4f;
+uniform cutawayOutlineVertices4: mat4x4f;
+uniform cutawayOutlineVertices5: mat4x4f;
+uniform cutawayOutlineEdgeSettings0: mat4x4f;
+uniform cutawayOutlineEdgeSettings1: mat4x4f;
+uniform cutawayOutlineEdgeSettings2: mat4x4f;
+uniform cutawayOutlineEdgeSettings3: mat4x4f;
+uniform cutawayOutlineEdgeSettings4: mat4x4f;
+uniform cutawayOutlineEdgeSettings5: mat4x4f;
+uniform cutawayOutlineEdgeSlopes0: mat4x4f;
+uniform cutawayOutlineEdgeSlopes1: mat4x4f;
+uniform cutawayOutlineEdgeSlopes2: mat4x4f;
+uniform cutawayOutlineEdgeSlopes3: mat4x4f;
+uniform cutawayOutlineEdgeSlopes4: mat4x4f;
+uniform cutawayOutlineEdgeSlopes5: mat4x4f;
+uniform cutawayOutlineCameraLocal: vec3f;
+uniform cutawayOutlineFloorY: f32;
+uniform cutawayOutlineCeilingY: f32;
+uniform cutawayOutlineTopCutDepth: f32;
+uniform cutawayOutlineBottomCutDepth: f32;
+uniform cutawayOutlineFadeWidth: f32;
+uniform cutawayOutlineCleanupStrength: f32;
+
+fn distanceToSegment2d(point: vec2f, start: vec2f, end: vec2f) -> f32 {
+  let edge = end - start;
+  let edgeLengthSquared = max(dot(edge, edge), 0.000001);
+  let amount = clamp(dot(point - start, edge) / edgeLengthSquared, 0.0, 1.0);
+  return length(point - (start + edge * amount));
+}
+
+fn getCutawayOutlineVertex(index: i32) -> vec4f {
+  if (index < 4) { return uniform.cutawayOutlineVertices0[index]; }
+  if (index < 8) { return uniform.cutawayOutlineVertices1[index - 4]; }
+  if (index < 12) { return uniform.cutawayOutlineVertices2[index - 8]; }
+  if (index < 16) { return uniform.cutawayOutlineVertices3[index - 12]; }
+  if (index < 20) { return uniform.cutawayOutlineVertices4[index - 16]; }
+  return uniform.cutawayOutlineVertices5[index - 20];
+}
+
+fn getCutawayOutlineEdgeSettings(index: i32) -> vec4f {
+  if (index < 4) { return uniform.cutawayOutlineEdgeSettings0[index]; }
+  if (index < 8) { return uniform.cutawayOutlineEdgeSettings1[index - 4]; }
+  if (index < 12) { return uniform.cutawayOutlineEdgeSettings2[index - 8]; }
+  if (index < 16) { return uniform.cutawayOutlineEdgeSettings3[index - 12]; }
+  if (index < 20) { return uniform.cutawayOutlineEdgeSettings4[index - 16]; }
+  return uniform.cutawayOutlineEdgeSettings5[index - 20];
+}
+
+fn getCutawayOutlineEdgeSlope(index: i32) -> f32 {
+  if (index < 4) { return uniform.cutawayOutlineEdgeSlopes0[index].x; }
+  if (index < 8) { return uniform.cutawayOutlineEdgeSlopes1[index - 4].x; }
+  if (index < 12) { return uniform.cutawayOutlineEdgeSlopes2[index - 8].x; }
+  if (index < 16) { return uniform.cutawayOutlineEdgeSlopes3[index - 12].x; }
+  if (index < 20) { return uniform.cutawayOutlineEdgeSlopes4[index - 16].x; }
+  return uniform.cutawayOutlineEdgeSlopes5[index - 20].x;
+}
+
+fn getCutawayOutlineVisibility(worldPoint: vec3f) -> f32 {
+  let localPoint3 = (uniform.cutawayOutlineWorldToLocal * vec4f(worldPoint, 1.0)).xyz;
+  let point = localPoint3.xz;
+  let count = i32(uniform.cutawayOutlineVertexCount + 0.5);
+  var inside = false;
+  var currentLevelInside = false;
+  var boundaryDistance = 1000000.0;
+  let fadeWidth = max(uniform.cutawayOutlineFadeWidth, 0.0001);
+  var nearestEdgeIndex: i32 = -1;
+  var nearestFloorY = uniform.cutawayOutlineFloorY;
+  var nearestCeilingY = uniform.cutawayOutlineCeilingY;
+  var levelStartIndex: i32 = 0;
+
+  for (var index: i32 = 0; index < 24; index += 1) {
+    if (index >= count) { break; }
+    let packedStart = getCutawayOutlineVertex(index);
+    let edgeSettings = getCutawayOutlineEdgeSettings(index);
+    let levelEnds = edgeSettings.w > 1.5;
+    let nextIndex = select(index + 1, levelStartIndex, levelEnds);
+    let packedEnd = getCutawayOutlineVertex(nextIndex);
+    let start = packedStart.xy;
+    let end = packedEnd.xy;
+    let heightMatches = localPoint3.y >= packedStart.z - fadeWidth && localPoint3.y <= packedStart.w + fadeWidth;
+    if (heightMatches) {
+      let distanceToEdge = distanceToSegment2d(point, start, end);
+      if (distanceToEdge < boundaryDistance) {
+        boundaryDistance = distanceToEdge;
+        nearestEdgeIndex = index;
+        nearestFloorY = packedStart.z;
+        nearestCeilingY = packedStart.w;
+      }
+      let denominator = max(abs(end.y - start.y), 0.000001) * sign(end.y - start.y);
+      let crosses = ((start.y > point.y) != (end.y > point.y)) &&
+        (point.x < (end.x - start.x) * (point.y - start.y) / denominator + start.x);
+      if (crosses) { currentLevelInside = !currentLevelInside; }
+    }
+    if (levelEnds) {
+      inside = inside || currentLevelInside;
+      currentLevelInside = false;
+      levelStartIndex = index + 1;
+    }
+  }
+
+  if (!inside || nearestEdgeIndex < 0) { return 0.0; }
+
+  let nearestSettings = getCutawayOutlineEdgeSettings(nearestEdgeIndex);
+  let nearestSlope = getCutawayOutlineEdgeSlope(nearestEdgeIndex);
+  var cutVisibility = 1.0;
+  if (nearestSettings.y > 0.5 && (nearestSettings.x > 0.0001 || abs(nearestSlope) > 0.0001)) {
+      let heightAmount = clamp(
+        (localPoint3.y - nearestFloorY) / max(nearestCeilingY - nearestFloorY, 0.0001),
+        0.0,
+        1.0
+      );
+      let effectiveDepth = max(0.0, nearestSettings.x + nearestSlope * heightAmount);
+      if (effectiveDepth > 0.0001) {
+        cutVisibility = smoothstep(
+          max(effectiveDepth - fadeWidth, 0.0),
+          effectiveDepth,
+          boundaryDistance
+        );
+      }
+  }
+
+  var cleanupVisibility = 1.0;
+  if (fract(nearestSettings.w * 0.5) > 0.25 && nearestSettings.z > 0.0001) {
+    let cleanupRamp = smoothstep(0.0, nearestSettings.z, boundaryDistance);
+    cleanupVisibility = mix(1.0, cleanupRamp, clamp(uniform.cutawayOutlineCleanupStrength, 0.0, 1.0));
+  }
+  var verticalVisibility = 1.0;
+  if (localPoint3.y < nearestFloorY) {
+    verticalVisibility *= 1.0 - smoothstep(0.0, fadeWidth, nearestFloorY - localPoint3.y);
+  } else if (localPoint3.y > nearestCeilingY) {
+    verticalVisibility *= 1.0 - smoothstep(0.0, fadeWidth, localPoint3.y - nearestCeilingY);
+  }
+  if (uniform.cutawayOutlineCameraLocal.y > nearestCeilingY && uniform.cutawayOutlineTopCutDepth > 0.0001) {
+    let topDistance = nearestCeilingY - localPoint3.y;
+    verticalVisibility *= smoothstep(
+      max(uniform.cutawayOutlineTopCutDepth - fadeWidth, 0.0),
+      uniform.cutawayOutlineTopCutDepth,
+      topDistance
+    );
+  }
+  if (uniform.cutawayOutlineCameraLocal.y < nearestFloorY && uniform.cutawayOutlineBottomCutDepth > 0.0001) {
+    let bottomDistance = localPoint3.y - nearestFloorY;
+    verticalVisibility *= smoothstep(
+      max(uniform.cutawayOutlineBottomCutDepth - fadeWidth, 0.0),
+      uniform.cutawayOutlineBottomCutDepth,
+      bottomDistance
+    );
+  }
+  return cleanupVisibility * verticalVisibility * cutVisibility;
+}
+
+fn getSingleExclusionBoxVisibility(worldPoint: vec3f, worldToUnit: mat4x4f, fadeWidth: f32) -> f32 {
+  let localPoint = (worldToUnit * vec4f(worldPoint, 1.0)).xyz;
+  let outsideDistance = abs(localPoint) - vec3f(0.5, 0.5, 0.5);
+  let signedOutside = max(max(outsideDistance.x, outsideDistance.y), outsideDistance.z);
+  return smoothstep(0.0, max(fadeWidth, 0.0001), signedOutside);
+}
+
+fn getSplatExclusionVisibility(worldPoint: vec3f) -> f32 {
+  var visibility = 1.0;
+  if (uniform.splatExclusionBoxCount > 0.5) { visibility *= getSingleExclusionBoxVisibility(worldPoint, uniform.splatExclusionBoxWorldToUnit0, uniform.splatExclusionBoxFadeWidths.x); }
+  if (uniform.splatExclusionBoxCount > 1.5) { visibility *= getSingleExclusionBoxVisibility(worldPoint, uniform.splatExclusionBoxWorldToUnit1, uniform.splatExclusionBoxFadeWidths.y); }
+  if (uniform.splatExclusionBoxCount > 2.5) { visibility *= getSingleExclusionBoxVisibility(worldPoint, uniform.splatExclusionBoxWorldToUnit2, uniform.splatExclusionBoxFadeWidths.z); }
+  if (uniform.splatExclusionBoxCount > 3.5) { visibility *= getSingleExclusionBoxVisibility(worldPoint, uniform.splatExclusionBoxWorldToUnit3, uniform.splatExclusionBoxFadeWidths.w); }
+  return visibility;
+}
 
 fn rotateByQuaternion(v: vec3f, q: vec4f) -> vec3f {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
@@ -130,6 +508,22 @@ fn modifySplatCenter(center: ptr<function, vec3f>) {
 }
 
 fn modifySplatRotationScale(originalCenter: vec3f, modifiedCenter: vec3f, rotation: ptr<function, vec4f>, scale: ptr<function, vec3f>) {
+  let exclusionVisibility = getSplatExclusionVisibility(modifiedCenter);
+  if (exclusionVisibility <= 0.001) {
+    (*scale) = vec3f(0.0, 0.0, 0.0);
+    return;
+  }
+  (*scale) *= vec3f(max(exclusionVisibility, 0.05));
+
+  if (uniform.cutawayOutlineEnabled > 0.5) {
+    let outlineVisibility = getCutawayOutlineVisibility(modifiedCenter);
+    if (outlineVisibility <= 0.001) {
+      (*scale) = vec3f(0.0, 0.0, 0.0);
+      return;
+    }
+    (*scale) *= vec3f(max(outlineVisibility, 0.05));
+  }
+
   if (uniform.orientedClipBoxEnabled > 0.5) {
     let clipLocalPoint = (uniform.orientedClipBoxWorldToUnit * vec4f(modifiedCenter, 1.0)).xyz;
     let outsideDistance = abs(clipLocalPoint) - vec3f(0.5, 0.5, 0.5);
@@ -150,11 +544,12 @@ fn modifySplatRotationScale(originalCenter: vec3f, modifiedCenter: vec3f, rotati
     let directionToCamera = normalize(uniform.cameraWorldPosition - modifiedCenter);
     let fadeWidth = max(uniform.backfaceFadeWidth, 0.0001);
     let facingDot = dot(worldNormal, directionToCamera);
-    let visibility = smoothstep(
+    var visibility = smoothstep(
       uniform.backfaceThreshold - fadeWidth,
       uniform.backfaceThreshold + fadeWidth,
       facingDot
     );
+    visibility = mix(1.0, visibility, clamp(uniform.backfaceStrength, 0.0, 1.0));
     if (visibility <= 0.001) {
       (*scale) = vec3f(0.0, 0.0, 0.0);
       return;
@@ -165,7 +560,11 @@ fn modifySplatRotationScale(originalCenter: vec3f, modifiedCenter: vec3f, rotati
 }
 
 fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
-  var visibility = 1.0;
+  var visibility = getSplatExclusionVisibility(center);
+
+  if (uniform.cutawayOutlineEnabled > 0.5) {
+    visibility *= getCutawayOutlineVisibility(center);
+  }
 
   if (uniform.orientedClipBoxEnabled > 0.5) {
     let clipLocalPoint = (uniform.orientedClipBoxWorldToUnit * vec4f(center, 1.0)).xyz;
@@ -216,6 +615,7 @@ class SimpleOrbitController {
   constructor(canvas, options = {}) {
     this.canvas = canvas;
     this.onChange = options.onChange || (() => {});
+    this.onUserInteraction = options.onUserInteraction || (() => {});
     this.onPanStateChange = options.onPanStateChange || (() => {});
     this.getFieldOfView = options.getFieldOfView || (() => 45);
     this.minDistance = options.minDistance ?? DEFAULT_ORBIT_MIN_DISTANCE;
@@ -272,6 +672,9 @@ class SimpleOrbitController {
       this.lastX = event.clientX;
       this.lastY = event.clientY;
 
+      if (deltaX || deltaY) {
+        this.onUserInteraction();
+      }
       if (this.dragMode === "pan") {
         this.panOrbitTarget(state, deltaX, deltaY);
       } else {
@@ -299,6 +702,7 @@ class SimpleOrbitController {
 
     const wheel = (event) => {
       event.preventDefault();
+      this.onUserInteraction();
       const factor = event.deltaY > 0 ? 1.08 : 0.92;
       state.distance = this.clampDistance(state.distance * factor);
       this.onChange();
@@ -335,6 +739,9 @@ class SimpleOrbitController {
         const deltaY = touch.clientY - this.lastY;
         this.lastX = touch.clientX;
         this.lastY = touch.clientY;
+        if (deltaX || deltaY) {
+          this.onUserInteraction();
+        }
         state.yaw -= deltaX * 0.25;
         state.pitch = Math.max(-85, Math.min(85, state.pitch + deltaY * 0.2));
         this.onChange();
@@ -343,6 +750,13 @@ class SimpleOrbitController {
         const nextCenter = this.computeTouchCenter(event.touches);
         const deltaX = nextCenter.x - this.touchCenterX;
         const deltaY = nextCenter.y - this.touchCenterY;
+        if (
+          Math.abs(deltaX) > 0.01 ||
+          Math.abs(deltaY) > 0.01 ||
+          Math.abs(nextDistance - this.pinchDistance) > 0.01
+        ) {
+          this.onUserInteraction();
+        }
 
         if (Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01) {
           this.panOrbitTarget(state, deltaX, deltaY);
@@ -1147,16 +1561,19 @@ class PlayCanvasSogViewer {
     if (this.app) this.app.renderNextFrame = true;
   }
 
-  _ensureManualBoxLabels() {
-    if (this._manualBoxLabels.length || !this.container) return;
-    for (const name of ["Left", "Right", "Top", "Bottom", "Front", "Back"]) {
+  _ensureManualBoxLabels(names = ["Left", "Right", "Top", "Bottom", "Front", "Back"]) {
+    if (!this.container) return;
+    while (this._manualBoxLabels.length < names.length) {
       const label = document.createElement("div");
       label.className = "calibration-box-label";
-      label.textContent = name;
       label.hidden = true;
       this.container.appendChild(label);
       this._manualBoxLabels.push(label);
     }
+    this._manualBoxLabels.forEach((label, index) => {
+      label.textContent = names[index] || "";
+      if (index >= names.length) label.hidden = true;
+    });
   }
 
   _hideManualBoxLabels() {
@@ -1170,6 +1587,41 @@ class PlayCanvasSogViewer {
       return;
     }
     this.app.renderNextFrame = true;
+    const outline = config.cutawayMode === "outline" ? cloneCutawayOutline(config.outline) : null;
+    if (outline && this.splatEntity) {
+      const matrix = this.createOutlineWorldMatrix(pc, outline);
+      const color = new pc.Color(0.16, 0.95, 0.86, 1);
+      const verticalColor = new pc.Color(0.16, 0.95, 0.86, 0.48);
+      const labels = [];
+      const labelWorldPositions = [];
+      getCutawayOutlineLevels(outline).forEach((level, levelIndex) => {
+        const effectiveVertices = buildPaddedOutlineVertices(level);
+        const bottom = effectiveVertices.map(([x, z]) => matrix.transformPoint(new pc.Vec3(x, level.floorY, z)));
+        const top = effectiveVertices.map(([x, z]) => matrix.transformPoint(new pc.Vec3(x, level.ceilingY, z)));
+        for (let index = 0; index < level.vertices.length; index += 1) {
+          const next = (index + 1) % level.vertices.length;
+          this.app.drawLine(bottom[index], bottom[next], color);
+          this.app.drawLine(top[index], top[next], color);
+          this.app.drawLine(bottom[index], top[index], verticalColor);
+          labels.push(`${levelIndex + 1}.${level.edges[index]?.label || `E${index + 1}`}`);
+          labelWorldPositions.push(top[index].clone().add(top[next]).mulScalar(0.5));
+        }
+      });
+      this._ensureManualBoxLabels(labels);
+      labelWorldPositions.forEach((world, index) => {
+        const screen = this.worldToContainerPoint(world);
+        const label = this._manualBoxLabels[index];
+        if (!screen?.visible) {
+          label.hidden = true;
+          return;
+        }
+        label.hidden = false;
+        label.style.left = `${screen.x}px`;
+        label.style.top = `${screen.y}px`;
+      });
+      return;
+    }
+
     const matrix = this.createBoxWorldMatrix(pc, config);
     const units = [
       [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5],
@@ -1373,6 +1825,13 @@ class PlayCanvasSogViewer {
     if (!this.orbitController) {
       this.orbitController = new SimpleOrbitController(this.canvas, {
         getFieldOfView: () => this.camera?.camera?.fov ?? viewPreset?.fov ?? 60,
+        onUserInteraction: () => {
+          if (!this.autoRotate) return;
+          this.stopAutoRotate();
+          this.container?.dispatchEvent?.(
+            new CustomEvent("sog-user-interaction", { detail: { mode: "orbit" } })
+          );
+        },
         onChange: () => {
           if (this.app) {
             this.app.renderNextFrame = true;
@@ -1610,6 +2069,10 @@ class PlayCanvasSogViewer {
       cutFadeWidth: Number.isFinite(config.cutFadeWidth) ? config.cutFadeWidth : undefined,
       cutDepthByFace: config.cutDepthByFace ? { ...config.cutDepthByFace } : undefined,
       cutDepthLockedByFace: config.cutDepthLockedByFace ? { ...config.cutDepthLockedByFace } : undefined,
+      cutawayMode: config.cutawayMode === "outline" ? "outline" : "box",
+      outline: cloneCutawayOutline(config.outline),
+      surfaceCulling: cloneSurfaceCullingConfig(config.surfaceCulling),
+      exclusionBoxes: normalizeSplatExclusionBoxes(config.exclusionBoxes),
     };
   }
 
@@ -1732,6 +2195,19 @@ class PlayCanvasSogViewer {
   createBoxWorldMatrix(pc, boxConfig) {
     const localBoxMatrix = this.createBoxLocalMatrix(pc, boxConfig);
     return new pc.Mat4().mul2(this.getManualBoxParentWorldMatrix(pc), localBoxMatrix);
+  }
+
+  createRootEntityTransformMatrix(pc, transform) {
+    const position = transform?.position || [0, 0, 0];
+    const rotationDegrees = transform?.rotationDegrees || [0, 0, 0];
+    const scale = transform?.scale || [1, 1, 1];
+    const rotation = new pc.Quat();
+    rotation.setFromEulerAngles(rotationDegrees[0] || 0, rotationDegrees[1] || 0, rotationDegrees[2] || 0);
+    return new pc.Mat4().setTRS(
+      new pc.Vec3(position[0] || 0, position[1] || 0, position[2] || 0),
+      rotation,
+      new pc.Vec3(scale[0] ?? 1, scale[1] ?? 1, scale[2] ?? 1)
+    );
   }
 
   createFallbackBoxCollision(pc, entity, boxConfig) {
@@ -2028,6 +2504,21 @@ class PlayCanvasSogViewer {
       return;
     }
 
+    const exclusionBoxes = normalizeSplatExclusionBoxes(boxConfig?.exclusionBoxes)
+      .filter((box) => box.enabled);
+    const exclusionFadeWidths = new Float32Array(MAX_SPLAT_EXCLUSION_BOXES);
+    const identityMatrix = new pc.Mat4();
+    for (let index = 0; index < MAX_SPLAT_EXCLUSION_BOXES; index += 1) {
+      const exclusionBox = exclusionBoxes[index];
+      const worldToUnit = exclusionBox
+        ? this.createBoxWorldMatrix(pc, exclusionBox).invert()
+        : identityMatrix;
+      gsplat.setParameter(`splatExclusionBoxWorldToUnit${index}`, worldToUnit.data);
+      exclusionFadeWidths[index] = exclusionBox?.fadeWidth ?? 0.04;
+    }
+    gsplat.setParameter("splatExclusionBoxCount", exclusionBoxes.length);
+    gsplat.setParameter("splatExclusionBoxFadeWidths", exclusionFadeWidths);
+
     const worldCameraPosition = this.camera?.getPosition?.();
     if (worldCameraPosition) {
       gsplat.setParameter("cameraWorldPosition", [
@@ -2036,9 +2527,12 @@ class PlayCanvasSogViewer {
         worldCameraPosition.z,
       ]);
     }
-    gsplat.setParameter("backfaceCullingEnabled", 0);
-    gsplat.setParameter("backfaceThreshold", 0);
-    gsplat.setParameter("backfaceFadeWidth", 1);
+    const surfaceCulling = cloneSurfaceCullingConfig(boxConfig?.surfaceCulling);
+    gsplat.setParameter("backfaceCullingEnabled", enabled && surfaceCulling.enabled ? 1 : 0);
+    gsplat.setParameter("backfaceThreshold", surfaceCulling.threshold);
+    gsplat.setParameter("backfaceFadeWidth", surfaceCulling.fadeWidth);
+    gsplat.setParameter("backfaceStrength", surfaceCulling.strength);
+    gsplat.setParameter("cutawayOutlineEnabled", 0);
 
     if (!enabled || !boxConfig) {
       gsplat.setParameter("orientedClipBoxEnabled", 0);
@@ -2046,10 +2540,175 @@ class PlayCanvasSogViewer {
       return;
     }
 
+    const outline = boxConfig.cutawayMode === "outline"
+      ? cloneCutawayOutline(boxConfig.outline)
+      : null;
+    if (outline && this.splatEntity) {
+      const worldToLocal = this.createOutlineWorldMatrix(pc, outline).invert();
+      const cameraLocal = worldCameraPosition
+        ? worldToLocal.transformPoint(worldCameraPosition.clone(), new pc.Vec3())
+        : new pc.Vec3();
+      const packedVertices = new Float32Array(MAX_CUTAWAY_OUTLINE_VERTICES * 4);
+      const packedEdgeSettings = new Float32Array(MAX_CUTAWAY_OUTLINE_VERTICES * 4);
+      const packedEdgeSlopes = new Float32Array(MAX_CUTAWAY_OUTLINE_VERTICES * 4);
+      const smoothstep = (start, end, value) => {
+        const amount = Math.max(0, Math.min(1, (value - start) / Math.max(end - start, 0.000001)));
+        return amount * amount * (3 - 2 * amount);
+      };
+      const levels = getCutawayOutlineLevels(outline);
+      let packedVertexCount = 0;
+      for (const level of levels) {
+        if (packedVertexCount + level.vertices.length > MAX_CUTAWAY_OUTLINE_VERTICES) break;
+        const effectiveVertices = buildPaddedOutlineVertices(level);
+        const cleanupMode = level.cleanup?.mode || "auto";
+        const globalCleanupEnabled = cleanupMode !== "off";
+        const globalCleanupMargin = cleanupMode === "manual"
+          ? level.cleanup.margin
+          : level.cleanup.autoMargin;
+        const useGlobalEdgeDepth = level.edgeDepth?.useGlobal === true;
+        const globalEdgeDepth = Math.max(0, level.edgeDepth?.global ?? 0.25);
+        const edgeDepths = level.edges.map((edge) => useGlobalEdgeDepth && edge?.depthMode !== "custom"
+          ? globalEdgeDepth
+          : Math.max(0, edge?.cutDepth || 0));
+        const cameraActivations = effectiveVertices.map((start, index) => {
+          if (level.edges[index]?.enabled === false) return 0;
+          const end = effectiveVertices[(index + 1) % effectiveVertices.length];
+          const dx = end[0] - start[0];
+          const dz = end[1] - start[1];
+          const edgeLength = Math.hypot(dx, dz) || 1;
+          const outwardX = dz / edgeLength;
+          const outwardZ = -dx / edgeLength;
+          const cameraOffsetX = cameraLocal.x - (start[0] + end[0]) * 0.5;
+          const cameraOffsetZ = cameraLocal.z - (start[1] + end[1]) * 0.5;
+          const cameraDistance = Math.hypot(cameraOffsetX, cameraOffsetZ) || 1;
+          const cameraFacing = outwardX * cameraOffsetX / cameraDistance + outwardZ * cameraOffsetZ / cameraDistance;
+          return smoothstep(0.08, 0.42, cameraFacing);
+        });
+        const effectiveEdgeDepths = level.edges.map((edge, index) => {
+          if (edge?.enabled === false) return 0;
+          const mode = edge?.cameraActivation || "face";
+          const previousIndex = index > 0 ? index - 1 : level.edges.length - 1;
+          const nextIndex = index + 1 < level.edges.length ? index + 1 : 0;
+          let depth = edgeDepths[index] * (mode === "always" ? 1 : cameraActivations[index]);
+          if (mode === "previous" || mode === "neighbors") {
+            depth = Math.max(depth, edgeDepths[previousIndex] * cameraActivations[previousIndex]);
+          }
+          if (mode === "next" || mode === "neighbors") {
+            depth = Math.max(depth, edgeDepths[nextIndex] * cameraActivations[nextIndex]);
+          }
+          return depth;
+        });
+        for (let index = 0; index < level.vertices.length; index += 1) {
+          const vertex = effectiveVertices[index] || level.vertices[index];
+          const edge = level.edges[index];
+          const offset = packedVertexCount * 4;
+          packedVertices[offset] = vertex[0];
+          packedVertices[offset + 1] = vertex[1];
+          packedVertices[offset + 2] = level.floorY;
+          packedVertices[offset + 3] = level.ceilingY;
+          const edgeCleanupMode = edge?.cleanupMode || "inherit";
+          const edgeCleanupEnabled = edgeCleanupMode === "off"
+            ? false
+            : edgeCleanupMode === "custom"
+              ? true
+              : globalCleanupEnabled;
+          const edgeCleanupMargin = edgeCleanupMode === "custom"
+            ? edge.cleanupMargin
+            : globalCleanupMargin;
+          const closesLevel = index === level.vertices.length - 1;
+          packedEdgeSettings[offset] = effectiveEdgeDepths[index];
+          packedEdgeSettings[offset + 1] = edge?.enabled === false ? 0 : 1;
+          packedEdgeSettings[offset + 2] = edgeCleanupEnabled ? edgeCleanupMargin : 0;
+          packedEdgeSettings[offset + 3] = (edgeCleanupEnabled ? 1 : 0) + (closesLevel ? 2 : 0);
+          const configuredDepth = edgeDepths[index];
+          const activationFactor = configuredDepth > 0.0001
+            ? Math.max(0, Math.min(1, effectiveEdgeDepths[index] / configuredDepth))
+            : (edge?.cameraActivation || "face") === "always"
+              ? 1
+              : cameraActivations[index];
+          packedEdgeSlopes[offset] = (Number(edge?.depthSlope) || 0) * activationFactor;
+          packedVertexCount += 1;
+        }
+      }
+      gsplat.setParameter("cutawayOutlineWorldToLocal", worldToLocal.data);
+      gsplat.setParameter("cutawayOutlineVertexCount", packedVertexCount);
+      for (let matrixIndex = 0; matrixIndex < 6; matrixIndex += 1) {
+        gsplat.setParameter(
+          `cutawayOutlineVertices${matrixIndex}`,
+          packedVertices.subarray(matrixIndex * 16, matrixIndex * 16 + 16)
+        );
+        gsplat.setParameter(
+          `cutawayOutlineEdgeSettings${matrixIndex}`,
+          packedEdgeSettings.subarray(matrixIndex * 16, matrixIndex * 16 + 16)
+        );
+        gsplat.setParameter(
+          `cutawayOutlineEdgeSlopes${matrixIndex}`,
+          packedEdgeSlopes.subarray(matrixIndex * 16, matrixIndex * 16 + 16)
+        );
+      }
+      gsplat.setParameter("cutawayOutlineCameraLocal", [cameraLocal.x, cameraLocal.y, cameraLocal.z]);
+      gsplat.setParameter("cutawayOutlineFloorY", Math.min(...levels.map((level) => level.floorY)));
+      gsplat.setParameter("cutawayOutlineCeilingY", Math.max(...levels.map((level) => level.ceilingY)));
+      gsplat.setParameter("cutawayOutlineTopCutDepth", outline.topCutDepth);
+      gsplat.setParameter("cutawayOutlineBottomCutDepth", outline.bottomCutDepth);
+      gsplat.setParameter("cutawayOutlineFadeWidth", outline.fadeWidth);
+      gsplat.setParameter("cutawayOutlineCleanupStrength", outline.cleanup?.strength ?? 1);
+      gsplat.setParameter("cutawayOutlineEnabled", 1);
+      gsplat.setParameter("orientedClipBoxEnabled", 0);
+      this.syncHotspotOccluderCutaway(pc, null, false);
+      return;
+    }
+
     const worldToUnitBox = this.createBoxWorldMatrix(pc, boxConfig).invert();
     gsplat.setParameter("orientedClipBoxWorldToUnit", worldToUnitBox.data);
     gsplat.setParameter("orientedClipBoxEnabled", 1);
     gsplat.setParameter("orientedClipBoxFadeWidth", boxConfig.cutFadeWidth ?? AUTO_CUTAWAY_FADE_WIDTH);
+  }
+
+  createOutlineLocalMatrix(pc, outline) {
+    // GLB floor outlines are already expressed in their extracted GLB basis.
+    if (outline?.source?.type === "mipmap-glb-floor") {
+      return new pc.Mat4();
+    }
+
+    const registration = outline?.registration;
+    if (!registration?.sourceBox || !registration?.targetBox) {
+      return new pc.Mat4();
+    }
+
+    const sourceToUnit = this.createBoxLocalMatrix(pc, registration.sourceBox).invert();
+    return new pc.Mat4().mul2(
+      this.createBoxLocalMatrix(pc, registration.targetBox),
+      sourceToUnit
+    );
+  }
+
+  createOutlineWorldMatrix(pc, outline) {
+    if (
+      outline?.source?.type === "mipmap-glb-floor" &&
+      outline.source.registrationMode === "collision"
+    ) {
+      let collisionWorldMatrix = null;
+      if (this.collisionPreviewEntity) {
+        collisionWorldMatrix = this.collisionPreviewEntity.getWorldTransform().clone();
+      }
+      const collisionTransform = this.collisionPreviewTransform || (this.currentAsset?.collisionPosition ? {
+        position: this.currentAsset.collisionPosition,
+        rotationDegrees: this.currentAsset.collisionRotationDegrees || [0, 0, 0],
+        scale: this.currentAsset.collisionScale || [1, 1, 1],
+      } : null);
+      if (!collisionWorldMatrix && collisionTransform) {
+        collisionWorldMatrix = this.createRootEntityTransformMatrix(pc, collisionTransform);
+      }
+      if (collisionWorldMatrix) {
+        return collisionWorldMatrix;
+      }
+    }
+
+    return new pc.Mat4().mul2(
+      this.splatEntity.getWorldTransform(),
+      this.createOutlineLocalMatrix(pc, outline)
+    );
   }
 
   getCameraPositionInBoxSpace(pc, boxConfig = this.activeManualBoxConfig) {
@@ -2098,6 +2757,10 @@ class PlayCanvasSogViewer {
       return boxConfig;
     }
 
+    if (boxConfig.cutawayMode === "outline" && boxConfig.outline) {
+      return boxConfig;
+    }
+
     const cameraPositionInBoxSpace = this.getCameraPositionInBoxSpace(pc, boxConfig);
     if (!this.isCameraOutsideBox(cameraPositionInBoxSpace)) {
       // Preserve the calibrated bounding box, but do not invent a cut face
@@ -2114,6 +2777,7 @@ class PlayCanvasSogViewer {
     return {
       ...computed,
       cutFadeWidth: boxConfig.cutFadeWidth,
+      exclusionBoxes: normalizeSplatExclusionBoxes(boxConfig.exclusionBoxes),
     };
   }
 
@@ -2141,6 +2805,10 @@ class PlayCanvasSogViewer {
       cutRatio: targetConfig.cutRatio ?? currentConfig.cutRatio ?? 0.2,
       cutFadeWidth: targetConfig.cutFadeWidth ?? currentConfig.cutFadeWidth,
       cutDepthByFace: targetConfig.cutDepthByFace ? { ...targetConfig.cutDepthByFace } : currentConfig.cutDepthByFace,
+      cutawayMode: targetConfig.cutawayMode,
+      outline: cloneCutawayOutline(targetConfig.outline),
+      surfaceCulling: cloneSurfaceCullingConfig(targetConfig.surfaceCulling),
+      exclusionBoxes: normalizeSplatExclusionBoxes(targetConfig.exclusionBoxes),
     };
   }
 
@@ -2161,6 +2829,11 @@ class PlayCanvasSogViewer {
       }
     }
 
+    if (left.cutawayMode !== right.cutawayMode) return false;
+    if (JSON.stringify(left.outline || null) !== JSON.stringify(right.outline || null)) return false;
+    if (JSON.stringify(left.surfaceCulling || null) !== JSON.stringify(right.surfaceCulling || null)) return false;
+    if (JSON.stringify(left.exclusionBoxes || []) !== JSON.stringify(right.exclusionBoxes || [])) return false;
+
     return true;
   }
 
@@ -2173,12 +2846,19 @@ class PlayCanvasSogViewer {
     const immediate = !!options.immediate;
     const deltaMs = Math.max((options.deltaSeconds || 0) * 1000, 0);
 
-    if (!this.activeManualBoxConfig || !this.shouldApplyCutaway()) {
+    if (!this.activeManualBoxConfig) {
       this.currentCutawayBoxConfig = null;
       this.setCutawayParameters(pc, gsplat, null, false);
       if (this.app) {
         this.app.renderNextFrame = true;
       }
+      return;
+    }
+
+    if (!this.shouldApplyCutaway()) {
+      this.currentCutawayBoxConfig = null;
+      this.setCutawayParameters(pc, gsplat, this.activeManualBoxConfig, false);
+      if (this.app) this.app.renderNextFrame = true;
       return;
     }
 
@@ -2798,6 +3478,7 @@ class PlayCanvasSogViewer {
         this.drawSpawnMarker(pc);
         this.drawCameraStartMarker(pc);
         this.drawManualBoxPreview(pc);
+        this.drawSplatExclusionBoxPreviews(pc);
       } catch (error) {
         logger.error("ui", "Calibration overlay rendering failed", {
           source: "playcanvas-editor-guides",

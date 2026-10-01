@@ -1,4 +1,5 @@
 import { logger } from "./logger.js";
+import { withGeneratedCutaway } from "./generatedCutawayOutlines.js?v=20261001selected1";
 
 const DEFAULT_SOG_ROTATION_DEGREES = [180, 0, 0];
 const DEFAULT_CLIP_BOX = {
@@ -488,12 +489,12 @@ const LOCATION_CATALOG = {
         fpCollisionSource: resolveManifestAsset('geo-entrance', 'collision', './collision-assets/geo-entrance/collision.glb'),
         fpCollisionStrategy: 'mesh',
         rotationDegrees: [0, 0, 0],
-        manualBox: {
+        manualBox: withGeneratedCutaway('geo-entrance', {
           position: [0.0076, -0.0242, -0.5343],
           rotationDegrees: [0, 0, 0],
           scale: [24.6617, 6.2596, 26.1637],
           cutRatio: 0.2,
-        },
+        }),
         viewPreset: { distanceMultiplier: 1, yaw: 180, pitch: 12, fov: 70 },
         fpViewPreset: { cameraPosition: [0, 0, 0], target: [0, 0, 1], fov: 72 },
       }),
@@ -600,14 +601,14 @@ const LOCATION_CATALOG = {
         streamingSource: createManifestSogStreamingSource('kitchen', 'Kitchen'),
         fpCollisionSource: resolveManifestAsset('kitchen', 'collision', './GLBs/Kitchen_collision.glb'),
         fpCollisionStrategy: 'mesh',
-        manualBox: {
+        manualBox: withGeneratedCutaway('kitchen', {
           position: [-0.1, -1.6, -0.1],
           rotationDegrees: [90.3, -0.1, -537.4],
           scale: [7.7, 7.6, 3.9],
           cutRatio: 0.25,
           cutDepthByFace: { left: 0.2, right: 0.27, front: 0.27, back: 0.25, top: 0.33, bottom: 0.25 },
           cutDepthLockedByFace: { left: true, right: true, front: true, back: true, top: true, bottom: true },
-        },
+        }),
       }),
       createIndoorScene('main-hall', 'Main Hall', resolveManifestAsset('main-hall', 'glb', './Indoors.glb'), {
         src: resolveManifestAsset('main-hall', 'sog-source', './PLYs/MainHall/MainHall.sog'),
@@ -616,14 +617,14 @@ const LOCATION_CATALOG = {
         streamingSource: createManifestSogStreamingSource('main-hall', 'MainHall'),
         fpCollisionSource: resolveManifestAsset('main-hall', 'collision', './GLBs/MainHall_collision.glb'),
         fpCollisionStrategy: 'mesh',
-        manualBox: {
+        manualBox: withGeneratedCutaway('main-hall', {
           position: [-0.1, -11.6, 7.7],
           rotationDegrees: [90.3, -0.1, -537.4],
           scale: [77.7, 77.6, 23.9],
           cutRatio: 0.33,
           cutDepthByFace: { left: 0.51, right: 0.52, front: 0.01, back: 0.19, top: 0.52, bottom: 0.33 },
           cutDepthLockedByFace: { left: true, right: true, front: true, back: true, top: true, bottom: true },
-        },
+        }),
       }),
     ],
   },
@@ -659,6 +660,51 @@ const LOCATION_CATALOG = {
           rotationDegrees: [0, 0, 0],
           scale: [9.4914, 2.625, 12.1602],
           cutRatio: 0.2,
+          cutawayMode: 'outline',
+          outline: {
+            version: 1,
+            mode: 'outline',
+            source: {
+              type: 'mipmap-glb-floor',
+              confidence: 1,
+              metrics: {
+                retainedComponentRatio: 1,
+                dominantFloorAreaRatio: 0.22,
+                acceptedFloorTriangles: 99617,
+              },
+            },
+            vertices: [
+              [-0.6333, 5.786],
+              [-3.7766, 1.8354],
+              [-2.9137, 0.8478],
+              [-2.7904, -0.7571],
+              [-4.6394, -3.4113],
+              [-0.7566, -6.3742],
+              [4.6671, -0.0164],
+              [4.852, 1.0947],
+              [4.6671, 1.8354],
+            ],
+            floorY: -1.2693,
+            ceilingY: 1.3557,
+            fadeWidth: 0.12,
+            topCutDepth: 0.25,
+            bottomCutDepth: 0.08,
+            edgeDepth: { useGlobal: true, global: 0.324 },
+            padding: { mode: 'auto', autoDistance: 0.249, distance: 0.249 },
+            cleanup: { mode: 'auto', autoMargin: 0.12, margin: 0.12, strength: 1 },
+            edges: Array.from({ length: 9 }, (_, index) => ({
+              id: `edge-${index + 1}`,
+              label: `Edge ${index + 1}`,
+              enabled: true,
+              cutDepth: 0.324,
+              cleanupMode: 'inherit',
+              cleanupMargin: 0.12,
+              paddingMode: 'inherit',
+              paddingDistance: 0.249,
+              cameraActivation: index === 3 ? 'previous' : 'face',
+            })),
+          },
+          surfaceCulling: { enabled: false, threshold: 0, fadeWidth: 0.35, strength: 0.75 },
         },
         viewPreset: { distanceMultiplier: 1, yaw: 180, pitch: 12, fov: 70 },
         fpViewPreset: { cameraPosition: [0, 0, 0], target: [0, 0, 1], fov: 72 },

@@ -1,6 +1,7 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261001hybrid1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260708diag1";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261001outline1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261001outline1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
+import { cloneCutawayOutline, cloneSurfaceCullingConfig } from "./viewer/cutawayOutline.js?v=20261001outline1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
 import {
@@ -1129,6 +1130,9 @@ function cloneManualBoxConfig(config) {
     cutFadeWidth: Number.isFinite(config.cutFadeWidth) ? config.cutFadeWidth : undefined,
     cutDepthByFace: config.cutDepthByFace ? { ...config.cutDepthByFace } : undefined,
     cutDepthLockedByFace: config.cutDepthLockedByFace ? { ...config.cutDepthLockedByFace } : undefined,
+    cutawayMode: config.cutawayMode === "outline" ? "outline" : "box",
+    outline: cloneCutawayOutline(config.outline),
+    surfaceCulling: cloneSurfaceCullingConfig(config.surfaceCulling),
   };
 }
 
@@ -2318,6 +2322,7 @@ function bindModelViewerEvents(element) {
   element.addEventListener("progress", handleModelViewerProgress);
   element.addEventListener("load", handleModelViewerLoad);
   element.addEventListener("error", handleModelViewerError);
+  element.addEventListener("camera-change", handleModelViewerCameraChange);
 }
 
 function replaceModelViewerElement() {
@@ -3392,6 +3397,21 @@ function applyTurntableState() {
   modelViewer.autoRotate = turntableEnabled;
 }
 
+function disableTurntableFromUserInteraction() {
+  if (!turntableEnabled) return false;
+
+  turntableEnabled = false;
+  updateTurntableUi();
+  applyTurntableState();
+  return true;
+}
+
+function handleModelViewerCameraChange(event) {
+  if (event.detail?.source === "user-interaction") {
+    disableTurntableFromUserInteraction();
+  }
+}
+
 function toggleTurntable() {
   turntableEnabled = !turntableEnabled;
   updateTurntableUi();
@@ -4341,14 +4361,8 @@ splatViewerMount.addEventListener("sog-pan-visibilitychange", (event) => {
   updateOrbitTargetIndicatorVisibility();
 });
 
-splatViewerMount.addEventListener("fp-user-interaction", () => {
-  if (!turntableEnabled) {
-    return;
-  }
-
-  turntableEnabled = false;
-  updateTurntableUi();
-});
+splatViewerMount.addEventListener("fp-user-interaction", disableTurntableFromUserInteraction);
+splatViewerMount.addEventListener("sog-user-interaction", disableTurntableFromUserInteraction);
 
 calibrationToggle.addEventListener("click", () => {
   if (!isSogCalibrationAvailable()) {
