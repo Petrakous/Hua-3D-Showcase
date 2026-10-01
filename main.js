@@ -1,6 +1,6 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261001outline1";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002explore1";
-import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002classroom1";
+import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002classroom2";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig } from "./viewer/cutawayOutline.js?v=20261001outline1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
@@ -1159,6 +1159,7 @@ function cloneStreamedTransformConfig(config) {
   }
 
   return {
+    ...(config.overviewScene ? { overviewScene: cloneTransformConfig(config.overviewScene) } : {}),
     ...(config.scene ? { scene: cloneTransformConfig(config.scene) } : {}),
     ...(config.collision ? { collision: cloneTransformConfig(config.collision) } : {}),
     ...(config.spawn ? {
@@ -1213,11 +1214,14 @@ function applyCalibrationOverrideToAsset(asset) {
     const streamedOverride = getStreamedTransformOverride(asset);
     if (streamedOverride) {
       const updatedAsset = { ...asset };
-      if (streamedOverride.scene) {
-        updatedAsset.position = streamedOverride.scene.position;
-        updatedAsset.rotationDegrees = streamedOverride.scene.rotationDegrees;
-        updatedAsset.rotation = degreesToQuaternion(streamedOverride.scene.rotationDegrees);
-        updatedAsset.scale = streamedOverride.scene.scale;
+      const sceneTransform = !asset.streamingEnabled && streamedOverride.overviewScene
+        ? streamedOverride.overviewScene
+        : streamedOverride.scene;
+      if (sceneTransform) {
+        updatedAsset.position = sceneTransform.position;
+        updatedAsset.rotationDegrees = sceneTransform.rotationDegrees;
+        updatedAsset.rotation = degreesToQuaternion(sceneTransform.rotationDegrees);
+        updatedAsset.scale = sceneTransform.scale;
       }
       if (!asset.streamingEnabled && streamedOverride.cameraStart) {
         updatedAsset.cameraStartOverride = {
