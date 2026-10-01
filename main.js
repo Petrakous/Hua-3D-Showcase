@@ -1,7 +1,7 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20260708diag1";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261001scenes1";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20260708diag1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
-import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20260709lodsafe1";
+import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
 import {
   initAnalytics,
@@ -1285,10 +1285,18 @@ const CAMPUS_INDOOR_BUILDINGS = [
     id: "geo",
     label: "Geo",
     spaces: [
+      { id: "entrance", label: "Entrance", sceneId: "geo-entrance" },
       { id: "lab-3-3", label: "Lab 3.3", sceneId: "geo3-3" },
       { id: "systasis", label: "Systasis", sceneId: "systasis" },
       { id: "fitness", label: "Fitness", sceneId: "fitness" },
-      { id: "ceremonial-hall", label: "Ceremonial Hall", sceneId: null },
+      { id: "ceremonial-hall", label: "Ceremonial Hall", sceneId: "ceremonial-hall" },
+    ],
+  },
+  {
+    id: "library",
+    label: "Library",
+    spaces: [
+      { id: "library", label: "Library", sceneId: "library" },
     ],
   },
   {
@@ -1301,7 +1309,7 @@ const CAMPUS_INDOOR_BUILDINGS = [
   },
 ];
 const DIT_INSIDE_SPACES = [
-  { id: "pc-lab", label: "PC Lab", sceneId: null },
+  { id: "pc-lab", label: "PC Lab", sceneId: "pc-lab" },
 ];
 
 function formatBytes(bytes) {
@@ -1546,7 +1554,7 @@ function escapeHtml(value) {
 function getSceneCardEntries() {
   const campusExp = resolveSceneExperience("campus-day");
   const ditExp = resolveSceneExperience("dit-main");
-  const laboratorySectionSceneIds = new Set(["biology-lab", "systasis", "metabolism", "geo3-3", "fitness", "kitchen"]);
+  const laboratorySectionSceneIds = new Set(["biology-lab", "systasis", "metabolism", "geo3-3", "fitness", "kitchen", "pc-lab"]);
 
   const cards = [
     {
@@ -1587,6 +1595,22 @@ function getSceneCardEntries() {
         thumbnail: scene.thumbnail || null,
       });
     }
+  }
+
+  for (const space of DIT_INSIDE_SPACES) {
+    const scene = (LOCATION_CATALOG.dit?.insideScenes || []).find((entry) => entry.id === space.sceneId);
+    if (!scene) continue;
+    const exp = resolveSceneExperience(scene.id);
+    cards.push({
+      id: `dit-indoor-${scene.id}`,
+      section: laboratorySectionSceneIds.has(scene.id) ? "labs" : "interiors",
+      title: exp.title,
+      context: `DIT - ${getCategoryLabel(exp.category)}`,
+      description: exp.description,
+      formats: Object.keys(scene.assets || {}),
+      selection: { site: "dit", environment: "inside", scene: scene.id },
+      thumbnail: scene.thumbnail || null,
+    });
   }
 
   return cards;
@@ -1782,6 +1806,13 @@ function getCurrentContextLabel() {
     }
   }
 
+  if (activeSiteId === "dit") {
+    const space = DIT_INSIDE_SPACES.find((entry) => entry.sceneId === activeSceneId);
+    if (space?.label) {
+      return `${siteLabel} / ${environmentLabel} / ${space.label}`;
+    }
+  }
+
   return `${siteLabel} / ${environmentLabel}`;
 }
 
@@ -1847,6 +1878,14 @@ function getCurrentSceneCollection() {
     return locationEntry.scenes || [];
   }
 
+  if (locationEntry.id === "dit" && activeEnvironmentId === "inside") {
+    return locationEntry.insideScenes || [];
+  }
+
+  if (locationEntry.id === "dit" && activeEnvironmentId === "outside") {
+    return locationEntry.scene ? [locationEntry.scene] : [];
+  }
+
   if (locationEntry.kind === "single-scene" && locationEntry.scene) {
     return [locationEntry.scene];
   }
@@ -1861,7 +1900,7 @@ function getCurrentSceneEntry() {
     return null;
   }
 
-  if (locationEntry?.kind === "single-scene") {
+  if (locationEntry?.id === "dit" && activeEnvironmentId === "outside") {
     return scenes[0];
   }
 
@@ -1891,7 +1930,11 @@ function normalizeActiveScene() {
   }
 
   if (activeSiteId === "dit" && activeEnvironmentId === "inside") {
-    activeSceneId = null;
+    const scenes = getCurrentSceneCollection();
+    const enabledSceneIds = DIT_INSIDE_SPACES
+      .map((space) => space.sceneId)
+      .filter((sceneId) => scenes.some((scene) => scene.id === sceneId));
+    activeSceneId = enabledSceneIds.includes(activeSceneId) ? activeSceneId : (enabledSceneIds[0] || null);
     return;
   }
 
@@ -1945,15 +1988,11 @@ function syncNavigationState() {
     return;
   }
 
-  activeSceneId = null;
+  normalizeActiveScene();
 }
 
 function getAvailableFormats() {
   syncNavigationState();
-
-  if (activeSiteId === "dit" && activeEnvironmentId === "inside") {
-    return [];
-  }
 
   const locationEntry = getCurrentLocationEntry();
   if (!locationEntry) {
@@ -2146,11 +2185,9 @@ function getActiveAssetDescriptor() {
   }
 
   if (activeSiteId === "dit") {
-    if (activeEnvironmentId !== "outside" || activeTimeStage !== "dusk") {
-      return null;
-    }
-
-    const scene = LOCATION_CATALOG.dit?.scene;
+    const scene = activeEnvironmentId === "inside"
+      ? getCurrentSceneEntry()
+      : LOCATION_CATALOG.dit?.scene;
     const asset = scene?.assets?.[activeFormat] || scene?.assets?.glb || Object.values(scene?.assets || {})[0];
     if (!asset) {
       return null;
@@ -2158,11 +2195,18 @@ function getActiveAssetDescriptor() {
 
     const baseAsset = {
       ...asset,
-      key: `dit:outside:${activeTimeStage}:${activeFormat}:${getEffectiveSogMode(asset)}`,
+      key: activeEnvironmentId === "inside"
+        ? `dit:inside:${scene.id}:${activeFormat}:${getEffectiveSogMode(asset)}`
+        : `dit:outside:${activeTimeStage}:${activeFormat}:${getEffectiveSogMode(asset)}`,
       label: scene.label,
       locationId: "dit",
+      sceneId: scene.id,
       format: activeFormat,
-      sceneCalibrationKey: buildSceneCalibrationKey("dit", scene.id, activeTimeStage),
+      sceneCalibrationKey: buildSceneCalibrationKey(
+        "dit",
+        scene.id,
+        activeEnvironmentId === "outside" ? activeTimeStage : null
+      ),
       sourceManualBox: cloneManualBoxConfig(asset?.manualBox),
     };
 
@@ -3205,14 +3249,15 @@ function renderNavigationUi() {
       })),
     });
   } else if (activeSiteId === "dit" && activeEnvironmentId === "inside") {
+    const availableSceneIds = new Set((LOCATION_CATALOG.dit?.insideScenes || []).map((scene) => scene.id));
     groups.push({
       label: "Space",
       items: DIT_INSIDE_SPACES.map((space) => ({
         type: "space",
         id: space.id,
         label: space.label,
-        active: false,
-        disabled: true,
+        active: activeSceneId === space.sceneId,
+        disabled: !space.sceneId || !availableSceneIds.has(space.sceneId),
       })),
     });
   }
@@ -3807,8 +3852,14 @@ async function setActiveBuilding(buildingId) {
 }
 
 async function setActiveSpace(spaceId) {
-  const space = (getCampusBuilding()?.spaces || []).find((item) => item.id === spaceId);
-  if (!space || !isCampusSpaceAvailable(space) || space.sceneId === activeSceneId) {
+  const spaces = activeSiteId === "dit"
+    ? DIT_INSIDE_SPACES
+    : (getCampusBuilding()?.spaces || []);
+  const space = spaces.find((item) => item.id === spaceId);
+  const sceneAvailable = activeSiteId === "dit"
+    ? (LOCATION_CATALOG.dit?.insideScenes || []).some((scene) => scene.id === space?.sceneId)
+    : isCampusSpaceAvailable(space);
+  if (!space || !sceneAvailable || space.sceneId === activeSceneId) {
     return;
   }
 

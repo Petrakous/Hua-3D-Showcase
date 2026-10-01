@@ -25,7 +25,11 @@
     "biology-lab",
     "amphitheater",
     "geo3-3",
-    "kitchen"
+    "kitchen",
+    "geo-entrance",
+    "pc-lab",
+    "library",
+    "ceremonial-hall"
   ],
   "scenes": {
     "campus-day": {
@@ -813,6 +817,150 @@
           "localSource": "PLYs/Kitchen/output_lod",
           "assetPath": "assets/indoors/kitchen/streamed",
           "r2Key": "assets/indoors/kitchen/streamed"
+        }
+      ]
+    },
+    "geo-entrance": {
+      "label": "GEO Entrance",
+      "location": "campus",
+      "environment": "inside",
+      "building": "geo",
+      "space": "geo-entrance",
+      "formats": ["sog"],
+      "engines": ["lod", "streamed"],
+      "modes": ["walk", "fly"],
+      "assets": [
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Geo Entrance/source.sog",
+          "assetPath": "assets/indoors/geo-entrance/sog/source.sog",
+          "r2Key": "assets/indoors/geo-entrance/sog/source.sog"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Geo Entrance/streamed",
+          "assetPath": "assets/indoors/geo-entrance/streamed",
+          "r2Key": "assets/indoors/geo-entrance/streamed"
+        },
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "collision-assets/geo-entrance/collision.glb",
+          "assetPath": "assets/indoors/geo-entrance/collision/collision.glb",
+          "r2Key": "assets/indoors/geo-entrance/collision/collision.glb"
+        }
+      ]
+    },
+    "pc-lab": {
+      "label": "PC Lab",
+      "location": "dit",
+      "environment": "inside",
+      "building": "dit",
+      "space": "pc-lab",
+      "formats": ["sog"],
+      "engines": ["lod", "streamed"],
+      "modes": ["walk", "fly"],
+      "assets": [
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/PC Lab/source.sog",
+          "assetPath": "assets/dit/pc-lab/sog/source.sog",
+          "r2Key": "assets/dit/pc-lab/sog/source.sog"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/PC Lab/streamed",
+          "assetPath": "assets/dit/pc-lab/streamed",
+          "r2Key": "assets/dit/pc-lab/streamed"
+        },
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "collision-assets/pc-lab/collision.glb",
+          "assetPath": "assets/dit/pc-lab/collision/collision.glb",
+          "r2Key": "assets/dit/pc-lab/collision/collision.glb"
+        }
+      ]
+    },
+    "library": {
+      "label": "Library",
+      "location": "campus",
+      "environment": "inside",
+      "building": "library",
+      "space": "library",
+      "formats": ["sog"],
+      "engines": ["lod", "streamed"],
+      "modes": ["walk", "fly"],
+      "assets": [
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Library/source.sog",
+          "assetPath": "assets/indoors/library/sog/source.sog",
+          "r2Key": "assets/indoors/library/sog/source.sog"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Library/streamed",
+          "assetPath": "assets/indoors/library/streamed",
+          "r2Key": "assets/indoors/library/streamed"
+        },
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "collision-assets/library/collision.glb",
+          "assetPath": "assets/indoors/library/collision/collision.glb",
+          "r2Key": "assets/indoors/library/collision/collision.glb"
+        }
+      ]
+    },
+    "ceremonial-hall": {
+      "label": "Ceremonial Hall",
+      "location": "campus",
+      "environment": "inside",
+      "building": "geo",
+      "space": "ceremonial-hall",
+      "formats": ["sog"],
+      "engines": ["lod", "streamed"],
+      "modes": ["walk", "fly"],
+      "assets": [
+        {
+          "id": "sog-source",
+          "role": "sog-source",
+          "type": "file",
+          "localSource": "PLYs/Ceremonial Hall/source.sog",
+          "assetPath": "assets/indoors/ceremonial-hall/sog/source.sog",
+          "r2Key": "assets/indoors/ceremonial-hall/sog/source.sog"
+        },
+        {
+          "id": "streamed",
+          "role": "streamed",
+          "type": "tree",
+          "localSource": "PLYs/Ceremonial Hall/streamed",
+          "assetPath": "assets/indoors/ceremonial-hall/streamed",
+          "r2Key": "assets/indoors/ceremonial-hall/streamed"
+        },
+        {
+          "id": "collision",
+          "role": "collision",
+          "type": "file",
+          "localSource": "collision-assets/ceremonial-hall/collision.glb",
+          "assetPath": "assets/indoors/ceremonial-hall/collision/collision.glb",
+          "r2Key": "assets/indoors/ceremonial-hall/collision/collision.glb"
         }
       ]
     }

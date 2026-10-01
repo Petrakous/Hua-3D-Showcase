@@ -426,6 +426,54 @@ const SCENE_EXPERIENCES = {
       title: "Kitchen",
       message: "Loading nutritional and dietary kitchen room..."
     }
+  },
+  "geo-entrance": {
+    id: "geo-entrance",
+    title: "GEO Entrance",
+    subtitle: "GEO building entrance",
+    description: "The entrance and shared circulation area of the GEO building, which connects spaces including Lab 3.3, Systasis and Fitness.",
+    category: "indoor",
+    group: "campus",
+    defaults: { format: "sog", firstPersonMode: "walk" },
+    navigation: { orbit: true, walk: true, fly: true, tapToMove: true, collision: true, defaultMode: "walk" },
+    performance: { weight: "heavy", mobileQuality: "web", desktopQuality: "hd" },
+    loading: { title: "GEO Entrance", message: "Loading the GEO building entrance..." }
+  },
+  "ceremonial-hall": {
+    id: "ceremonial-hall",
+    title: "Ceremonial Hall",
+    subtitle: "Teaching and community space",
+    description: "A dedicated university venue for ceremonies, presentations, events and community gatherings.",
+    category: "indoor",
+    group: "campus",
+    defaults: { format: "sog", firstPersonMode: "walk" },
+    navigation: { orbit: true, walk: true, fly: true, tapToMove: true, collision: true, defaultMode: "walk" },
+    performance: { weight: "medium", mobileQuality: "web", desktopQuality: "hd" },
+    loading: { title: "Ceremonial Hall", message: "Loading the ceremonial hall..." }
+  },
+  "library": {
+    id: "library",
+    title: "Library",
+    subtitle: "Library building interior",
+    description: "A full interior capture of the university library and its shared study environment.",
+    category: "indoor",
+    group: "campus",
+    defaults: { format: "sog", firstPersonMode: "walk" },
+    navigation: { orbit: true, walk: true, fly: true, tapToMove: true, collision: true, defaultMode: "walk" },
+    performance: { weight: "heavy", mobileQuality: "web", desktopQuality: "hd" },
+    loading: { title: "Library", message: "Loading the university library..." }
+  },
+  "pc-lab": {
+    id: "pc-lab",
+    title: "PC Lab",
+    subtitle: "DIT second-floor laboratory",
+    description: "A computer laboratory on the second floor of the DIT building, captured with its workstations and teaching layout in place.",
+    category: "lab",
+    group: "dit",
+    defaults: { format: "sog", firstPersonMode: "walk" },
+    navigation: { orbit: true, walk: true, fly: true, tapToMove: true, collision: true, defaultMode: "walk" },
+    performance: { weight: "medium", mobileQuality: "web", desktopQuality: "hd" },
+    loading: { title: "PC Lab", message: "Loading the DIT computer laboratory..." }
   }
 };
 
