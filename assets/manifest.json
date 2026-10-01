@@ -12,6 +12,12 @@
     "campus-night",
     "dit-main"
   ],
+  "localPreviewScenes": [
+    "geo-entrance",
+    "ceremonial-hall",
+    "library",
+    "pc-lab"
+  ],
   "activeScenes": [
     "campus-day",
     "campus-dusk",

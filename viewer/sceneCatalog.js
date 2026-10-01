@@ -13,6 +13,7 @@ const DEFAULT_CLIP_BOX = {
 const ASSET_MANIFEST_PATH = './assets/manifest.json';
 const ASSET_MODE_LOCAL = 'local';
 const ASSET_MODE_REMOTE = 'remote';
+const ASSET_MODE_HYBRID = 'hybrid';
 const DEBUG_ASSET_ROLES = new Set([
   'glb',
   'glb-web',
@@ -43,7 +44,7 @@ function getRuntimeAssetMode() {
     host === 'localhost' ||
     host === '127.0.0.1';
 
-  return isLocal ? ASSET_MODE_LOCAL : ASSET_MODE_REMOTE;
+  return isLocal ? ASSET_MODE_HYBRID : ASSET_MODE_REMOTE;
 }
 
 function joinAssetUrl(base, assetPath) {
@@ -73,19 +74,19 @@ async function loadAssetManifest() {
 const ASSET_MANIFEST = await loadAssetManifest();
 const ACTIVE_ASSET_MODE = getRuntimeAssetMode();
 
-function logAssetResolution(sceneId, role, resolvedUrl) {
+function logAssetResolution(sceneId, role, resolvedUrl, assetMode = ACTIVE_ASSET_MODE) {
   if (!DEBUG_ASSET_ROLES.has(role)) {
     return;
   }
 
-  const logKey = `${ACTIVE_ASSET_MODE}:${sceneId}:${role}:${resolvedUrl}`;
+  const logKey = `${assetMode}:${sceneId}:${role}:${resolvedUrl}`;
   if (loggedAssetResolutions.has(logKey)) {
     return;
   }
 
   loggedAssetResolutions.add(logKey);
   logger.debug('asset-manifest', 'Resolved active asset', {
-    assetMode: ACTIVE_ASSET_MODE,
+    assetMode,
     sceneId,
     role,
     url: resolvedUrl,
@@ -115,9 +116,15 @@ function resolveManifestAsset(sceneId, role, fallback, suffix = '') {
     return fallback;
   }
 
-  const base = ASSET_MANIFEST.assetBases?.[ACTIVE_ASSET_MODE];
+  const localPreviewScenes = Array.isArray(ASSET_MANIFEST.localPreviewScenes)
+    ? ASSET_MANIFEST.localPreviewScenes
+    : [];
+  const resolvedAssetMode = ACTIVE_ASSET_MODE === ASSET_MODE_HYBRID
+    ? (localPreviewScenes.includes(sceneId) ? ASSET_MODE_LOCAL : ASSET_MODE_REMOTE)
+    : ACTIVE_ASSET_MODE;
+  const base = ASSET_MANIFEST.assetBases?.[resolvedAssetMode];
   if (!base) {
-    console.error(`[asset-manifest] Asset base "${ACTIVE_ASSET_MODE}" is missing from manifest.`);
+    console.error(`[asset-manifest] Asset base "${resolvedAssetMode}" is missing from manifest.`);
     return fallback;
   }
 
@@ -126,7 +133,7 @@ function resolveManifestAsset(sceneId, role, fallback, suffix = '') {
     : assetPath;
 
   const resolvedUrl = joinAssetUrl(base, resolvedPath);
-  logAssetResolution(sceneId, role, resolvedUrl);
+  logAssetResolution(sceneId, role, resolvedUrl, resolvedAssetMode);
   return resolvedUrl;
 }
 
