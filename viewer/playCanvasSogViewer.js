@@ -1580,6 +1580,33 @@ class PlayCanvasSogViewer {
     for (const label of this._manualBoxLabels) label.hidden = true;
   }
 
+  worldToContainerPoint(worldPoint) {
+    if (!this.app || !this.camera?.camera || !this.container || !worldPoint) {
+      return null;
+    }
+
+    const width = Math.max(1, this.canvas?.offsetWidth || this.container.clientWidth || 1);
+    const height = Math.max(1, this.canvas?.offsetHeight || this.container.clientHeight || 1);
+    const screen = this.camera.camera.worldToScreen(worldPoint, new this.pc.Vec3());
+    if (!screen || ![screen.x, screen.y, screen.z].every(Number.isFinite)) {
+      return null;
+    }
+
+    const margin = 72;
+    const visible =
+      screen.x >= -margin &&
+      screen.y >= -margin &&
+      screen.x <= width + margin &&
+      screen.y <= height + margin;
+
+    return {
+      x: screen.x,
+      y: screen.y,
+      z: screen.z,
+      visible: screen.z >= 0 && visible,
+    };
+  }
+
   drawManualBoxPreview(pc) {
     const config = this.activeManualBoxConfig;
     if (!this.manualBoxPreviewVisible || !config || !this.app?.drawLine) {
@@ -2655,7 +2682,7 @@ class PlayCanvasSogViewer {
       gsplat.setParameter("cutawayOutlineCleanupStrength", outline.cleanup?.strength ?? 1);
       gsplat.setParameter("cutawayOutlineEnabled", 1);
       gsplat.setParameter("orientedClipBoxEnabled", 0);
-      this.syncHotspotOccluderCutaway(pc, null, false);
+      this.syncHotspotOccluderCutaway?.(pc, null, false);
       return;
     }
 
@@ -3478,7 +3505,7 @@ class PlayCanvasSogViewer {
         this.drawSpawnMarker(pc);
         this.drawCameraStartMarker(pc);
         this.drawManualBoxPreview(pc);
-        this.drawSplatExclusionBoxPreviews(pc);
+        this.drawSplatExclusionBoxPreviews?.(pc);
       } catch (error) {
         logger.error("ui", "Calibration overlay rendering failed", {
           source: "playcanvas-editor-guides",

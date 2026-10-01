@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261001outline1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261001outline1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002outlinefix1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20260626cal1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig } from "./viewer/cutawayOutline.js?v=20261001outline1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
