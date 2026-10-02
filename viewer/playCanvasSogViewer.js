@@ -728,9 +728,40 @@ fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
 `,
 };
 
+let playCanvasSogSupport = null;
+
+function isIosWebKit() {
+  const userAgent = navigator.userAgent || "";
+  return /iPad|iPhone|iPod/i.test(userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function releaseWebGlContext(gl) {
+  try {
+    gl?.getExtension?.("WEBGL_lose_context")?.loseContext?.();
+  } catch (error) {
+    logger.warn("webgl", "Explicit WebGL context release failed", null, error);
+  }
+}
+
 function supportsPlayCanvasSogViewer() {
+  if (playCanvasSogSupport === true) {
+    return true;
+  }
+
   const canvas = document.createElement("canvas");
-  return !!canvas.getContext("webgl2");
+  const gl = canvas.getContext("webgl2");
+  // Cache successful support, but allow a later retry if context creation was
+  // temporarily denied because the browser was under graphics pressure.
+  playCanvasSogSupport = gl ? true : null;
+
+  // A capability probe still consumes a real WebGL context. Release it now;
+  // otherwise every retry / scene change leaks another context until iOS
+  // WebKit refuses to initialize PlayCanvas textures.
+  releaseWebGlContext(gl);
+  canvas.width = 1;
+  canvas.height = 1;
+  return !!gl;
 }
 
 function withTimeout(promise, timeoutMs, message, details = {}) {
@@ -4156,8 +4187,28 @@ class PlayCanvasSogViewer {
     this.flyCollisionIgnored = false;
 
     if (this.app) {
-      this.app.destroy();
+      const app = this.app;
+      const canvas = this.canvas;
+      const gl = app.graphicsDevice?.gl || null;
       this.app = null;
+
+      // app.destroy() deletes PlayCanvas resources, but iOS WebKit can retain
+      // the underlying context and its GPU allocations until a later GC pass.
+      // Mark this as intentional so the diagnostics listener does not surface
+      // it as a user-facing renderer crash.
+      if (canvas && isIosWebKit()) {
+        canvas.dataset.huaIntentionalContextLoss = "1";
+      }
+
+      try {
+        app.destroy();
+      } catch (error) {
+        logger.warn("webgl", "PlayCanvas application cleanup failed", null, error);
+      } finally {
+        if (isIosWebKit()) {
+          releaseWebGlContext(gl);
+        }
+      }
     }
 
     this.pc = null;
