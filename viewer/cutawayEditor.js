@@ -7,7 +7,7 @@ import {
   getCutawayOutlineLevels,
   normalizeSplatExclusionBoxes,
   normalizeSplatPatches,
-} from "./cutawayOutline.js?v=20261002editor3";
+} from "./cutawayOutline.js?v=20261002editor4";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -86,6 +86,8 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
     smoothing: byId("calibrationOutlineMotionSmoothing"),
     acceleration: byId("calibrationOutlineMotionAcceleration"),
     faceInputs: [...root.querySelectorAll("[data-cutaway-face]")],
+    faceRanges: [...root.querySelectorAll("[data-cutaway-face-range]")],
+    faceEnabled: [...root.querySelectorAll("[data-cutaway-face-enabled]")],
     exclusionSelect: byId("calibrationExclusionSelect"),
     exclusionAdd: byId("calibrationExclusionAdd"),
     exclusionDelete: byId("calibrationExclusionDelete"),
@@ -217,7 +219,19 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
     root.hidden = !config;
     if (!config) { syncing = false; return; }
     controls.modeButtons.forEach((button) => { button.dataset.active = String(button.dataset.cutawayMode === config.cutawayMode); });
-    controls.faceInputs.forEach((input) => setValue(input, config.cutDepthByFace?.[input.dataset.cutawayFace] ?? config.cutRatio ?? 0.2));
+    controls.faceInputs.forEach((input) => {
+      const face = input.dataset.cutawayFace;
+      const value = config.cutDepthByFace?.[face] ?? config.cutRatio ?? 0.2;
+      setValue(input, value);
+      const range = controls.faceRanges.find((item) => item.dataset.cutawayFaceRange === face);
+      const enabled = config.cutEnabledByFace?.[face] !== false;
+      if (range) { range.value = String(value); range.disabled = !enabled; }
+      input.disabled = !enabled;
+      input.closest(".calibration-box-face")?.setAttribute("data-enabled", String(enabled));
+    });
+    controls.faceEnabled.forEach((input) => {
+      input.checked = config.cutEnabledByFace?.[input.dataset.cutawayFaceEnabled] !== false;
+    });
 
     const outlineState = currentOutline(config);
     const outlineAvailable = !!outlineState;
@@ -390,10 +404,30 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
     [controls.acceleration, (_level, outline) => { outline.cameraMotionAcceleration = Math.max(0.1, finite(controls.acceleration.value)); }],
   ];
   outlineBinding.forEach(([element, mutate]) => element.addEventListener("change", () => !syncing && mutateOutline(mutate, "Auto outline updated")));
-  controls.faceInputs.forEach((input) => input.addEventListener("change", () => !syncing && commit((config) => {
-    config.cutDepthByFace = { ...(config.cutDepthByFace || {}), [input.dataset.cutawayFace]: Math.max(0.01, finite(input.value, 0.2)) };
-    config.cutDepthLockedByFace = { ...(config.cutDepthLockedByFace || {}), [input.dataset.cutawayFace]: true };
-  }, "Box cutaway updated")));
+  const updateBoxFaceDepth = (face, rawValue, { refreshUi = true, announce = true } = {}) => {
+    if (syncing) return;
+    const value = Math.max(0.01, Math.min(0.95, finite(rawValue, 0.2)));
+    commit((config) => {
+      config.cutDepthByFace = { ...(config.cutDepthByFace || {}), [face]: value };
+      config.cutDepthLockedByFace = { ...(config.cutDepthLockedByFace || {}), [face]: true };
+      config.cutawayMode = "box";
+    }, "Box cutaway updated", { refreshUi, announce });
+  };
+  controls.faceRanges.forEach((range) => range.addEventListener("input", () => {
+    const face = range.dataset.cutawayFaceRange;
+    const number = controls.faceInputs.find((item) => item.dataset.cutawayFace === face);
+    if (number) number.value = Number(range.value).toFixed(3);
+    updateBoxFaceDepth(face, range.value, { refreshUi: false, announce: false });
+  }));
+  controls.faceInputs.forEach((input) => input.addEventListener("change", () => {
+    const face = input.dataset.cutawayFace;
+    updateBoxFaceDepth(face, input.value);
+  }));
+  controls.faceEnabled.forEach((input) => input.addEventListener("change", () => !syncing && commit((config) => {
+    const face = input.dataset.cutawayFaceEnabled;
+    config.cutEnabledByFace = { ...(config.cutEnabledByFace || {}), [face]: input.checked };
+    config.cutawayMode = "box";
+  }, input.checked ? "Box face enabled" : "Box face disabled")));
 
   controls.exclusionSelect.addEventListener("change", () => { selectedExclusion = Number(controls.exclusionSelect.value) || 0; refresh(); });
   controls.exclusionAdd.addEventListener("click", () => commit((config) => {

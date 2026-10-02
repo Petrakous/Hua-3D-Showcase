@@ -202,7 +202,8 @@ function computeAutoCutaway(boxConfig, cameraPositionInBoxSpace, cutRatio = 0.2)
     return createClipBoxCutaway(boxConfig, cameraPositionInBoxSpace, cutRatio);
   }
 
-  const activeFaces = selectActiveFaces(cameraPositionInBoxSpace);
+  const activeFaces = selectActiveFaces(cameraPositionInBoxSpace)
+    .filter((face) => boxConfig?.cutEnabledByFace?.[face.faceKey] !== false);
 
   return {
     mode: `camera-side-${activeFaces.map((face) => face.faceAxis).join("-")}`,

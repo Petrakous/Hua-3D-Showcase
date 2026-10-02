@@ -392,13 +392,16 @@
 
               <details class="calibration-disclosure" id="calibrationBoxDisclosure">
                 <summary>Box fallback <span>Legacy</span></summary>
-                <div class="calibration-disclosure__body calibration-cutaway__grid">
-                  <label class="calibration-field"><span>Left</span><input data-cutaway-face="left" type="number" min="0.01" max="0.95" step="0.01" /></label>
-                  <label class="calibration-field"><span>Right</span><input data-cutaway-face="right" type="number" min="0.01" max="0.95" step="0.01" /></label>
-                  <label class="calibration-field"><span>Front</span><input data-cutaway-face="front" type="number" min="0.01" max="0.95" step="0.01" /></label>
-                  <label class="calibration-field"><span>Back</span><input data-cutaway-face="back" type="number" min="0.01" max="0.95" step="0.01" /></label>
-                  <label class="calibration-field"><span>Top</span><input data-cutaway-face="top" type="number" min="0.01" max="0.95" step="0.01" /></label>
-                  <label class="calibration-field"><span>Bottom</span><input data-cutaway-face="bottom" type="number" min="0.01" max="0.95" step="0.01" /></label>
+                <div class="calibration-disclosure__body">
+                  <p class="calibration-panel__hint">Enable only the faces that may open toward the camera, then set how deeply each one cuts.</p>
+                  <div class="calibration-cutaway__grid">
+                    <div class="calibration-box-face"><label><input data-cutaway-face-enabled="left" type="checkbox" /><span>Left</span></label><input data-cutaway-face-range="left" type="range" min="0.01" max="0.95" step="0.01" /><input data-cutaway-face="left" type="number" min="0.01" max="0.95" step="0.01" /></div>
+                    <div class="calibration-box-face"><label><input data-cutaway-face-enabled="right" type="checkbox" /><span>Right</span></label><input data-cutaway-face-range="right" type="range" min="0.01" max="0.95" step="0.01" /><input data-cutaway-face="right" type="number" min="0.01" max="0.95" step="0.01" /></div>
+                    <div class="calibration-box-face"><label><input data-cutaway-face-enabled="front" type="checkbox" /><span>Front</span></label><input data-cutaway-face-range="front" type="range" min="0.01" max="0.95" step="0.01" /><input data-cutaway-face="front" type="number" min="0.01" max="0.95" step="0.01" /></div>
+                    <div class="calibration-box-face"><label><input data-cutaway-face-enabled="back" type="checkbox" /><span>Back</span></label><input data-cutaway-face-range="back" type="range" min="0.01" max="0.95" step="0.01" /><input data-cutaway-face="back" type="number" min="0.01" max="0.95" step="0.01" /></div>
+                    <div class="calibration-box-face"><label><input data-cutaway-face-enabled="top" type="checkbox" /><span>Top</span></label><input data-cutaway-face-range="top" type="range" min="0.01" max="0.95" step="0.01" /><input data-cutaway-face="top" type="number" min="0.01" max="0.95" step="0.01" /></div>
+                    <div class="calibration-box-face"><label><input data-cutaway-face-enabled="bottom" type="checkbox" /><span>Bottom</span></label><input data-cutaway-face-range="bottom" type="range" min="0.01" max="0.95" step="0.01" /><input data-cutaway-face="bottom" type="number" min="0.01" max="0.95" step="0.01" /></div>
+                  </div>
                 </div>
               </details>
 
@@ -435,6 +438,6 @@
       </section>
     </main>
 
-    <script type="module" src="./main.js?v=20261002editor3"></script>
+    <script type="module" src="./main.js?v=20261002editor4"></script>
   </body>
 </html>
