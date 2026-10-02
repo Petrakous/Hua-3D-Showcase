@@ -98,6 +98,7 @@
 
 .calibration-outline-map__edge.is-selected { stroke: #ffca73; stroke-opacity: 0.85; }
 .calibration-outline-map__vertex { fill: #74e7d4; stroke: #effffc; stroke-width: 1.5; cursor: grab; }
+.calibration-outline-map__vertex.is-selected { fill: #ffca73; stroke: #fff3d7; }
 .calibration-outline-map__label { fill: #effffc; font-size: 10px; font-weight: 900; pointer-events: none; }
 
 .calibration-outline-toolbar,

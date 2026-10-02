@@ -7,7 +7,7 @@ import {
   getCutawayOutlineLevels,
   normalizeSplatExclusionBoxes,
   normalizeSplatPatches,
-} from "./cutawayOutline.js?v=20261002editor1";
+} from "./cutawayOutline.js?v=20261002editor2";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -32,6 +32,11 @@ function createSvg(tag, attributes = {}) {
 function setValue(element, value, digits = 3) {
   if (!element) return;
   element.value = Number(finite(value)).toFixed(digits);
+}
+
+function getEditableOutlineLevels(outline) {
+  if (Array.isArray(outline?.levels) && outline.levels.length > 1) return outline.levels;
+  return outline ? [outline] : [];
 }
 
 function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatus }) {
@@ -107,7 +112,7 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
   const currentOutline = (config = getConfig()) => {
     const outline = cloneCutawayOutline(config?.outline);
     if (!outline) return null;
-    const levels = getCutawayOutlineLevels(outline);
+    const levels = getEditableOutlineLevels(outline);
     selectedLevel = Math.max(0, Math.min(selectedLevel, levels.length - 1));
     return { root: outline, levels, level: levels[selectedLevel] };
   };
@@ -125,7 +130,7 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
     commit((config) => {
       const outline = cloneCutawayOutline(config.outline);
       if (!outline) return;
-      const levels = getCutawayOutlineLevels(outline);
+      const levels = getEditableOutlineLevels(outline);
       selectedLevel = Math.max(0, Math.min(selectedLevel, levels.length - 1));
       mutator(levels[selectedLevel], outline, levels);
       config.outline = outline;
@@ -159,11 +164,11 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
       ((230 - y) - projection.offsetY) / projection.scale + projection.minZ];
   }
 
-  function renderMap(level) {
+  function renderMap(level, { preserveProjection = false } = {}) {
     controls.map.replaceChildren();
     if (!level?.vertices?.length) return;
     const effective = buildPaddedOutlineVertices(level);
-    projection = getProjection([...level.vertices, ...effective]);
+    if (!preserveProjection || !projection) projection = getProjection([...level.vertices, ...effective]);
     const polygon = createSvg("polygon", {
       points: level.vertices.map((point) => toScreen(point).join(",")).join(" "),
       class: "calibration-outline-map__shape",
@@ -175,13 +180,16 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
       const [x2, y2] = toScreen(next);
       const line = createSvg("line", { x1, y1, x2, y2, class: `calibration-outline-map__edge${index === selectedEdge ? " is-selected" : ""}` });
       line.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         selectedEdge = index;
         drag = { type: "edge", start: toModel(event), vertices: level.vertices.map((item) => [...item]) };
         controls.map.setPointerCapture(event.pointerId);
       });
       controls.map.append(line);
-      const vertex = createSvg("circle", { cx: x1, cy: y1, r: 5, class: "calibration-outline-map__vertex" });
+      const vertex = createSvg("circle", { cx: x1, cy: y1, r: 7, class: `calibration-outline-map__vertex${index === selectedEdge ? " is-selected" : ""}` });
       vertex.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
         event.stopPropagation();
         selectedEdge = index;
         drag = { type: "vertex", index };
@@ -245,7 +253,7 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
       setValue(controls.smoothing, outline.cameraMotionSmoothing, 2);
       setValue(controls.acceleration, outline.cameraMotionAcceleration, 2);
       controls.remove.disabled = level.vertices.length <= 3;
-      controls.split.disabled = level.vertices.length >= MAX_CUTAWAY_OUTLINE_VERTICES;
+      controls.split.disabled = levels.reduce((total, item) => total + item.vertices.length, 0) >= MAX_CUTAWAY_OUTLINE_VERTICES;
       renderMap(level);
     }
 
@@ -283,6 +291,8 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
   controls.edge.addEventListener("change", () => { selectedEdge = Number(controls.edge.value) || 0; refresh(); });
   controls.map.addEventListener("pointermove", (event) => {
     if (!drag || !projection) return;
+    event.preventDefault();
+    event.stopPropagation();
     const point = toModel(event);
     mutateOutline((level) => {
       if (drag.type === "vertex") level.vertices[drag.index] = point;
@@ -295,9 +305,16 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
         level.vertices[b] = [drag.vertices[b][0] + dx, drag.vertices[b][1] + dz];
       }
     }, "Outline reshaped", { refreshUi: false, announce: false });
+    const latest = currentOutline();
+    if (latest?.level) renderMap(latest.level, { preserveProjection: true });
   });
-  const finishDrag = () => {
+  const finishDrag = (event) => {
     if (!drag) return;
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (event?.pointerId !== undefined && controls.map.hasPointerCapture?.(event.pointerId)) {
+      controls.map.releasePointerCapture?.(event.pointerId);
+    }
     drag = null;
     refresh();
     setStatus?.("Outline reshaped", "The current scene preview was updated. Press Save to keep it in this browser.");
@@ -305,16 +322,28 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
   controls.map.addEventListener("pointerup", finishDrag);
   controls.map.addEventListener("pointercancel", finishDrag);
   controls.split.addEventListener("click", () => mutateOutline((level) => {
+    const config = getConfig();
+    const vertexCount = getCutawayOutlineLevels(config?.outline)
+      .reduce((total, item) => total + item.vertices.length, 0);
+    if (vertexCount >= MAX_CUTAWAY_OUTLINE_VERTICES) return;
     const a = level.vertices[selectedEdge];
     const b = level.vertices[(selectedEdge + 1) % level.vertices.length];
     level.vertices.splice(selectedEdge + 1, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
     level.edges.splice(selectedEdge + 1, 0, { ...level.edges[selectedEdge] });
+    level.edges.forEach((edge, index) => {
+      edge.id = `edge-${index + 1}`;
+      edge.label = `Edge ${index + 1}`;
+    });
     selectedEdge += 1;
   }, "Outline edge split"));
   controls.remove.addEventListener("click", () => mutateOutline((level) => {
     if (level.vertices.length <= 3) return;
     level.vertices.splice(selectedEdge, 1);
     level.edges.splice(selectedEdge, 1);
+    level.edges.forEach((edge, index) => {
+      edge.id = `edge-${index + 1}`;
+      edge.label = `Edge ${index + 1}`;
+    });
     selectedEdge = Math.max(0, selectedEdge - 1);
   }, "Outline point deleted"));
   controls.restore.addEventListener("click", () => commit((config) => {
@@ -419,4 +448,4 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
   };
 }
 
-export { createCutawayEditor };
+export { createCutawayEditor, getEditableOutlineLevels };
