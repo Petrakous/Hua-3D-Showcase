@@ -161,7 +161,7 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
 
   function toScreen(point) {
     return [projection.offsetX + (point[0] - projection.minX) * projection.scale,
-      230 - projection.offsetY - (point[1] - projection.minZ) * projection.scale];
+      projection.offsetY + (point[1] - projection.minZ) * projection.scale];
   }
 
   function toModel(event) {
@@ -169,7 +169,7 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
     const x = (event.clientX - rect.left) * 320 / Math.max(rect.width, 1);
     const y = (event.clientY - rect.top) * 230 / Math.max(rect.height, 1);
     return [(x - projection.offsetX) / projection.scale + projection.minX,
-      ((230 - y) - projection.offsetY) / projection.scale + projection.minZ];
+      (y - projection.offsetY) / projection.scale + projection.minZ];
   }
 
   function renderMap(level, { preserveProjection = false } = {}) {

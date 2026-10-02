@@ -2,7 +2,7 @@ import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261002floors1";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002floors1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002camera1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor5";
-import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002floors1";
+import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002mapflip1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
 import {
@@ -143,23 +143,15 @@ const SOG_MODE_LABELS = {
 const DEFAULT_FORMAT = "sog";
 const GLB_LOAD_TIMEOUT_MS = isMobileDevice ? 35000 : 60000;
 const SOG_CALIBRATION_QUERY_PARAM = "sog-calibration";
-const SOG_CALIBRATION_FLAG_KEY = "hua:sog-calibration-ui-enabled";
 const SOG_CALIBRATION_OVERRIDES_KEY = "hua:sog-calibration-overrides:v1";
 const SOG_STREAMED_TRANSFORMS_KEY = "hua:sog-streamed-transforms:v1";
 const SELECTION_PREFERENCES_KEY = "hua3d.selection.preferences:v1";
 const calibrationQueryEnabled =
   new URLSearchParams(window.location.search).get(SOG_CALIBRATION_QUERY_PARAM) === "1";
-const calibrationFlagEnabled =
-  safeLocalStorageGet(SOG_CALIBRATION_FLAG_KEY) === "1" ||
-  safeLocalStorageGet(SOG_CALIBRATION_FLAG_KEY) === "true";
-const calibrationUiUnlocked = calibrationQueryEnabled || calibrationFlagEnabled;
+const calibrationUiUnlocked = calibrationQueryEnabled;
 const cinematicModeEnabled = new URLSearchParams(window.location.search).get("cinematic") === "1";
 const cinematicAuthorEnabled =
   cinematicModeEnabled && new URLSearchParams(window.location.search).get("author") === "1";
-
-if (calibrationQueryEnabled) {
-  safeLocalStorageSet(SOG_CALIBRATION_FLAG_KEY, "1");
-}
 
 installSceneCalibrationExportHelper();
 
