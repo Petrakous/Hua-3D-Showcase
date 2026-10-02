@@ -1,7 +1,7 @@
 import { computeAutoCutaway } from "./autoCutaway.js?v=20260625fp22";
 import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
 import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629tap1";
-import { MAX_CUTAWAY_OUTLINE_VERTICES, MAX_SPLAT_EXCLUSION_BOXES, MAX_SPLAT_PATCHES, buildPaddedOutlineVertices, cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./cutawayOutline.js?v=20261002editor2";
+import { MAX_CUTAWAY_OUTLINE_VERTICES, MAX_SPLAT_EXCLUSION_BOXES, MAX_SPLAT_PATCHES, buildPaddedOutlineVertices, cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./cutawayOutline.js?v=20261002editor3";
 import { logger } from "./logger.js";
 
 const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas@2.20.1/+esm";
@@ -2910,21 +2910,28 @@ class PlayCanvasSogViewer {
   }
 
   createOutlineLocalMatrix(pc, outline) {
+    const adjustment = this.createBoxLocalMatrix(pc, outline?.transform || {
+      position: [0, 0, 0],
+      rotationDegrees: [0, 0, 0],
+      scale: [1, 1, 1],
+    });
+
     // GLB floor outlines are already expressed in their extracted GLB basis.
     if (outline?.source?.type === "mipmap-glb-floor") {
-      return new pc.Mat4();
+      return adjustment;
     }
 
     const registration = outline?.registration;
     if (!registration?.sourceBox || !registration?.targetBox) {
-      return new pc.Mat4();
+      return adjustment;
     }
 
     const sourceToUnit = this.createBoxLocalMatrix(pc, registration.sourceBox).invert();
-    return new pc.Mat4().mul2(
+    const registrationMatrix = new pc.Mat4().mul2(
       this.createBoxLocalMatrix(pc, registration.targetBox),
       sourceToUnit
     );
+    return new pc.Mat4().mul2(registrationMatrix, adjustment);
   }
 
   createOutlineWorldMatrix(pc, outline) {
@@ -2945,7 +2952,10 @@ class PlayCanvasSogViewer {
         collisionWorldMatrix = this.createRootEntityTransformMatrix(pc, collisionTransform);
       }
       if (collisionWorldMatrix) {
-        return collisionWorldMatrix;
+        return new pc.Mat4().mul2(
+          collisionWorldMatrix,
+          this.createBoxLocalMatrix(pc, outline?.transform)
+        );
       }
     }
 

@@ -7,7 +7,7 @@ import {
   getCutawayOutlineLevels,
   normalizeSplatExclusionBoxes,
   normalizeSplatPatches,
-} from "./cutawayOutline.js?v=20261002editor2";
+} from "./cutawayOutline.js?v=20261002editor3";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -61,6 +61,7 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
     split: byId("calibrationOutlineAddVertex"),
     remove: byId("calibrationOutlineDeleteVertex"),
     restore: byId("calibrationOutlineRestoreAuto"),
+    resetTransform: byId("calibrationOutlineResetTransform"),
     edgeEnabled: byId("calibrationOutlineEdgeEnabled"),
     edgeActivation: byId("calibrationOutlineEdgeActivation"),
     globalDepthEnabled: byId("calibrationOutlineGlobalDepthEnabled"),
@@ -252,6 +253,7 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
       setValue(controls.bottomDepth, outline.bottomCutDepth);
       setValue(controls.smoothing, outline.cameraMotionSmoothing, 2);
       setValue(controls.acceleration, outline.cameraMotionAcceleration, 2);
+      populateTransformInputs("outline", outline.transform);
       controls.remove.disabled = level.vertices.length <= 3;
       controls.split.disabled = levels.reduce((total, item) => total + item.vertices.length, 0) >= MAX_CUTAWAY_OUTLINE_VERTICES;
       renderMap(level);
@@ -350,6 +352,13 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
     const source = getSourceConfig()?.outline;
     if (source) { config.outline = cloneCutawayOutline(source); config.cutawayMode = "outline"; }
   }, "Automatic outline restored"));
+  controls.resetTransform.addEventListener("click", () => mutateOutline((_level, outline) => {
+    outline.transform = {
+      position: [0, 0, 0],
+      rotationDegrees: [0, 0, 0],
+      scale: [1, 1, 1],
+    };
+  }, "Outline placement reset"));
 
   const edgeBinding = [
     [controls.edgeEnabled, "change", (edge) => { edge.enabled = controls.edgeEnabled.checked; }],
@@ -413,6 +422,19 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
     const kind = input.dataset.editorTransform;
     const field = input.dataset.transformField;
     const axis = Number(input.dataset.axis);
+    if (kind === "outline") {
+      mutateOutline((_level, outline) => {
+        outline.transform ||= {
+          position: [0, 0, 0],
+          rotationDegrees: [0, 0, 0],
+          scale: [1, 1, 1],
+        };
+        outline.transform[field][axis] = field === "scale"
+          ? Math.max(0.001, finite(input.value, 1))
+          : finite(input.value);
+      }, "Outline placement updated");
+      return;
+    }
     commit((config) => {
       if (kind === "exclusion") {
         const boxes = normalizeSplatExclusionBoxes(config.exclusionBoxes);

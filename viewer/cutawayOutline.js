@@ -197,6 +197,11 @@ function normalizeCutawayOutline(config) {
       margin: Math.max(0.001, finiteNumber(config.cleanup?.margin, autoCleanupMargin)),
       strength: Math.max(0, Math.min(1, finiteNumber(config.cleanup?.strength, 1))),
     },
+    transform: normalizeTransformBox(config.transform) || {
+      position: [0, 0, 0],
+      rotationDegrees: [0, 0, 0],
+      scale: [1, 1, 1],
+    },
     registration: normalizeOutlineRegistration(config.registration),
     source: config.source ? structuredClone(config.source) : undefined,
   };
@@ -233,6 +238,11 @@ function cloneCutawayOutline(config) {
     edgeDepth: { ...normalized.edgeDepth },
     padding: { ...normalized.padding },
     cleanup: { ...normalized.cleanup },
+    transform: {
+      position: [...normalized.transform.position],
+      rotationDegrees: [...normalized.transform.rotationDegrees],
+      scale: [...normalized.transform.scale],
+    },
     levels: normalized.levels?.map((level) => ({
       ...cloneCutawayOutline(level),
       id: level.id,

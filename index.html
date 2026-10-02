@@ -326,6 +326,10 @@
               <details class="calibration-disclosure" id="calibrationOutlineDisclosure" open>
                 <summary>Auto outline <span class="calibration-confidence">GLB assisted</span></summary>
                 <div class="calibration-disclosure__body">
+                  <h3 class="calibration-subheading">Outline placement &amp; size</h3>
+                  <p class="calibration-panel__hint">Move Y raises the complete outline. Scale Y changes the total wall height; Floor Y and Ceiling Y below refine the selected floor.</p>
+                  <div class="calibration-transform-editor" data-transform-panel="outline"></div>
+                  <button class="calibration-mini-action" id="calibrationOutlineResetTransform" type="button">Reset placement &amp; size</button>
                   <label class="calibration-field calibration-field--wide"><span>Floor level</span><select id="calibrationOutlineLevelSelect"></select></label>
                   <div class="calibration-outline-settings">
                     <label><span>Envelope</span><select id="calibrationOutlinePaddingMode"><option value="auto">Auto</option><option value="manual">Manual</option><option value="off">Off</option></select></label>
@@ -431,6 +435,6 @@
       </section>
     </main>
 
-    <script type="module" src="./main.js?v=20261002editor2"></script>
+    <script type="module" src="./main.js?v=20261002editor3"></script>
   </body>
 </html>
