@@ -1,4 +1,4 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261002editor5";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261002editor6";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002editor5";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002camera1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor5";
