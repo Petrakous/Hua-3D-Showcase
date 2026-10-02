@@ -1,7 +1,7 @@
-import { computeAutoCutaway } from "./autoCutaway.js?v=20261002editor4";
+import { computeAutoCutaway } from "./autoCutaway.js?v=20261002editor5";
 import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
 import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629tap1";
-import { MAX_CUTAWAY_OUTLINE_VERTICES, MAX_SPLAT_EXCLUSION_BOXES, MAX_SPLAT_PATCHES, buildPaddedOutlineVertices, cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./cutawayOutline.js?v=20261002editor4";
+import { MAX_CUTAWAY_OUTLINE_VERTICES, MAX_SPLAT_EXCLUSION_BOXES, MAX_SPLAT_PATCHES, buildPaddedOutlineVertices, cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./cutawayOutline.js?v=20261002editor5";
 import { logger } from "./logger.js";
 
 const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas@2.20.1/+esm";
@@ -251,7 +251,7 @@ float getCutawayOutlineVisibility(vec3 worldPoint) {
   } else if (localPoint3.y > nearestCeilingY) {
     verticalVisibility *= 1.0 - smoothstep(0.0, fadeWidth, localPoint3.y - nearestCeilingY);
   }
-  if (cutawayOutlineCameraLocal.y > nearestCeilingY && cutawayOutlineTopCutDepth > 0.0001) {
+  if (cutawayOutlineTopCutDepth > 0.0001) {
     float topDistance = nearestCeilingY - localPoint3.y;
     verticalVisibility *= smoothstep(
       max(cutawayOutlineTopCutDepth - fadeWidth, 0.0),
@@ -259,7 +259,7 @@ float getCutawayOutlineVisibility(vec3 worldPoint) {
       topDistance
     );
   }
-  if (cutawayOutlineCameraLocal.y < nearestFloorY && cutawayOutlineBottomCutDepth > 0.0001) {
+  if (cutawayOutlineBottomCutDepth > 0.0001) {
     float bottomDistance = localPoint3.y - nearestFloorY;
     verticalVisibility *= smoothstep(
       max(cutawayOutlineBottomCutDepth - fadeWidth, 0.0),
@@ -538,7 +538,7 @@ fn getCutawayOutlineVisibility(worldPoint: vec3f) -> f32 {
   } else if (localPoint3.y > nearestCeilingY) {
     verticalVisibility *= 1.0 - smoothstep(0.0, fadeWidth, localPoint3.y - nearestCeilingY);
   }
-  if (uniform.cutawayOutlineCameraLocal.y > nearestCeilingY && uniform.cutawayOutlineTopCutDepth > 0.0001) {
+  if (uniform.cutawayOutlineTopCutDepth > 0.0001) {
     let topDistance = nearestCeilingY - localPoint3.y;
     verticalVisibility *= smoothstep(
       max(uniform.cutawayOutlineTopCutDepth - fadeWidth, 0.0),
@@ -546,7 +546,7 @@ fn getCutawayOutlineVisibility(worldPoint: vec3f) -> f32 {
       topDistance
     );
   }
-  if (uniform.cutawayOutlineCameraLocal.y < nearestFloorY && uniform.cutawayOutlineBottomCutDepth > 0.0001) {
+  if (uniform.cutawayOutlineBottomCutDepth > 0.0001) {
     let bottomDistance = localPoint3.y - nearestFloorY;
     verticalVisibility *= smoothstep(
       max(uniform.cutawayOutlineBottomCutDepth - fadeWidth, 0.0),
@@ -2774,6 +2774,31 @@ class PlayCanvasSogViewer {
       const deltaSeconds = Math.max(0, Number(options.deltaSeconds) || 0);
       const springFrequency = smoothingSeconds > 0 ? 4.6 * Math.sqrt(acceleration) / smoothingSeconds : 0;
       let outlineSmoothingActive = false;
+      const smoothOutlineActivation = (target, activationIndex) => {
+        const previous = Number.isFinite(this.cutawayOutlineActivations[activationIndex])
+          ? this.cutawayOutlineActivations[activationIndex]
+          : target;
+        let velocity = Number.isFinite(this.cutawayOutlineActivationVelocities[activationIndex])
+          ? this.cutawayOutlineActivationVelocities[activationIndex]
+          : 0;
+        let next = target;
+        if (!options.immediate && smoothingSeconds > 0 && deltaSeconds > 0) {
+          if (velocity * (target - previous) < 0) velocity = 0;
+          const stepSeconds = Math.min(deltaSeconds, 0.1);
+          const displacement = previous - target;
+          const springStep = (velocity + springFrequency * displacement) * stepSeconds;
+          const decay = Math.exp(-springFrequency * stepSeconds);
+          next = target + (displacement + springStep) * decay;
+          velocity = (velocity - springFrequency * springStep) * decay;
+          next = Math.max(0, Math.min(1, next));
+        } else {
+          velocity = 0;
+        }
+        this.cutawayOutlineActivations[activationIndex] = next;
+        this.cutawayOutlineActivationVelocities[activationIndex] = velocity;
+        if (Math.abs(next - target) > 0.001 || Math.abs(velocity) > 0.001) outlineSmoothingActive = true;
+        return next;
+      };
       let packedVertexCount = 0;
       for (const level of levels) {
         if (packedVertexCount + level.vertices.length > MAX_CUTAWAY_OUTLINE_VERTICES) break;
@@ -2804,29 +2829,7 @@ class PlayCanvasSogViewer {
         });
         const cameraActivations = targetCameraActivations.map((target, index) => {
           const activationIndex = packedVertexCount + index;
-          const previous = Number.isFinite(this.cutawayOutlineActivations[activationIndex])
-            ? this.cutawayOutlineActivations[activationIndex]
-            : target;
-          let velocity = Number.isFinite(this.cutawayOutlineActivationVelocities[activationIndex])
-            ? this.cutawayOutlineActivationVelocities[activationIndex]
-            : 0;
-          let next = target;
-          if (!options.immediate && smoothingSeconds > 0 && deltaSeconds > 0) {
-            if (velocity * (target - previous) < 0) velocity = 0;
-            const stepSeconds = Math.min(deltaSeconds, 0.1);
-            const displacement = previous - target;
-            const springStep = (velocity + springFrequency * displacement) * stepSeconds;
-            const decay = Math.exp(-springFrequency * stepSeconds);
-            next = target + (displacement + springStep) * decay;
-            velocity = (velocity - springFrequency * springStep) * decay;
-            next = Math.max(0, Math.min(1, next));
-          } else {
-            velocity = 0;
-          }
-          this.cutawayOutlineActivations[activationIndex] = next;
-          this.cutawayOutlineActivationVelocities[activationIndex] = velocity;
-          if (Math.abs(next - target) > 0.001 || Math.abs(velocity) > 0.001) outlineSmoothingActive = true;
-          return next;
+          return smoothOutlineActivation(target, activationIndex);
         });
         const effectiveEdgeDepths = level.edges.map((edge, index) => {
           if (edge?.enabled === false) return 0;
@@ -2874,6 +2877,16 @@ class PlayCanvasSogViewer {
           packedVertexCount += 1;
         }
       }
+      const outlineFloorY = Math.min(...levels.map((level) => level.floorY));
+      const outlineCeilingY = Math.max(...levels.map((level) => level.ceilingY));
+      const topActivation = smoothOutlineActivation(
+        cameraLocal.y > outlineCeilingY ? 1 : 0,
+        MAX_CUTAWAY_OUTLINE_VERTICES
+      );
+      const bottomActivation = smoothOutlineActivation(
+        cameraLocal.y < outlineFloorY ? 1 : 0,
+        MAX_CUTAWAY_OUTLINE_VERTICES + 1
+      );
       gsplat.setParameter("cutawayOutlineWorldToLocal", worldToLocal.data);
       gsplat.setParameter("cutawayOutlineVertexCount", packedVertexCount);
       for (let matrixIndex = 0; matrixIndex < 6; matrixIndex += 1) {
@@ -2891,10 +2904,10 @@ class PlayCanvasSogViewer {
         );
       }
       gsplat.setParameter("cutawayOutlineCameraLocal", [cameraLocal.x, cameraLocal.y, cameraLocal.z]);
-      gsplat.setParameter("cutawayOutlineFloorY", Math.min(...levels.map((level) => level.floorY)));
-      gsplat.setParameter("cutawayOutlineCeilingY", Math.max(...levels.map((level) => level.ceilingY)));
-      gsplat.setParameter("cutawayOutlineTopCutDepth", outline.topCutDepth);
-      gsplat.setParameter("cutawayOutlineBottomCutDepth", outline.bottomCutDepth);
+      gsplat.setParameter("cutawayOutlineFloorY", outlineFloorY);
+      gsplat.setParameter("cutawayOutlineCeilingY", outlineCeilingY);
+      gsplat.setParameter("cutawayOutlineTopCutDepth", outline.topCutDepth * topActivation);
+      gsplat.setParameter("cutawayOutlineBottomCutDepth", outline.bottomCutDepth * bottomActivation);
       gsplat.setParameter("cutawayOutlineFadeWidth", outline.fadeWidth);
       gsplat.setParameter("cutawayOutlineCleanupStrength", outline.cleanup?.strength ?? 1);
       gsplat.setParameter("cutawayOutlineEnabled", 1);

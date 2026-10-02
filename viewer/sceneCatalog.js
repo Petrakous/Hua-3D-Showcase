@@ -309,6 +309,67 @@ function createIndoorScene(id, label, glbSrc = null, sogOptions = null) {
   };
 }
 
+function createMainHallDraftManualBox() {
+  const manualBox = withGeneratedCutaway('main-hall', {
+    position: [-0.1, -11.6, 7.7],
+    rotationDegrees: [90.3, -0.1, -537.4],
+    scale: [77.7, 77.6, 23.9],
+    cutRatio: 0.33,
+    cutDepthByFace: { left: 0.51, right: 0.52, front: 0.01, back: 0.19, top: 0.52, bottom: 0.33 },
+    cutDepthLockedByFace: { left: true, right: true, front: true, back: true, top: true, bottom: true },
+  });
+  const vertices = [
+    [13.296811209300007, 35.679663854276235],
+    [-16.486386556610167, 34.77852987764923],
+    [-16.048969202615563, 5.623604810302421],
+    [-3.5884881322823112, 5.634190505003449],
+    [-2.9105866917218854, -6.532278218912943],
+    [-28.217147199336488, -6.984945436532442],
+    [-28.54873515446023, -27.978558072950776],
+    [28.300938979477905, -26.890283669030183],
+    [28.02513838444918, -7.513889899618942],
+    [6.136723074181944, -7.647488143701423],
+    [5.3073576261285496, 5.736466363848791],
+    [13.731895309031898, 5.955432296929516],
+  ];
+  return {
+    ...manualBox,
+    cutawayMode: 'outline',
+    outline: {
+      ...manualBox.outline,
+      vertices,
+      edges: vertices.map((_, index) => ({
+        id: `edge-${index + 1}`,
+        label: `Edge ${index + 1}`,
+        enabled: true,
+        cutDepth: 0.38,
+        depthSlope: 0,
+        depthMode: 'inherit',
+        cleanupMode: 'inherit',
+        cleanupMargin: 0.12,
+        paddingMode: 'inherit',
+        paddingDistance: 0.34,
+        cameraActivation: 'face',
+      })),
+      floorY: -0.3,
+      ceilingY: 3.22,
+      fadeWidth: 0.001,
+      cameraMotionSmoothing: 0.93,
+      cameraMotionAcceleration: 1,
+      topCutDepth: 0.5,
+      bottomCutDepth: 1.82,
+      edgeDepth: { useGlobal: true, global: 8 },
+      padding: { mode: 'auto', autoDistance: 0.34, distance: 0 },
+      cleanup: { mode: 'auto', autoMargin: 0.12, margin: 0.101, strength: 1 },
+      transform: {
+        position: [0, -20.19, 0],
+        rotationDegrees: [0, 0, 0],
+        scale: [1, 5.5, 1],
+      },
+    },
+  };
+}
+
 const LOCATION_CATALOG = {
   outdoors: {
     id: 'outdoors',
@@ -522,9 +583,9 @@ const LOCATION_CATALOG = {
         fpCollisionStrategy: 'mesh',
         rotationDegrees: [0, 0, 0],
         manualBox: {
-          position: [0.1433, 0.4232, -0.1017],
-          rotationDegrees: [0, 0, 0],
-          scale: [21.7943, 4.7695, 27.6784],
+          position: [0.1, 0.4, -0.6],
+          rotationDegrees: [0, 23, 0],
+          scale: [18.401, 8.001, 26.701],
           cutRatio: 0.2,
         },
         viewPreset: { distanceMultiplier: 1, yaw: 180, pitch: 12, fov: 70 },
@@ -617,14 +678,7 @@ const LOCATION_CATALOG = {
         streamingSource: createManifestSogStreamingSource('main-hall', 'MainHall'),
         fpCollisionSource: resolveManifestAsset('main-hall', 'collision', './GLBs/MainHall_collision.glb'),
         fpCollisionStrategy: 'mesh',
-        manualBox: withGeneratedCutaway('main-hall', {
-          position: [-0.1, -11.6, 7.7],
-          rotationDegrees: [90.3, -0.1, -537.4],
-          scale: [77.7, 77.6, 23.9],
-          cutRatio: 0.33,
-          cutDepthByFace: { left: 0.51, right: 0.52, front: 0.01, back: 0.19, top: 0.52, bottom: 0.33 },
-          cutDepthLockedByFace: { left: true, right: true, front: true, back: true, top: true, bottom: true },
-        }),
+        manualBox: createMainHallDraftManualBox(),
       }),
     ],
   },

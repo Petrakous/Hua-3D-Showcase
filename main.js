@@ -1,8 +1,8 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261001outline1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002editor4";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261002editor5";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002editor5";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002classroom2";
-import { cloneCutawayOutline, cloneSurfaceCullingConfig, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor4";
-import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002editor4";
+import { cloneCutawayOutline, cloneSurfaceCullingConfig, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor5";
+import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002editor5";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
 import {
