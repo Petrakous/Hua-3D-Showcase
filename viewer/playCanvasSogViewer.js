@@ -1170,19 +1170,6 @@ class PlayCanvasSogViewer {
   }
 
   resolveOrbitState(pc, asset, entity, localBoundsCenter, boundsRadius) {
-    if (asset.cameraStartOverride?.position) {
-      const transform = asset.cameraStartOverride;
-      const position = new pc.Vec3(...transform.position);
-      const rotation = this.createStandardEulerQuaternion(pc, transform.rotationDegrees || [0, 0, 0]);
-      const forward = rotation.transformVector(new pc.Vec3(0, 0, -1));
-      this.cameraStartTransform = {
-        position: [...transform.position],
-        rotationDegrees: [...(transform.rotationDegrees || [0, 0, 0])],
-        scale: [1, 1, 1],
-      };
-      return this.resolveOrbitStateFromCamera(pc, position.clone().add(forward), position);
-    }
-
     const viewPreset = asset.viewPreset || {};
     const manualBox = asset.streamingEnabled ? asset.manualBox : null;
     const useManualBoxAnchor = !!manualBox && !viewPreset.target && !viewPreset.cameraPosition;
@@ -1195,6 +1182,17 @@ class PlayCanvasSogViewer {
     const target = viewPreset.target
       ? toWorld(new pc.Vec3(...viewPreset.target))
       : toWorld(orbitAnchor);
+
+    if (asset.cameraStartOverride?.position) {
+      const transform = asset.cameraStartOverride;
+      const position = new pc.Vec3(...transform.position);
+      this.cameraStartTransform = {
+        position: [...transform.position],
+        rotationDegrees: [...(transform.rotationDegrees || [0, 0, 0])],
+        scale: [1, 1, 1],
+      };
+      return this.resolveOrbitStateFromCamera(pc, target, position);
+    }
 
     if (viewPreset.cameraPosition) {
       const cameraPosition = toWorld(new pc.Vec3(...viewPreset.cameraPosition));
