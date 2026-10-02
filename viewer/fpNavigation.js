@@ -1101,6 +1101,10 @@ class FirstPersonNavigationController {
     };
   }
 
+  getPose() {
+    return this.activeController.getPose();
+  }
+
   dispose() {
     this.cancelNavigation();
     this.input.dispose();

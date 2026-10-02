@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261002editor6";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002editor5";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002spawn1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002camera1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor5";
 import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002editor5";
@@ -2671,8 +2671,10 @@ function updateCalibrationUi() {
     calibrationHint.textContent = editingCollision
       ? "Editing the green collision mesh. Move, rotate and scale it to match the model."
       : editingSpawn
-        ? "Orange ball = player spawn. Move = position · Rotate X/Y = look direction. Reset to test."
+        ? "Orange ball = player spawn. Move = position · Rotate X/Y = look direction. Use Set to current to capture your current Explore view."
         : "Editing the rendered SOG scene. Move, rotate and scale the splat.";
+
+    calibrationSetCurrent.hidden = !editingSpawn;
 
     const labels = calibrationLodControls.querySelectorAll(".calibration-group__label");
     if (labels[0]) labels[0].textContent = `${prefix} Move`;
@@ -2864,15 +2866,20 @@ async function copyCalibrationConfig() {
     return;
   }
 
+  const streamedConfig = currentActiveAsset?.streamingEnabled ? {
+    collision: sogViewer.getCollisionPreviewTransform?.(),
+    spawn: sogViewer.getSpawnConfig?.(),
+  } : {};
   const payload = JSON.stringify({
     scene: sceneTransform,
     manualBox: boxConfig,
     cameraStart: sogViewer.getCameraStartTransform?.(),
+    ...streamedConfig,
   }, null, 2);
 
   try {
     await navigator.clipboard.writeText(payload);
-    setStatus("Calibration copied", "The current manualBox JSON was copied to the clipboard.");
+    setStatus("Calibration copied", "The current scene calibration JSON was copied to the clipboard.");
   } catch (_error) {
     setStatus("Copy unavailable", "Clipboard access is blocked in this browser context.");
   }
@@ -4475,7 +4482,21 @@ calibrationShowBox.addEventListener("change", () => {
 });
 
 calibrationSetCurrent.addEventListener("click", () => {
-  if (currentActiveAsset?.streamingEnabled || lodCalibTarget !== "camera") return;
+  if (currentActiveAsset?.streamingEnabled) {
+    if (streamedCalibTarget !== "spawn") return;
+    const captured = sogViewer.captureCurrentSpawnTransform?.();
+    if (!captured) {
+      setStatus("Spawn not captured", "Enter Explore mode, move to the intended spawn, then press Set to current.");
+      return;
+    }
+    sogViewer.setSpawnConfig?.(captured);
+    sogViewer.setSpawnMarkerVisible?.(true);
+    populateCalibrationInputs(sogViewer.getSpawnConfig?.() || captured);
+    setStatus("Spawn captured", "Explore spawn position and look direction set from the current view.");
+    return;
+  }
+
+  if (lodCalibTarget !== "camera") return;
   const captured = sogViewer.captureCurrentCameraTransform?.();
   if (!captured) return;
   sogViewer.setCameraStartTransform?.(captured);

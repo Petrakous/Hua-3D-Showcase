@@ -1,6 +1,6 @@
 import { computeAutoCutaway } from "./autoCutaway.js?v=20261002editor5";
 import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
-import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629tap1";
+import { FirstPersonNavigationController } from "./fpNavigation.js?v=20261002spawn1";
 import { MAX_CUTAWAY_OUTLINE_VERTICES, MAX_SPLAT_EXCLUSION_BOXES, MAX_SPLAT_PATCHES, buildPaddedOutlineVertices, cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./cutawayOutline.js?v=20261002editor5";
 import { logger } from "./logger.js";
 
@@ -1824,6 +1824,17 @@ class PlayCanvasSogViewer {
     return {
       position: [...c.cameraPosition],
       rotationDegrees: [c.pitch, c.yaw, 0],
+      scale: [1, 1, 1],
+    };
+  }
+
+  captureCurrentSpawnTransform() {
+    if (!this.firstPersonActive || !this.fpNavigationController) return null;
+    const pose = this.fpNavigationController.getPose?.();
+    if (!pose?.position) return null;
+    return {
+      position: [pose.position.x, pose.position.y, pose.position.z],
+      rotationDegrees: [pose.pitch || 0, pose.yaw || 0, 0],
       scale: [1, 1, 1],
     };
   }
