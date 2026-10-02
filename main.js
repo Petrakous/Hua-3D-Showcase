@@ -1,6 +1,6 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261002editor5";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002editor5";
-import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002classroom2";
+import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002camera1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor5";
 import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002editor5";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
@@ -1166,6 +1166,7 @@ function cloneStreamedTransformConfig(config) {
   return {
     ...(config.overviewScene ? { overviewScene: cloneTransformConfig(config.overviewScene) } : {}),
     ...(config.scene ? { scene: cloneTransformConfig(config.scene) } : {}),
+    ...(config.cameraStart ? { cameraStart: cloneTransformConfig(config.cameraStart) } : {}),
     ...(config.collision ? { collision: cloneTransformConfig(config.collision) } : {}),
     ...(config.spawn ? {
       spawn: {

@@ -1,5 +1,12 @@
 const SCENE_CALIBRATION_DEFAULTS = {
   streamedTransforms: {
+    "dit:pc-lab": {
+      cameraStart: {
+        position: [-1.6495630741119385, 6.090278148651123, 10.852523803710938],
+        rotationDegrees: [-27.000000505087637, -7.934199929751182, -9.165356183723541e-8],
+        scale: [1, 1, 1],
+      },
+    },
     "indoors:classroom-5": {
       overviewScene: {
         position: [0, 1.4, 0],
