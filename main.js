@@ -1,7 +1,8 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261001outline1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002explore1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002editor1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002classroom2";
-import { cloneCutawayOutline, cloneSurfaceCullingConfig } from "./viewer/cutawayOutline.js?v=20261001outline1";
+import { cloneCutawayOutline, cloneSurfaceCullingConfig, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor1";
+import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002editor1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
 import {
@@ -1063,6 +1064,7 @@ let performanceToastTimer = null;
 let activeMobileControlsPanel = "";
 const performanceNoticeKeys = new Set();
 const sogViewer = new PlayCanvasSogViewer(splatViewerMount);
+let cutawayEditor = null;
 
 setLoggerContextProvider(() => {
   const asset = currentActiveAsset || getActiveAssetDescriptor?.();
@@ -1138,6 +1140,8 @@ function cloneManualBoxConfig(config) {
     cutawayMode: config.cutawayMode === "outline" ? "outline" : "box",
     outline: cloneCutawayOutline(config.outline),
     surfaceCulling: cloneSurfaceCullingConfig(config.surfaceCulling),
+    exclusionBoxes: normalizeSplatExclusionBoxes(config.exclusionBoxes),
+    splatPatches: normalizeSplatPatches(config.splatPatches),
   };
 }
 
@@ -2626,6 +2630,7 @@ function updateCalibrationUi() {
   calibrationToggle.setAttribute("aria-disabled", String(!available));
 
   if (!available) {
+    cutawayEditor?.setVisible(false);
     calibrationSceneLabel.textContent = "No active SOG scene";
     calibrationHint.textContent = calibrationUiUnlocked
       ? "Switch to a SOG scene to edit its culling box."
@@ -2654,6 +2659,7 @@ function updateCalibrationUi() {
   }
 
   if (isStreamed) {
+    cutawayEditor?.setVisible(false);
     calibrationSceneLabel.textContent = currentActiveAsset?.label || "Active Explore scene";
     calibrationLodControls.hidden = false;
 
@@ -2719,6 +2725,7 @@ function updateCalibrationUi() {
   if (lodScaleGroup) lodScaleGroup.hidden = editingCamera;
   calibrationSetCurrent.hidden = !editingCamera;
   populateCalibrationInputs(editingBox ? config : getLodTargetTransform());
+  cutawayEditor?.setVisible(true);
   setCalibrationInputsDisabled(false);
 }
 
@@ -2996,12 +3003,34 @@ function resetCalibrationConfig() {
     manualBox: cloneManualBoxConfig(fallbackConfig),
   };
   populateCalibrationInputs(fallbackConfig);
+  cutawayEditor?.refresh();
   setStatus("Calibration reset", `${currentActiveAsset?.label || "SOG scene"} culling box restored.`);
   setStatusOverlayState(false);
   requestAnimationFrame(() => {
     setStatusOverlayState(true);
   });
 }
+
+function applyCutawayEditorConfig(config) {
+  if (!config || currentActiveAsset?.streamingEnabled || currentEngineType !== "splat") return;
+  const nextConfig = cloneManualBoxConfig(config);
+  sogViewer.setManualBoxConfig(nextConfig);
+  currentActiveAsset = {
+    ...currentActiveAsset,
+    manualBox: cloneManualBoxConfig(nextConfig),
+  };
+  calibrationCullingEnabled.checked = true;
+  sogViewer.setCutawayEnabled?.(true);
+  calibrationShowBox.checked = true;
+  sogViewer.setManualBoxPreviewVisible?.(calibrationPanelOpen);
+}
+
+cutawayEditor = createCutawayEditor({
+  getConfig: () => cloneManualBoxConfig(getCurrentCalibrationConfig()),
+  applyConfig: applyCutawayEditorConfig,
+  getSourceConfig: () => cloneManualBoxConfig(currentActiveAsset?.sourceManualBox || currentActiveAsset?.manualBox),
+  setStatus,
+});
 
 function renderSogModeMarkers() {
   const asset = currentActiveAsset?.type === "splat" ? currentActiveAsset : getActiveAssetDescriptor();

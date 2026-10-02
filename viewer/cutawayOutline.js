@@ -1,5 +1,6 @@
 const MAX_CUTAWAY_OUTLINE_VERTICES = 24;
 const MAX_SPLAT_EXCLUSION_BOXES = 4;
+const MAX_SPLAT_PATCHES = 2;
 
 function finiteNumber(value, fallback) {
   return Number.isFinite(Number(value)) ? Number(value) : fallback;
@@ -33,6 +34,28 @@ function normalizeSplatExclusionBoxes(config) {
     scale: [0, 1, 2].map((axis) => Math.max(0.001, finiteNumber(box?.scale?.[axis], 1))),
     fadeWidth: Math.max(0.001, finiteNumber(box?.fadeWidth, 0.04)),
   }));
+}
+
+function normalizeSplatPatches(config) {
+  if (!Array.isArray(config)) return [];
+  return config.slice(0, MAX_SPLAT_PATCHES).map((patch, index) => {
+    const source = normalizeTransformBox(patch?.source) || {
+      position: [0, 0, 0], rotationDegrees: [0, 0, 0], scale: [1, 1, 1],
+    };
+    const target = normalizeTransformBox(patch?.target) || {
+      position: [...source.position],
+      rotationDegrees: [...source.rotationDegrees],
+      scale: [...source.scale],
+    };
+    return {
+      id: String(patch?.id || `splat-patch-${index + 1}`),
+      label: String(patch?.label || `Splat patch ${index + 1}`),
+      mode: ["off", "copy", "move"].includes(patch?.mode) ? patch.mode : "copy",
+      source,
+      target,
+      fadeWidth: Math.max(0.001, finiteNumber(patch?.fadeWidth, 0.04)),
+    };
+  });
 }
 
 function normalizeOutlineRegistration(config) {
@@ -141,6 +164,8 @@ function normalizeCutawayOutline(config) {
   const floorY = finiteNumber(config.floorY, -1);
   const ceilingY = Math.max(floorY + 0.001, finiteNumber(config.ceilingY, 1));
   const fadeWidth = Math.max(0.001, finiteNumber(config.fadeWidth, 0.12));
+  const cameraMotionSmoothing = Math.max(0, Math.min(5, finiteNumber(config.cameraMotionSmoothing, 0.18)));
+  const cameraMotionAcceleration = Math.max(0.1, Math.min(8, finiteNumber(config.cameraMotionAcceleration, 1)));
   const cleanupMode = ["auto", "manual", "off"].includes(config.cleanup?.mode)
     ? config.cleanup.mode
     : "auto";
@@ -153,6 +178,8 @@ function normalizeCutawayOutline(config) {
     floorY,
     ceilingY,
     fadeWidth,
+    cameraMotionSmoothing,
+    cameraMotionAcceleration,
     topCutDepth: Math.max(0, finiteNumber(config.topCutDepth, 0.25)),
     bottomCutDepth: Math.max(0, finiteNumber(config.bottomCutDepth, 0.08)),
     edgeDepth: {
@@ -235,12 +262,14 @@ function cloneSurfaceCullingConfig(config) {
 export {
   MAX_CUTAWAY_OUTLINE_VERTICES,
   MAX_SPLAT_EXCLUSION_BOXES,
+  MAX_SPLAT_PATCHES,
   buildPaddedOutlineVertices,
   cloneCutawayOutline,
   cloneSurfaceCullingConfig,
   getCutawayOutlineLevels,
   normalizeCutawayOutline,
   normalizeSplatExclusionBoxes,
+  normalizeSplatPatches,
   polygonArea,
   resolveOutlineEdgePadding,
 };

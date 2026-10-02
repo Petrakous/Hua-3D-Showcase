@@ -238,8 +238,8 @@
           <aside class="calibration-panel" id="calibrationPanel" hidden aria-hidden="true">
             <div class="calibration-panel__header">
               <div>
-                <p class="calibration-panel__eyebrow">SOG Calibration</p>
-                <h2 class="calibration-panel__title">Culling Box</h2>
+                <p class="calibration-panel__eyebrow">Scene Tools</p>
+                <h2 class="calibration-panel__title">Cutaway &amp; Cleanup</h2>
                 <p class="calibration-panel__scene" id="calibrationSceneLabel">No active scene</p>
               </div>
               <button class="calibration-panel__close" id="calibrationClose" type="button" aria-label="Close calibration panel">×</button>
@@ -317,6 +317,90 @@
               </div>
             </div>
 
+            <div class="calibration-cutaway-workspace" id="calibrationCutawayWorkspace" hidden>
+              <div class="calibration-cutaway-mode" role="group" aria-label="Cutaway shape">
+                <button class="calibration-target__btn" data-cutaway-mode="outline" type="button">Auto outline</button>
+                <button class="calibration-target__btn" data-cutaway-mode="box" type="button">Box fallback</button>
+              </div>
+
+              <details class="calibration-disclosure" id="calibrationOutlineDisclosure" open>
+                <summary>Auto outline <span class="calibration-confidence">GLB assisted</span></summary>
+                <div class="calibration-disclosure__body">
+                  <label class="calibration-field calibration-field--wide"><span>Floor level</span><select id="calibrationOutlineLevelSelect"></select></label>
+                  <div class="calibration-outline-settings">
+                    <label><span>Envelope</span><select id="calibrationOutlinePaddingMode"><option value="auto">Auto</option><option value="manual">Manual</option><option value="off">Off</option></select></label>
+                    <label><span>Padding</span><input id="calibrationOutlinePaddingDistance" type="number" min="0" step="0.01" /></label>
+                    <label><span>Cleanup</span><select id="calibrationOutlineCleanupMode"><option value="auto">Auto</option><option value="manual">Manual</option><option value="off">Off</option></select></label>
+                    <label><span>Spill margin</span><input id="calibrationOutlineCleanupMargin" type="number" min="0.001" step="0.01" /></label>
+                    <label><span>Cleanup strength</span><input id="calibrationOutlineCleanupStrength" type="number" min="0" max="1" step="0.01" /></label>
+                  </div>
+                  <svg class="calibration-outline-map" id="calibrationOutlineMap" viewBox="0 0 320 230" role="img" aria-label="Editable top-down cutaway outline"></svg>
+                  <div class="calibration-outline-toolbar">
+                    <label><span>Selected edge</span><select id="calibrationOutlineEdgeSelect"></select></label>
+                    <button class="calibration-mini-action" id="calibrationOutlineAddVertex" type="button">Split edge</button>
+                    <button class="calibration-mini-action" id="calibrationOutlineDeleteVertex" type="button">Delete point</button>
+                    <button class="calibration-mini-action" id="calibrationOutlineRestoreAuto" type="button">Restore auto</button>
+                  </div>
+                  <label class="calibration-toggle calibration-toggle--inline"><input id="calibrationOutlineEdgeEnabled" type="checkbox" /><span>Selected edge can open</span></label>
+                  <div class="calibration-outline-settings">
+                    <label><span>Opening behavior</span><select id="calibrationOutlineEdgeActivation"><option value="face">Own face</option><option value="previous">Own + previous</option><option value="next">Own + next</option><option value="neighbors">Own + neighbours</option><option value="always">Always open</option></select></label>
+                    <label><span>Depth mode</span><select id="calibrationOutlineEdgeDepthMode"><option value="inherit">Use default</option><option value="custom">Custom</option></select></label>
+                    <label><span>Custom depth</span><input id="calibrationOutlineEdgeDepth" type="number" min="0" step="0.01" /></label>
+                    <label><span>Floor → ceiling slope</span><input id="calibrationOutlineEdgeSlope" type="number" step="0.01" /></label>
+                    <label><span>Edge envelope</span><select id="calibrationOutlineEdgePaddingMode"><option value="inherit">Global</option><option value="custom">Custom</option><option value="off">Off</option></select></label>
+                    <label><span>Edge padding</span><input id="calibrationOutlineEdgePaddingDistance" type="number" min="0" step="0.01" /></label>
+                    <label><span>Edge cleanup</span><select id="calibrationOutlineEdgeCleanupMode"><option value="inherit">Global</option><option value="custom">Custom</option><option value="off">Off</option></select></label>
+                    <label><span>Edge spill margin</span><input id="calibrationOutlineEdgeCleanupMargin" type="number" min="0.001" step="0.01" /></label>
+                  </div>
+                  <label class="calibration-toggle calibration-toggle--inline"><input id="calibrationOutlineGlobalDepthEnabled" type="checkbox" /><span>Use default opening depth</span></label>
+                  <div class="calibration-outline-settings">
+                    <label><span>Default depth</span><input id="calibrationOutlineGlobalDepth" type="number" min="0" step="0.01" /></label>
+                    <label><span>Floor Y</span><input id="calibrationOutlineFloor" type="number" step="0.01" /></label>
+                    <label><span>Ceiling Y</span><input id="calibrationOutlineCeiling" type="number" step="0.01" /></label>
+                    <label><span>Transition softness</span><input id="calibrationOutlineFade" type="number" min="0.001" step="0.01" /></label>
+                    <label><span>Top depth</span><input id="calibrationOutlineTopDepth" type="number" min="0" step="0.01" /></label>
+                    <label><span>Bottom depth</span><input id="calibrationOutlineBottomDepth" type="number" min="0" step="0.01" /></label>
+                    <label><span>Camera smoothing</span><input id="calibrationOutlineMotionSmoothing" type="number" min="0" max="5" step="0.01" /></label>
+                    <label><span>Acceleration</span><input id="calibrationOutlineMotionAcceleration" type="number" min="0.1" max="8" step="0.05" /></label>
+                  </div>
+                </div>
+              </details>
+
+              <details class="calibration-disclosure" id="calibrationExclusionDisclosure">
+                <summary>Hide unwanted splats <span class="calibration-confidence">Non-destructive</span></summary>
+                <div class="calibration-disclosure__body">
+                  <div class="calibration-outline-toolbar"><select id="calibrationExclusionSelect"></select><button class="calibration-mini-action" id="calibrationExclusionAdd" type="button">Add box</button><button class="calibration-mini-action" id="calibrationExclusionDelete" type="button">Delete</button></div>
+                  <label class="calibration-toggle calibration-toggle--inline"><input id="calibrationExclusionEnabled" type="checkbox" /><span>Hide splats inside this box</span></label>
+                  <label class="calibration-field calibration-field--wide"><span>Edge softness</span><input id="calibrationExclusionFade" type="number" min="0.001" step="0.005" /></label>
+                  <div class="calibration-transform-editor" data-transform-panel="exclusion"></div>
+                </div>
+              </details>
+
+              <details class="calibration-disclosure" id="calibrationPatchDisclosure">
+                <summary>Fill gaps with splat patches <span class="calibration-confidence">Non-destructive</span></summary>
+                <div class="calibration-disclosure__body">
+                  <div class="calibration-outline-toolbar"><select id="calibrationPatchSelect"></select><button class="calibration-mini-action" id="calibrationPatchAdd" type="button">Add patch</button><button class="calibration-mini-action" id="calibrationPatchDelete" type="button">Delete</button></div>
+                  <div class="calibration-outline-settings"><label><span>Operation</span><select id="calibrationPatchMode"><option value="copy">Copy</option><option value="move">Move</option><option value="off">Off</option></select></label><label><span>Edge softness</span><input id="calibrationPatchFade" type="number" min="0.001" step="0.005" /></label></div>
+                  <h3 class="calibration-subheading">Source box</h3><div class="calibration-transform-editor" data-transform-panel="patch-source"></div>
+                  <h3 class="calibration-subheading">Target box</h3><div class="calibration-transform-editor" data-transform-panel="patch-target"></div>
+                </div>
+              </details>
+
+              <details class="calibration-disclosure" id="calibrationBoxDisclosure">
+                <summary>Box fallback <span>Legacy</span></summary>
+                <div class="calibration-disclosure__body calibration-cutaway__grid">
+                  <label class="calibration-field"><span>Left</span><input data-cutaway-face="left" type="number" min="0.01" max="0.95" step="0.01" /></label>
+                  <label class="calibration-field"><span>Right</span><input data-cutaway-face="right" type="number" min="0.01" max="0.95" step="0.01" /></label>
+                  <label class="calibration-field"><span>Front</span><input data-cutaway-face="front" type="number" min="0.01" max="0.95" step="0.01" /></label>
+                  <label class="calibration-field"><span>Back</span><input data-cutaway-face="back" type="number" min="0.01" max="0.95" step="0.01" /></label>
+                  <label class="calibration-field"><span>Top</span><input data-cutaway-face="top" type="number" min="0.01" max="0.95" step="0.01" /></label>
+                  <label class="calibration-field"><span>Bottom</span><input data-cutaway-face="bottom" type="number" min="0.01" max="0.95" step="0.01" /></label>
+                </div>
+              </details>
+
+              <details class="calibration-disclosure"><summary>Import JSON</summary><div class="calibration-disclosure__body"><textarea id="calibrationImportText" rows="8" spellcheck="false" placeholder="Paste calibration JSON here…"></textarea><p id="calibrationImportMessage" class="calibration-panel__hint"></p><button class="calibration-mini-action" id="calibrationImportApply" type="button">Apply JSON</button></div></details>
+            </div>
+
             <div class="calibration-panel__actions">
               <button class="calibration-action" id="calibrationSetCurrent" type="button" hidden>Set to current</button>
               <button class="calibration-action" id="calibrationReset" type="button">Reset</button>
@@ -347,6 +431,6 @@
       </section>
     </main>
 
-    <script type="module" src="./main.js?v=20261002explore2"></script>
+    <script type="module" src="./main.js?v=20261002editor1"></script>
   </body>
 </html>

@@ -1,7 +1,7 @@
 import { computeAutoCutaway } from "./autoCutaway.js?v=20260625fp22";
 import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
 import { FirstPersonNavigationController } from "./fpNavigation.js?v=20260629tap1";
-import { MAX_CUTAWAY_OUTLINE_VERTICES, MAX_SPLAT_EXCLUSION_BOXES, buildPaddedOutlineVertices, cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes } from "./cutawayOutline.js?v=20261001outline1";
+import { MAX_CUTAWAY_OUTLINE_VERTICES, MAX_SPLAT_EXCLUSION_BOXES, MAX_SPLAT_PATCHES, buildPaddedOutlineVertices, cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./cutawayOutline.js?v=20261002editor1";
 import { logger } from "./logger.js";
 
 const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas@2.20.1/+esm";
@@ -23,6 +23,74 @@ const STREAMING_MIN_READY_MS = 2500;
 const ASSET_LOAD_TIMEOUT_MS = 45000;
 const VIEWER_INIT_TIMEOUT_MS = 20000;
 const AUTO_CUTAWAY_FADE_WIDTH = 0.12;
+const SOG_SPLAT_PATCH_MODIFIER = {
+  glsl: `
+uniform mat4 splatPatchSourceWorldToUnit;
+uniform mat4 splatPatchTargetWorldToUnit;
+uniform mat4 splatPatchSourceToTarget;
+uniform vec4 splatPatchRotation;
+uniform vec3 splatPatchScale;
+uniform float splatPatchFadeWidth;
+
+float getSplatPatchVisibility(vec3 worldPoint, mat4 worldToUnit) {
+  vec3 localPoint = (worldToUnit * vec4(worldPoint, 1.0)).xyz;
+  float signedOutside = max(max(abs(localPoint.x), abs(localPoint.y)), abs(localPoint.z)) - 0.5;
+  return 1.0 - smoothstep(-max(splatPatchFadeWidth, 0.0001), 0.0, signedOutside);
+}
+
+vec4 multiplySplatPatchQuaternions(vec4 a, vec4 b) {
+  return vec4(a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz), a.w * b.w - dot(a.xyz, b.xyz));
+}
+
+void modifySplatCenter(inout vec3 center) {
+  center = (splatPatchSourceToTarget * vec4(center, 1.0)).xyz;
+}
+
+void modifySplatRotationScale(vec3 originalCenter, vec3 modifiedCenter, inout vec4 rotation, inout vec3 scale) {
+  float visibility = getSplatPatchVisibility(originalCenter, splatPatchSourceWorldToUnit);
+  if (visibility <= 0.001) { scale = vec3(0.0); return; }
+  rotation = normalize(multiplySplatPatchQuaternions(splatPatchRotation, rotation));
+  scale *= max(splatPatchScale, vec3(0.001)) * max(visibility, 0.05);
+}
+
+void modifySplatColor(vec3 center, inout vec4 color) {
+  color.a *= getSplatPatchVisibility(center, splatPatchTargetWorldToUnit);
+}
+`,
+  wgsl: `
+uniform splatPatchSourceWorldToUnit: mat4x4f;
+uniform splatPatchTargetWorldToUnit: mat4x4f;
+uniform splatPatchSourceToTarget: mat4x4f;
+uniform splatPatchRotation: vec4f;
+uniform splatPatchScale: vec3f;
+uniform splatPatchFadeWidth: f32;
+
+fn getSplatPatchVisibility(worldPoint: vec3f, worldToUnit: mat4x4f) -> f32 {
+  let localPoint = (worldToUnit * vec4f(worldPoint, 1.0)).xyz;
+  let signedOutside = max(max(abs(localPoint.x), abs(localPoint.y)), abs(localPoint.z)) - 0.5;
+  return 1.0 - smoothstep(-max(uniform.splatPatchFadeWidth, 0.0001), 0.0, signedOutside);
+}
+
+fn multiplySplatPatchQuaternions(a: vec4f, b: vec4f) -> vec4f {
+  return vec4f(a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz), a.w * b.w - dot(a.xyz, b.xyz));
+}
+
+fn modifySplatCenter(center: ptr<function, vec3f>) {
+  (*center) = (uniform.splatPatchSourceToTarget * vec4f((*center), 1.0)).xyz;
+}
+
+fn modifySplatRotationScale(originalCenter: vec3f, modifiedCenter: vec3f, rotation: ptr<function, vec4f>, scale: ptr<function, vec3f>) {
+  let visibility = getSplatPatchVisibility(originalCenter, uniform.splatPatchSourceWorldToUnit);
+  if (visibility <= 0.001) { (*scale) = vec3f(0.0); return; }
+  (*rotation) = normalize(multiplySplatPatchQuaternions(uniform.splatPatchRotation, (*rotation)));
+  (*scale) *= max(uniform.splatPatchScale, vec3f(0.001)) * vec3f(max(visibility, 0.05));
+}
+
+fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
+  (*color).a *= getSplatPatchVisibility(center, uniform.splatPatchTargetWorldToUnit);
+}
+`,
+};
 const SOG_BOX_CULLING_MODIFIER = {
   glsl: `
 uniform mat4 orientedClipBoxWorldToUnit;
@@ -34,6 +102,10 @@ uniform mat4 splatExclusionBoxWorldToUnit1;
 uniform mat4 splatExclusionBoxWorldToUnit2;
 uniform mat4 splatExclusionBoxWorldToUnit3;
 uniform vec4 splatExclusionBoxFadeWidths;
+uniform float splatMoveBoxCount;
+uniform mat4 splatMoveBoxWorldToUnit0;
+uniform mat4 splatMoveBoxWorldToUnit1;
+uniform vec2 splatMoveBoxFadeWidths;
 uniform vec3 cameraWorldPosition;
 uniform float backfaceCullingEnabled;
 uniform float backfaceThreshold;
@@ -214,6 +286,13 @@ float getSplatExclusionVisibility(vec3 worldPoint) {
   return visibility;
 }
 
+float getSplatMoveVisibility(vec3 worldPoint) {
+  float visibility = 1.0;
+  if (splatMoveBoxCount > 0.5) visibility *= getSingleExclusionBoxVisibility(worldPoint, splatMoveBoxWorldToUnit0, splatMoveBoxFadeWidths.x);
+  if (splatMoveBoxCount > 1.5) visibility *= getSingleExclusionBoxVisibility(worldPoint, splatMoveBoxWorldToUnit1, splatMoveBoxFadeWidths.y);
+  return visibility;
+}
+
 vec3 rotateByQuaternion(vec3 v, vec4 q) {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
@@ -281,7 +360,7 @@ void modifySplatRotationScale(vec3 originalCenter, vec3 modifiedCenter, inout ve
 }
 
 void modifySplatColor(vec3 center, inout vec4 color) {
-  float visibility = getSplatExclusionVisibility(center);
+  float visibility = getSplatExclusionVisibility(center) * getSplatMoveVisibility(center);
 
   if (cutawayOutlineEnabled > 0.5) {
     visibility *= getCutawayOutlineVisibility(center);
@@ -312,6 +391,10 @@ uniform splatExclusionBoxWorldToUnit1: mat4x4f;
 uniform splatExclusionBoxWorldToUnit2: mat4x4f;
 uniform splatExclusionBoxWorldToUnit3: mat4x4f;
 uniform splatExclusionBoxFadeWidths: vec4f;
+uniform splatMoveBoxCount: f32;
+uniform splatMoveBoxWorldToUnit0: mat4x4f;
+uniform splatMoveBoxWorldToUnit1: mat4x4f;
+uniform splatMoveBoxFadeWidths: vec2f;
 uniform cameraWorldPosition: vec3f;
 uniform backfaceCullingEnabled: f32;
 uniform backfaceThreshold: f32;
@@ -490,6 +573,13 @@ fn getSplatExclusionVisibility(worldPoint: vec3f) -> f32 {
   return visibility;
 }
 
+fn getSplatMoveVisibility(worldPoint: vec3f) -> f32 {
+  var visibility = 1.0;
+  if (uniform.splatMoveBoxCount > 0.5) { visibility *= getSingleExclusionBoxVisibility(worldPoint, uniform.splatMoveBoxWorldToUnit0, uniform.splatMoveBoxFadeWidths.x); }
+  if (uniform.splatMoveBoxCount > 1.5) { visibility *= getSingleExclusionBoxVisibility(worldPoint, uniform.splatMoveBoxWorldToUnit1, uniform.splatMoveBoxFadeWidths.y); }
+  return visibility;
+}
+
 fn rotateByQuaternion(v: vec3f, q: vec4f) -> vec3f {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
@@ -560,7 +650,7 @@ fn modifySplatRotationScale(originalCenter: vec3f, modifiedCenter: vec3f, rotati
 }
 
 fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
-  var visibility = getSplatExclusionVisibility(center);
+  var visibility = getSplatExclusionVisibility(center) * getSplatMoveVisibility(center);
 
   if (uniform.cutawayOutlineEnabled > 0.5) {
     visibility *= getCutawayOutlineVisibility(center);
@@ -891,6 +981,7 @@ class PlayCanvasSogViewer {
     this.app = null;
     this.camera = null;
     this.splatEntity = null;
+    this.splatPatchEntities = [];
     this.pc = null;
     this.resizeObserver = null;
     this.orbitController = null;
@@ -904,6 +995,8 @@ class PlayCanvasSogViewer {
     this.currentCutawayBoxConfig = null;
     this.currentAsset = null;
     this.cutawayModifierInstalled = false;
+    this.cutawayOutlineActivations = [];
+    this.cutawayOutlineActivationVelocities = [];
     this.panIndicatorVisible = false;
     this.streamingState = null;
     this.frameReadyHandler = null;
@@ -1301,6 +1394,7 @@ class PlayCanvasSogViewer {
     this.splatEntity.setLocalEulerAngles(...(transform.rotationDegrees || [0, 0, 0]));
     this.splatEntity.setLocalScale(...(transform.scale || [1, 1, 1]));
     this.splatEntity.syncHierarchy();
+    this.syncSplatPatchEntities();
     if (this.app) this.app.renderNextFrame = true;
   }
 
@@ -2100,6 +2194,7 @@ class PlayCanvasSogViewer {
       outline: cloneCutawayOutline(config.outline),
       surfaceCulling: cloneSurfaceCullingConfig(config.surfaceCulling),
       exclusionBoxes: normalizeSplatExclusionBoxes(config.exclusionBoxes),
+      splatPatches: normalizeSplatPatches(config.splatPatches),
     };
   }
 
@@ -2513,6 +2608,80 @@ class PlayCanvasSogViewer {
     };
   }
 
+  drawEditorBox(pc, transform, color) {
+    if (!transform || !this.app?.drawLine) return;
+    const units = [
+      [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5],
+      [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [-0.5, 0.5, 0.5], [0.5, 0.5, 0.5],
+    ];
+    const edges = [[0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]];
+    const matrix = this.createBoxWorldMatrix(pc, transform);
+    const corners = units.map((value) => matrix.transformPoint(new pc.Vec3(...value)));
+    for (const [a, b] of edges) this.app.drawLine(corners[a], corners[b], color);
+  }
+
+  drawSplatExclusionBoxPreviews(pc) {
+    if (!this.manualBoxPreviewVisible) return;
+    for (const box of normalizeSplatExclusionBoxes(this.activeManualBoxConfig?.exclusionBoxes)) {
+      this.drawEditorBox(pc, box, box.enabled ? new pc.Color(1, 0.22, 0.48, 1) : new pc.Color(0.55, 0.35, 0.42, 0.65));
+    }
+  }
+
+  drawSplatPatchPreviews(pc) {
+    if (!this.manualBoxPreviewVisible) return;
+    for (const patch of normalizeSplatPatches(this.activeManualBoxConfig?.splatPatches)) {
+      this.drawEditorBox(pc, patch.source, new pc.Color(0.05, 0.9, 1, 1));
+      this.drawEditorBox(pc, patch.target, new pc.Color(1, 0.58, 0.08, 1));
+      const source = this.createBoxWorldMatrix(pc, patch.source).transformPoint(new pc.Vec3(), new pc.Vec3());
+      const target = this.createBoxWorldMatrix(pc, patch.target).transformPoint(new pc.Vec3(), new pc.Vec3());
+      this.app.drawLine(source, target, new pc.Color(0.7, 0.72, 0.78, 0.7));
+    }
+  }
+
+  destroySplatPatchEntities() {
+    for (const entity of this.splatPatchEntities.splice(0)) {
+      try { entity?.destroy?.(); } catch {}
+    }
+  }
+
+  syncSplatPatchEntities() {
+    if (!this.pc || !this.app || !this.splatEntity?.gsplat) return;
+    const pc = this.pc;
+    const patches = normalizeSplatPatches(this.activeManualBoxConfig?.splatPatches);
+    while (this.splatPatchEntities.length > patches.length) this.splatPatchEntities.pop()?.destroy?.();
+    patches.forEach((patch, index) => {
+      let entity = this.splatPatchEntities[index];
+      if (!entity) {
+        entity = new pc.Entity(`Splat patch ${index + 1}`);
+        entity.addComponent("gsplat", { asset: this.splatEntity.gsplat.asset, unified: true });
+        this.splatEntity.addChild(entity);
+        this.splatPatchEntities[index] = entity;
+      }
+      const gsplat = entity.gsplat;
+      if (!gsplat?.setWorkBufferModifier || !gsplat?.setParameter) { entity.enabled = false; return; }
+      gsplat.setWorkBufferModifier(SOG_SPLAT_PATCH_MODIFIER);
+      entity.enabled = patch.mode !== "off";
+      if (!entity.enabled) return;
+      const sourceWorld = this.createBoxWorldMatrix(pc, patch.source);
+      const targetWorld = this.createBoxWorldMatrix(pc, patch.target);
+      const sourceWorldToUnit = sourceWorld.clone().invert();
+      const targetWorldToUnit = targetWorld.clone().invert();
+      const sourceToTarget = new pc.Mat4().mul2(targetWorld, sourceWorldToUnit);
+      const sourceRotation = this.createStandardEulerQuaternion(pc, patch.source.rotationDegrees);
+      const targetRotation = this.createStandardEulerQuaternion(pc, patch.target.rotationDegrees);
+      const inverseSourceRotation = new pc.Quat(-sourceRotation.x, -sourceRotation.y, -sourceRotation.z, sourceRotation.w);
+      const patchRotation = new pc.Quat().mul2(targetRotation, inverseSourceRotation).normalize();
+      const patchScale = [0, 1, 2].map((axis) => Math.max(0.001, patch.target.scale[axis] / Math.max(patch.source.scale[axis], 0.001)));
+      gsplat.setParameter("splatPatchSourceWorldToUnit", sourceWorldToUnit.data);
+      gsplat.setParameter("splatPatchTargetWorldToUnit", targetWorldToUnit.data);
+      gsplat.setParameter("splatPatchSourceToTarget", sourceToTarget.data);
+      gsplat.setParameter("splatPatchRotation", [patchRotation.x, patchRotation.y, patchRotation.z, patchRotation.w]);
+      gsplat.setParameter("splatPatchScale", patchScale);
+      gsplat.setParameter("splatPatchFadeWidth", patch.fadeWidth);
+    });
+    this.app.renderNextFrame = true;
+  }
+
   ensureCutawayModifier(gsplat) {
     if (!gsplat?.setWorkBufferModifier || !gsplat?.setParameter) {
       return false;
@@ -2526,7 +2695,7 @@ class PlayCanvasSogViewer {
     return true;
   }
 
-  setCutawayParameters(pc, gsplat, boxConfig, enabled) {
+  setCutawayParameters(pc, gsplat, boxConfig, enabled, options = {}) {
     if (!gsplat?.setParameter) {
       return;
     }
@@ -2546,6 +2715,20 @@ class PlayCanvasSogViewer {
     gsplat.setParameter("splatExclusionBoxCount", exclusionBoxes.length);
     gsplat.setParameter("splatExclusionBoxFadeWidths", exclusionFadeWidths);
 
+    const movePatches = normalizeSplatPatches(boxConfig?.splatPatches)
+      .filter((patch) => patch.mode === "move");
+    const moveFadeWidths = new Float32Array(MAX_SPLAT_PATCHES);
+    for (let index = 0; index < MAX_SPLAT_PATCHES; index += 1) {
+      const patch = movePatches[index];
+      const worldToUnit = patch
+        ? this.createBoxWorldMatrix(pc, patch.source).invert()
+        : identityMatrix;
+      gsplat.setParameter(`splatMoveBoxWorldToUnit${index}`, worldToUnit.data);
+      moveFadeWidths[index] = patch?.fadeWidth ?? 0.04;
+    }
+    gsplat.setParameter("splatMoveBoxCount", movePatches.length);
+    gsplat.setParameter("splatMoveBoxFadeWidths", moveFadeWidths);
+
     const worldCameraPosition = this.camera?.getPosition?.();
     if (worldCameraPosition) {
       gsplat.setParameter("cameraWorldPosition", [
@@ -2562,6 +2745,8 @@ class PlayCanvasSogViewer {
     gsplat.setParameter("cutawayOutlineEnabled", 0);
 
     if (!enabled || !boxConfig) {
+      this.cutawayOutlineActivations = [];
+      this.cutawayOutlineActivationVelocities = [];
       gsplat.setParameter("orientedClipBoxEnabled", 0);
       gsplat.setParameter("orientedClipBoxFadeWidth", AUTO_CUTAWAY_FADE_WIDTH);
       return;
@@ -2583,6 +2768,11 @@ class PlayCanvasSogViewer {
         return amount * amount * (3 - 2 * amount);
       };
       const levels = getCutawayOutlineLevels(outline);
+      const smoothingSeconds = Math.max(0, Number(outline.cameraMotionSmoothing) || 0);
+      const acceleration = Math.max(0.1, Number(outline.cameraMotionAcceleration) || 1);
+      const deltaSeconds = Math.max(0, Number(options.deltaSeconds) || 0);
+      const springFrequency = smoothingSeconds > 0 ? 4.6 * Math.sqrt(acceleration) / smoothingSeconds : 0;
+      let outlineSmoothingActive = false;
       let packedVertexCount = 0;
       for (const level of levels) {
         if (packedVertexCount + level.vertices.length > MAX_CUTAWAY_OUTLINE_VERTICES) break;
@@ -2597,7 +2787,7 @@ class PlayCanvasSogViewer {
         const edgeDepths = level.edges.map((edge) => useGlobalEdgeDepth && edge?.depthMode !== "custom"
           ? globalEdgeDepth
           : Math.max(0, edge?.cutDepth || 0));
-        const cameraActivations = effectiveVertices.map((start, index) => {
+        const targetCameraActivations = effectiveVertices.map((start, index) => {
           if (level.edges[index]?.enabled === false) return 0;
           const end = effectiveVertices[(index + 1) % effectiveVertices.length];
           const dx = end[0] - start[0];
@@ -2610,6 +2800,32 @@ class PlayCanvasSogViewer {
           const cameraDistance = Math.hypot(cameraOffsetX, cameraOffsetZ) || 1;
           const cameraFacing = outwardX * cameraOffsetX / cameraDistance + outwardZ * cameraOffsetZ / cameraDistance;
           return smoothstep(0.08, 0.42, cameraFacing);
+        });
+        const cameraActivations = targetCameraActivations.map((target, index) => {
+          const activationIndex = packedVertexCount + index;
+          const previous = Number.isFinite(this.cutawayOutlineActivations[activationIndex])
+            ? this.cutawayOutlineActivations[activationIndex]
+            : target;
+          let velocity = Number.isFinite(this.cutawayOutlineActivationVelocities[activationIndex])
+            ? this.cutawayOutlineActivationVelocities[activationIndex]
+            : 0;
+          let next = target;
+          if (!options.immediate && smoothingSeconds > 0 && deltaSeconds > 0) {
+            if (velocity * (target - previous) < 0) velocity = 0;
+            const stepSeconds = Math.min(deltaSeconds, 0.1);
+            const displacement = previous - target;
+            const springStep = (velocity + springFrequency * displacement) * stepSeconds;
+            const decay = Math.exp(-springFrequency * stepSeconds);
+            next = target + (displacement + springStep) * decay;
+            velocity = (velocity - springFrequency * springStep) * decay;
+            next = Math.max(0, Math.min(1, next));
+          } else {
+            velocity = 0;
+          }
+          this.cutawayOutlineActivations[activationIndex] = next;
+          this.cutawayOutlineActivationVelocities[activationIndex] = velocity;
+          if (Math.abs(next - target) > 0.001 || Math.abs(velocity) > 0.001) outlineSmoothingActive = true;
+          return next;
         });
         const effectiveEdgeDepths = level.edges.map((edge, index) => {
           if (edge?.enabled === false) return 0;
@@ -2683,13 +2899,14 @@ class PlayCanvasSogViewer {
       gsplat.setParameter("cutawayOutlineEnabled", 1);
       gsplat.setParameter("orientedClipBoxEnabled", 0);
       this.syncHotspotOccluderCutaway?.(pc, null, false);
-      return;
+      return outlineSmoothingActive;
     }
 
     const worldToUnitBox = this.createBoxWorldMatrix(pc, boxConfig).invert();
     gsplat.setParameter("orientedClipBoxWorldToUnit", worldToUnitBox.data);
     gsplat.setParameter("orientedClipBoxEnabled", 1);
     gsplat.setParameter("orientedClipBoxFadeWidth", boxConfig.cutFadeWidth ?? AUTO_CUTAWAY_FADE_WIDTH);
+    return false;
   }
 
   createOutlineLocalMatrix(pc, outline) {
@@ -2836,6 +3053,7 @@ class PlayCanvasSogViewer {
       outline: cloneCutawayOutline(targetConfig.outline),
       surfaceCulling: cloneSurfaceCullingConfig(targetConfig.surfaceCulling),
       exclusionBoxes: normalizeSplatExclusionBoxes(targetConfig.exclusionBoxes),
+      splatPatches: normalizeSplatPatches(targetConfig.splatPatches),
     };
   }
 
@@ -2860,6 +3078,7 @@ class PlayCanvasSogViewer {
     if (JSON.stringify(left.outline || null) !== JSON.stringify(right.outline || null)) return false;
     if (JSON.stringify(left.surfaceCulling || null) !== JSON.stringify(right.surfaceCulling || null)) return false;
     if (JSON.stringify(left.exclusionBoxes || []) !== JSON.stringify(right.exclusionBoxes || [])) return false;
+    if (JSON.stringify(left.splatPatches || []) !== JSON.stringify(right.splatPatches || [])) return false;
 
     return true;
   }
@@ -2875,7 +3094,7 @@ class PlayCanvasSogViewer {
 
     if (!this.activeManualBoxConfig) {
       this.currentCutawayBoxConfig = null;
-      this.setCutawayParameters(pc, gsplat, null, false);
+      this.setCutawayParameters(pc, gsplat, null, false, options);
       if (this.app) {
         this.app.renderNextFrame = true;
       }
@@ -2884,7 +3103,7 @@ class PlayCanvasSogViewer {
 
     if (!this.shouldApplyCutaway()) {
       this.currentCutawayBoxConfig = null;
-      this.setCutawayParameters(pc, gsplat, this.activeManualBoxConfig, false);
+      this.setCutawayParameters(pc, gsplat, this.activeManualBoxConfig, false, options);
       if (this.app) this.app.renderNextFrame = true;
       return;
     }
@@ -2900,8 +3119,8 @@ class PlayCanvasSogViewer {
 
     const shouldContinueSmoothing = !this.isSameCutawayBoxConfig(nextBoxConfig, targetBoxConfig);
     this.currentCutawayBoxConfig = nextBoxConfig;
-    this.setCutawayParameters(pc, gsplat, nextBoxConfig, true);
-    if (this.app && (shouldContinueSmoothing || immediate)) {
+    const outlineSmoothingActive = this.setCutawayParameters(pc, gsplat, nextBoxConfig, true, options) === true;
+    if (this.app && (shouldContinueSmoothing || outlineSmoothingActive || immediate)) {
       this.app.renderNextFrame = true;
     }
   }
@@ -3390,6 +3609,7 @@ class PlayCanvasSogViewer {
       }
 
       const oldEntity = this.splatEntity;
+      this.destroySplatPatchEntities();
       const splatEntity = new this.pc.Entity(asset.label || "SOG");
       splatEntity.setLocalPosition(...(asset.position || [0, 0, 0]));
       const rotation = asset.rotation || [0, 0, 0, 1];
@@ -3437,6 +3657,7 @@ class PlayCanvasSogViewer {
         ? (this.fpCollision || this.createFallbackBoxCollision(this.pc, splatEntity, this.activeFpCollisionBoxConfig || this.activeManualBoxConfig))
         : null;
       this.syncCutawayState(this.pc, { immediate: true });
+      this.syncSplatPatchEntities();
       this.configureStreaming(asset);
       if (asset.streamingEnabled) {
         this.firstPersonTransitionPending = false;
@@ -3519,6 +3740,7 @@ class PlayCanvasSogViewer {
         this.drawCameraStartMarker(pc);
         this.drawManualBoxPreview(pc);
         this.drawSplatExclusionBoxPreviews?.(pc);
+        this.drawSplatPatchPreviews?.(pc);
       } catch (error) {
         logger.error("ui", "Calibration overlay rendering failed", {
           source: "playcanvas-editor-guides",
@@ -3639,6 +3861,7 @@ class PlayCanvasSogViewer {
     this.defaultOrbitState = this.cloneOrbitState(this.goalOrbitState);
     this.updateCameraOrbit(pc);
     this.syncCutawayState(pc, { immediate: true });
+    this.syncSplatPatchEntities();
     this.configureStreaming(preparedAsset);
 
     if (preparedAsset.streamingEnabled) {
@@ -3672,6 +3895,7 @@ class PlayCanvasSogViewer {
 
     if (this.app && this.splatEntity && this.pc) {
       this.syncCutawayState(this.pc, { immediate: true });
+      this.syncSplatPatchEntities();
     }
   }
 
@@ -3740,6 +3964,7 @@ class PlayCanvasSogViewer {
     this.cinematicPreviousAutoRotate = false;
     this.setPanIndicatorVisible(false);
     this.clearStreamingHandlers();
+    this.destroySplatPatchEntities();
     if (this.orbitController) {
       this.orbitController.dispose();
       this.orbitController = null;
@@ -3780,6 +4005,8 @@ class PlayCanvasSogViewer {
     }
     this.collisionPreviewAsset = null;
     this.cutawayModifierInstalled = false;
+    this.cutawayOutlineActivations = [];
+    this.cutawayOutlineActivationVelocities = [];
     this.cutawayEnabled = true;
     this.defaultOrbitState = null;
     this.streamingState = null;
@@ -3794,6 +4021,7 @@ class PlayCanvasSogViewer {
     this.pc = null;
     this.camera = null;
     this.splatEntity = null;
+    this.splatPatchEntities = [];
     this.orbitState = null;
     this.goalOrbitState = null;
     this.canvas?.remove?.();
