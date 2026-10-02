@@ -141,7 +141,10 @@ const SOG_MODE_LABELS = {
 };
 
 const DEFAULT_FORMAT = "sog";
-const GLB_LOAD_TIMEOUT_MS = isMobileDevice ? 35000 : 60000;
+// Large GLBs can legitimately spend well over a minute downloading and
+// decoding. Keep a backstop for genuine stalls while leaving Cancel available
+// to the user throughout the load.
+const GLB_LOAD_TIMEOUT_MS = 180000;
 const SOG_CALIBRATION_QUERY_PARAM = "sog-calibration";
 const SOG_CALIBRATION_OVERRIDES_KEY = "hua:sog-calibration-overrides:v1";
 const SOG_STREAMED_TRANSFORMS_KEY = "hua:sog-streamed-transforms:v1";
@@ -3572,7 +3575,9 @@ function waitForModelViewerLoad(element, asset, swapId) {
 }
 
 async function activateGlbAsset(asset, swapId) {
-  const resolvedSource = asset.src;
+  const resolvedSourceUrl = new URL(asset.src, window.location.href);
+  resolvedSourceUrl.searchParams.set("v", "20261003glb206fix1");
+  const resolvedSource = resolvedSourceUrl.toString();
   if (swapId !== activeAssetSwapId) {
     return;
   }
