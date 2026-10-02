@@ -34,7 +34,7 @@
       href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Cormorant+Garamond:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20261002floors1" />
     <script type="importmap">
       {
         "imports": {
@@ -193,6 +193,18 @@
             <span class="time-label">Detail</span>
             <div class="location-stage-markers" id="lodMarkers" role="group" aria-label="Choose level of detail"></div>
           </div>
+        </div>
+
+        <div class="floor-selector" id="floorSelector" role="group" aria-label="Floor visibility" hidden>
+          <button class="floor-selector__button" data-floor-mode="upper" type="button" aria-pressed="false" aria-label="Show upper floor" title="Upper floor">
+            <span aria-hidden="true">&#8593;</span>
+          </button>
+          <button class="floor-selector__button floor-selector__button--both" data-floor-mode="both" type="button" aria-pressed="true" aria-label="Show all levels" title="All levels">
+            <span aria-hidden="true">&#9633;</span>
+          </button>
+          <button class="floor-selector__button" data-floor-mode="lower" type="button" aria-pressed="false" aria-label="Show lower floor" title="Lower floor">
+            <span aria-hidden="true">&#8595;</span>
+          </button>
         </div>
 
         <div class="hero-overlay">
@@ -438,6 +450,6 @@
       </section>
     </main>
 
-    <script type="module" src="./main.js?v=20261002spawn1"></script>
+    <script type="module" src="./main.js?v=20261002floors1"></script>
   </body>
 </html>

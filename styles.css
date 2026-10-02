@@ -855,6 +855,73 @@ body[data-show-time-control="false"] .time-stage-marker:disabled {
   display: none !important;
 }
 
+.floor-selector {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--safe-right) + 24px);
+  z-index: 4;
+  display: grid;
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 18px;
+  background: rgba(7, 17, 27, 0.58);
+  box-shadow: 0 14px 34px rgba(4, 9, 16, 0.24);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transform: translateY(-50%);
+  pointer-events: auto;
+  transition: right 240ms ease, transform 240ms ease;
+}
+
+.floor-selector::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, rgba(215, 239, 255, 0.96), rgba(162, 216, 255, 0.88));
+  box-shadow: 0 8px 20px rgba(83, 168, 220, 0.22);
+  transform: translateY(42px);
+  transition: transform 350ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.floor-selector[data-active-index="0"]::before { transform: translateY(0); }
+.floor-selector[data-active-index="1"]::before { transform: translateY(42px); }
+.floor-selector[data-active-index="2"]::before { transform: translateY(84px); }
+.floor-selector.is-editor-open { right: calc(var(--safe-right) + min(292px, calc(100vw - 24px)) + 32px); }
+.floor-selector[hidden] { display: none !important; }
+
+.floor-selector__button {
+  appearance: none;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  color: rgba(226, 242, 255, 0.68);
+  font: 700 1.35rem/1 Manrope, sans-serif;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+  position: relative;
+  z-index: 1;
+}
+
+.floor-selector__button:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+.floor-selector__button:active { transform: scale(0.94); }
+.floor-selector__button[data-active="true"] { color: #071521; background: transparent; box-shadow: none; }
+.floor-selector__button--both span { transform: translateY(-1px); }
+
+@media (max-width: 760px) {
+  .floor-selector { right: calc(var(--safe-right) + 12px); }
+  .floor-selector.is-editor-open { display: none; }
+}
+
 .hero-noise {
   z-index: 0;
   background-image:

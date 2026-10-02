@@ -1,8 +1,8 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261002editor6";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002spawn1";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261002floors1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261002floors1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002camera1";
-import { cloneCutawayOutline, cloneSurfaceCullingConfig, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor5";
-import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002editor5";
+import { cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor5";
+import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002floors1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
 import {
@@ -78,6 +78,8 @@ const fpNavControl = document.getElementById("fpNavControl");
 const fpNavMarkers = document.getElementById("fpNavMarkers");
 const lodControl = document.getElementById("lodControl");
 const lodMarkers = document.getElementById("lodMarkers");
+const floorSelector = document.getElementById("floorSelector");
+const floorSelectorButtons = [...document.querySelectorAll("[data-floor-mode]")];
 const resetCamera = document.getElementById("resetCamera");
 const turntableToggle = document.getElementById("turntableToggle");
 const materialToggle = document.getElementById("materialToggle");
@@ -1065,6 +1067,62 @@ let activeMobileControlsPanel = "";
 const performanceNoticeKeys = new Set();
 const sogViewer = new PlayCanvasSogViewer(splatViewerMount);
 let cutawayEditor = null;
+const floorVisibilityModes = new Map();
+const MULTI_FLOOR_SCENES = {
+  "geo-entrance": { splitY: 0.0247, fadeWidth: 0.06 },
+};
+
+function getActiveFloorSceneConfig(asset = currentActiveAsset) {
+  const sceneId = asset?.sceneId || activeSceneId;
+  const configured = sceneId ? MULTI_FLOOR_SCENES[sceneId] : null;
+  if (!configured) return null;
+  const levels = getCutawayOutlineLevels(asset?.manualBox?.outline);
+  return levels.length === 2 ? { ...configured, levels } : null;
+}
+
+function updateFloorSelectorUi() {
+  const config = getActiveFloorSceneConfig();
+  const shouldShow = !!config && isViewerMode && currentEngineType === "splat";
+  floorSelector.hidden = !shouldShow;
+  if (!shouldShow) return;
+  const sceneId = currentActiveAsset?.sceneId || activeSceneId;
+  const mode = floorVisibilityModes.get(sceneId) || "both";
+  floorSelector.dataset.activeIndex = String({ upper: 0, both: 1, lower: 2 }[mode] ?? 1);
+  for (const button of floorSelectorButtons) {
+    const active = button.dataset.floorMode === mode;
+    button.dataset.active = String(active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+}
+
+function applyFloorVisibility(asset = currentActiveAsset) {
+  const config = getActiveFloorSceneConfig(asset);
+  const sceneId = asset?.sceneId || activeSceneId;
+  const mode = config ? floorVisibilityModes.get(sceneId) || "both" : "both";
+  sogViewer.setFloorVisibility?.(config ? { ...config, mode } : { mode: "both" });
+  const previewLevel = !config || mode === "both" ? null : mode === "upper" ? config.levels.length - 1 : 0;
+  sogViewer.setManualBoxOutlinePreviewLevel?.(previewLevel);
+  updateFloorSelectorUi();
+}
+
+function setActiveFloorVisibilityMode(mode, { syncEditor = true } = {}) {
+  const config = getActiveFloorSceneConfig();
+  const sceneId = currentActiveAsset?.sceneId || activeSceneId;
+  if (!config || !sceneId || !["lower", "both", "upper"].includes(mode)) return;
+  floorVisibilityModes.set(sceneId, mode);
+  applyFloorVisibility(currentActiveAsset);
+  if (syncEditor && calibrationPanelOpen && mode !== "both") {
+    cutawayEditor?.setSelectedLevel?.(mode === "upper" ? config.levels.length - 1 : 0);
+  }
+}
+
+function handleCalibrationOutlineLevelChange(levelIndex, levelCount) {
+  if (levelCount <= 1) {
+    sogViewer.setManualBoxOutlinePreviewLevel?.(null);
+    return;
+  }
+  setActiveFloorVisibilityMode(levelIndex === levelCount - 1 ? "upper" : "lower", { syncEditor: false });
+}
 
 setLoggerContextProvider(() => {
   const asset = currentActiveAsset || getActiveAssetDescriptor?.();
@@ -1695,6 +1753,7 @@ function enterViewerMode() {
   sceneSelection.hidden = true;
   sceneSelection.setAttribute("aria-hidden", "true");
   viewerBackButton.hidden = false;
+  updateFloorSelectorUi();
   updateMobileControlsUi();
 }
 
@@ -1710,6 +1769,7 @@ function exitViewerMode() {
   sceneSelection.setAttribute("aria-hidden", "false");
   sceneSelection.scrollTop = 0;
   viewerBackButton.hidden = true;
+  updateFloorSelectorUi();
   setStatusOverlayState(true);
   updateMobileControlsUi();
 }
@@ -2571,6 +2631,7 @@ function setCalibrationPanelOpen(open) {
   calibrationPanel.setAttribute("aria-hidden", String(!calibrationPanelOpen));
   calibrationToggle.setAttribute("aria-pressed", String(calibrationPanelOpen));
   calibrationToggle.setAttribute("aria-expanded", String(calibrationPanelOpen));
+  floorSelector.classList.toggle("is-editor-open", calibrationPanelOpen);
 
   if (sogViewer) {
     if (calibrationPanelOpen) {
@@ -2589,6 +2650,10 @@ function setCalibrationPanelOpen(open) {
       streamedCalibTarget = "scene";
       lodCalibTarget = "box";
     }
+  }
+
+  if (calibrationPanelOpen && !currentActiveAsset?.streamingEnabled) {
+    cutawayEditor?.activateSelectedLevel?.();
   }
 }
 
@@ -3032,6 +3097,7 @@ function applyCutawayEditorConfig(config) {
   sogViewer.setCutawayEnabled?.(true);
   calibrationShowBox.checked = true;
   sogViewer.setManualBoxPreviewVisible?.(calibrationPanelOpen);
+  applyFloorVisibility(currentActiveAsset);
 }
 
 cutawayEditor = createCutawayEditor({
@@ -3039,6 +3105,7 @@ cutawayEditor = createCutawayEditor({
   applyConfig: applyCutawayEditorConfig,
   getSourceConfig: () => cloneManualBoxConfig(currentActiveAsset?.sourceManualBox || currentActiveAsset?.manualBox),
   setStatus,
+  onLevelChange: handleCalibrationOutlineLevelChange,
 });
 
 function renderSogModeMarkers() {
@@ -3238,6 +3305,7 @@ function updateSceneAndFormatUi() {
   renderSogModeMarkers();
   renderFpNavMarkers();
   updateLodToggle();
+  updateFloorSelectorUi();
   updateMobileControlsUi();
 }
 
@@ -3632,6 +3700,7 @@ async function activateSplatAsset(asset, swapId, options = {}) {
     ...asset,
     manualBox: liveManualBox || cloneManualBoxConfig(asset.manualBox),
   };
+  applyFloorVisibility(currentActiveAsset);
 
   if (currentActiveAsset.sceneCalibrationKey && !calibrationSessionDefaults.has(currentActiveAsset.sceneCalibrationKey)) {
     calibrationSessionDefaults.set(
@@ -4480,6 +4549,12 @@ calibrationCullingEnabled.addEventListener("change", () => {
 calibrationShowBox.addEventListener("change", () => {
   sogViewer.setManualBoxPreviewVisible?.(calibrationShowBox.checked);
 });
+
+for (const button of floorSelectorButtons) {
+  button.addEventListener("click", () => {
+    setActiveFloorVisibilityMode(button.dataset.floorMode);
+  });
+}
 
 calibrationSetCurrent.addEventListener("click", () => {
   if (currentActiveAsset?.streamingEnabled) {

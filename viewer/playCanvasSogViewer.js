@@ -31,11 +31,25 @@ uniform mat4 splatPatchSourceToTarget;
 uniform vec4 splatPatchRotation;
 uniform vec3 splatPatchScale;
 uniform float splatPatchFadeWidth;
+uniform mat4 floorVisibilityWorldToLocal;
+uniform vec2 floorVisibilityWeights;
+uniform float floorVisibilitySplitY;
+uniform float floorVisibilityFadeWidth;
 
 float getSplatPatchVisibility(vec3 worldPoint, mat4 worldToUnit) {
   vec3 localPoint = (worldToUnit * vec4(worldPoint, 1.0)).xyz;
   float signedOutside = max(max(abs(localPoint.x), abs(localPoint.y)), abs(localPoint.z)) - 0.5;
   return 1.0 - smoothstep(-max(splatPatchFadeWidth, 0.0001), 0.0, signedOutside);
+}
+
+float getSplatPatchFloorVisibility(vec3 worldPoint) {
+  float localY = (floorVisibilityWorldToLocal * vec4(worldPoint, 1.0)).y;
+  float fadeWidth = max(floorVisibilityFadeWidth, 0.0001);
+  float upperVisibility = smoothstep(floorVisibilitySplitY - fadeWidth, floorVisibilitySplitY + fadeWidth, localY);
+  float lowerWeight = clamp(floorVisibilityWeights.x, 0.0, 1.0);
+  float upperWeight = clamp(floorVisibilityWeights.y, 0.0, 1.0);
+  float bothWeight = max(0.0, 1.0 - lowerWeight - upperWeight);
+  return clamp(bothWeight + lowerWeight * (1.0 - upperVisibility) + upperWeight * upperVisibility, 0.0, 1.0);
 }
 
 vec4 multiplySplatPatchQuaternions(vec4 a, vec4 b) {
@@ -47,14 +61,14 @@ void modifySplatCenter(inout vec3 center) {
 }
 
 void modifySplatRotationScale(vec3 originalCenter, vec3 modifiedCenter, inout vec4 rotation, inout vec3 scale) {
-  float visibility = getSplatPatchVisibility(originalCenter, splatPatchSourceWorldToUnit);
+  float visibility = getSplatPatchVisibility(originalCenter, splatPatchSourceWorldToUnit) * getSplatPatchFloorVisibility(modifiedCenter);
   if (visibility <= 0.001) { scale = vec3(0.0); return; }
   rotation = normalize(multiplySplatPatchQuaternions(splatPatchRotation, rotation));
   scale *= max(splatPatchScale, vec3(0.001)) * max(visibility, 0.05);
 }
 
 void modifySplatColor(vec3 center, inout vec4 color) {
-  color.a *= getSplatPatchVisibility(center, splatPatchTargetWorldToUnit);
+  color.a *= getSplatPatchVisibility(center, splatPatchTargetWorldToUnit) * getSplatPatchFloorVisibility(center);
 }
 `,
   wgsl: `
@@ -64,11 +78,25 @@ uniform splatPatchSourceToTarget: mat4x4f;
 uniform splatPatchRotation: vec4f;
 uniform splatPatchScale: vec3f;
 uniform splatPatchFadeWidth: f32;
+uniform floorVisibilityWorldToLocal: mat4x4f;
+uniform floorVisibilityWeights: vec2f;
+uniform floorVisibilitySplitY: f32;
+uniform floorVisibilityFadeWidth: f32;
 
 fn getSplatPatchVisibility(worldPoint: vec3f, worldToUnit: mat4x4f) -> f32 {
   let localPoint = (worldToUnit * vec4f(worldPoint, 1.0)).xyz;
   let signedOutside = max(max(abs(localPoint.x), abs(localPoint.y)), abs(localPoint.z)) - 0.5;
   return 1.0 - smoothstep(-max(uniform.splatPatchFadeWidth, 0.0001), 0.0, signedOutside);
+}
+
+fn getSplatPatchFloorVisibility(worldPoint: vec3f) -> f32 {
+  let localY = (uniform.floorVisibilityWorldToLocal * vec4f(worldPoint, 1.0)).y;
+  let fadeWidth = max(uniform.floorVisibilityFadeWidth, 0.0001);
+  let upperVisibility = smoothstep(uniform.floorVisibilitySplitY - fadeWidth, uniform.floorVisibilitySplitY + fadeWidth, localY);
+  let lowerWeight = clamp(uniform.floorVisibilityWeights.x, 0.0, 1.0);
+  let upperWeight = clamp(uniform.floorVisibilityWeights.y, 0.0, 1.0);
+  let bothWeight = max(0.0, 1.0 - lowerWeight - upperWeight);
+  return clamp(bothWeight + lowerWeight * (1.0 - upperVisibility) + upperWeight * upperVisibility, 0.0, 1.0);
 }
 
 fn multiplySplatPatchQuaternions(a: vec4f, b: vec4f) -> vec4f {
@@ -80,14 +108,14 @@ fn modifySplatCenter(center: ptr<function, vec3f>) {
 }
 
 fn modifySplatRotationScale(originalCenter: vec3f, modifiedCenter: vec3f, rotation: ptr<function, vec4f>, scale: ptr<function, vec3f>) {
-  let visibility = getSplatPatchVisibility(originalCenter, uniform.splatPatchSourceWorldToUnit);
+  let visibility = getSplatPatchVisibility(originalCenter, uniform.splatPatchSourceWorldToUnit) * getSplatPatchFloorVisibility(modifiedCenter);
   if (visibility <= 0.001) { (*scale) = vec3f(0.0); return; }
   (*rotation) = normalize(multiplySplatPatchQuaternions(uniform.splatPatchRotation, (*rotation)));
   (*scale) *= max(uniform.splatPatchScale, vec3f(0.001)) * vec3f(max(visibility, 0.05));
 }
 
 fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
-  (*color).a *= getSplatPatchVisibility(center, uniform.splatPatchTargetWorldToUnit);
+  (*color).a *= getSplatPatchVisibility(center, uniform.splatPatchTargetWorldToUnit) * getSplatPatchFloorVisibility(center);
 }
 `,
 };
@@ -106,6 +134,10 @@ uniform float splatMoveBoxCount;
 uniform mat4 splatMoveBoxWorldToUnit0;
 uniform mat4 splatMoveBoxWorldToUnit1;
 uniform vec2 splatMoveBoxFadeWidths;
+uniform mat4 floorVisibilityWorldToLocal;
+uniform vec2 floorVisibilityWeights;
+uniform float floorVisibilitySplitY;
+uniform float floorVisibilityFadeWidth;
 uniform vec3 cameraWorldPosition;
 uniform float backfaceCullingEnabled;
 uniform float backfaceThreshold;
@@ -293,6 +325,16 @@ float getSplatMoveVisibility(vec3 worldPoint) {
   return visibility;
 }
 
+float getFloorVisibility(vec3 worldPoint) {
+  float localY = (floorVisibilityWorldToLocal * vec4(worldPoint, 1.0)).y;
+  float fadeWidth = max(floorVisibilityFadeWidth, 0.0001);
+  float upperVisibility = smoothstep(floorVisibilitySplitY - fadeWidth, floorVisibilitySplitY + fadeWidth, localY);
+  float lowerWeight = clamp(floorVisibilityWeights.x, 0.0, 1.0);
+  float upperWeight = clamp(floorVisibilityWeights.y, 0.0, 1.0);
+  float bothWeight = max(0.0, 1.0 - lowerWeight - upperWeight);
+  return clamp(bothWeight + lowerWeight * (1.0 - upperVisibility) + upperWeight * upperVisibility, 0.0, 1.0);
+}
+
 vec3 rotateByQuaternion(vec3 v, vec4 q) {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
@@ -311,7 +353,7 @@ void modifySplatCenter(inout vec3 center) {
 }
 
 void modifySplatRotationScale(vec3 originalCenter, vec3 modifiedCenter, inout vec4 rotation, inout vec3 scale) {
-  float exclusionVisibility = getSplatExclusionVisibility(modifiedCenter);
+  float exclusionVisibility = getSplatExclusionVisibility(modifiedCenter) * getFloorVisibility(modifiedCenter);
   if (exclusionVisibility <= 0.001) {
     scale = vec3(0.0);
     return;
@@ -360,7 +402,7 @@ void modifySplatRotationScale(vec3 originalCenter, vec3 modifiedCenter, inout ve
 }
 
 void modifySplatColor(vec3 center, inout vec4 color) {
-  float visibility = getSplatExclusionVisibility(center) * getSplatMoveVisibility(center);
+  float visibility = getSplatExclusionVisibility(center) * getSplatMoveVisibility(center) * getFloorVisibility(center);
 
   if (cutawayOutlineEnabled > 0.5) {
     visibility *= getCutawayOutlineVisibility(center);
@@ -395,6 +437,10 @@ uniform splatMoveBoxCount: f32;
 uniform splatMoveBoxWorldToUnit0: mat4x4f;
 uniform splatMoveBoxWorldToUnit1: mat4x4f;
 uniform splatMoveBoxFadeWidths: vec2f;
+uniform floorVisibilityWorldToLocal: mat4x4f;
+uniform floorVisibilityWeights: vec2f;
+uniform floorVisibilitySplitY: f32;
+uniform floorVisibilityFadeWidth: f32;
 uniform cameraWorldPosition: vec3f;
 uniform backfaceCullingEnabled: f32;
 uniform backfaceThreshold: f32;
@@ -580,6 +626,16 @@ fn getSplatMoveVisibility(worldPoint: vec3f) -> f32 {
   return visibility;
 }
 
+fn getFloorVisibility(worldPoint: vec3f) -> f32 {
+  let localY = (uniform.floorVisibilityWorldToLocal * vec4f(worldPoint, 1.0)).y;
+  let fadeWidth = max(uniform.floorVisibilityFadeWidth, 0.0001);
+  let upperVisibility = smoothstep(uniform.floorVisibilitySplitY - fadeWidth, uniform.floorVisibilitySplitY + fadeWidth, localY);
+  let lowerWeight = clamp(uniform.floorVisibilityWeights.x, 0.0, 1.0);
+  let upperWeight = clamp(uniform.floorVisibilityWeights.y, 0.0, 1.0);
+  let bothWeight = max(0.0, 1.0 - lowerWeight - upperWeight);
+  return clamp(bothWeight + lowerWeight * (1.0 - upperVisibility) + upperWeight * upperVisibility, 0.0, 1.0);
+}
+
 fn rotateByQuaternion(v: vec3f, q: vec4f) -> vec3f {
   return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
@@ -598,7 +654,7 @@ fn modifySplatCenter(center: ptr<function, vec3f>) {
 }
 
 fn modifySplatRotationScale(originalCenter: vec3f, modifiedCenter: vec3f, rotation: ptr<function, vec4f>, scale: ptr<function, vec3f>) {
-  let exclusionVisibility = getSplatExclusionVisibility(modifiedCenter);
+  let exclusionVisibility = getSplatExclusionVisibility(modifiedCenter) * getFloorVisibility(modifiedCenter);
   if (exclusionVisibility <= 0.001) {
     (*scale) = vec3f(0.0, 0.0, 0.0);
     return;
@@ -650,7 +706,7 @@ fn modifySplatRotationScale(originalCenter: vec3f, modifiedCenter: vec3f, rotati
 }
 
 fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
-  var visibility = getSplatExclusionVisibility(center) * getSplatMoveVisibility(center);
+  var visibility = getSplatExclusionVisibility(center) * getSplatMoveVisibility(center) * getFloorVisibility(center);
 
   if (uniform.cutawayOutlineEnabled > 0.5) {
     visibility *= getCutawayOutlineVisibility(center);
@@ -990,6 +1046,7 @@ class PlayCanvasSogViewer {
     this.defaultOrbitState = null;
     this.autoRotate = false;
     this.cutawayEnabled = true;
+    this.floorVisibility = { mode: "both", splitY: 0, fadeWidth: 0.06 };
     this.activeManualBoxConfig = null;
     this.activeFpCollisionBoxConfig = null;
     this.currentCutawayBoxConfig = null;
@@ -1019,6 +1076,7 @@ class PlayCanvasSogViewer {
     this.cameraStartMarkerVisible = false;
     this._cameraStartMarkerEntity = null;
     this.manualBoxPreviewVisible = false;
+    this.manualBoxOutlinePreviewLevel = null;
     this._manualBoxLabels = [];
     this.fpNavigationController = null;
     this.fpNavigationMode = "walk";
@@ -1655,6 +1713,13 @@ class PlayCanvasSogViewer {
     if (this.app) this.app.renderNextFrame = true;
   }
 
+  setManualBoxOutlinePreviewLevel(levelIndex = null) {
+    this.manualBoxOutlinePreviewLevel = Number.isInteger(levelIndex) && levelIndex >= 0
+      ? levelIndex
+      : null;
+    if (this.app) this.app.renderNextFrame = true;
+  }
+
   _ensureManualBoxLabels(names = ["Left", "Right", "Top", "Bottom", "Front", "Back"]) {
     if (!this.container) return;
     while (this._manualBoxLabels.length < names.length) {
@@ -1716,6 +1781,7 @@ class PlayCanvasSogViewer {
       const labels = [];
       const labelWorldPositions = [];
       getCutawayOutlineLevels(outline).forEach((level, levelIndex) => {
+        if (this.manualBoxOutlinePreviewLevel !== null && levelIndex !== this.manualBoxOutlinePreviewLevel) return;
         const effectiveVertices = buildPaddedOutlineVertices(level);
         const bottom = effectiveVertices.map(([x, z]) => matrix.transformPoint(new pc.Vec3(x, level.floorY, z)));
         const top = effectiveVertices.map(([x, z]) => matrix.transformPoint(new pc.Vec3(x, level.ceilingY, z)));
@@ -2656,6 +2722,45 @@ class PlayCanvasSogViewer {
     }
   }
 
+  getFloorVisibilityShaderState(pc) {
+    let worldToLocal = new pc.Mat4();
+    const outline = cloneCutawayOutline(this.activeManualBoxConfig?.outline);
+    if (this.splatEntity) {
+      worldToLocal = outline
+        ? this.createOutlineWorldMatrix(pc, outline).invert()
+        : this.splatEntity.getWorldTransform().clone().invert();
+    }
+    const mode = this.floorVisibility?.mode;
+    return {
+      worldToLocal,
+      weights: [mode === "lower" ? 1 : 0, mode === "upper" ? 1 : 0],
+      splitY: Number.isFinite(this.floorVisibility?.splitY) ? this.floorVisibility.splitY : 0,
+      fadeWidth: Math.max(0.001, Number(this.floorVisibility?.fadeWidth) || 0.06),
+    };
+  }
+
+  setFloorVisibilityShaderParameters(gsplat, pc, state = null) {
+    if (!gsplat?.setParameter) return;
+    const floorVisibility = state || this.getFloorVisibilityShaderState(pc);
+    gsplat.setParameter("floorVisibilityWorldToLocal", floorVisibility.worldToLocal.data);
+    gsplat.setParameter("floorVisibilityWeights", floorVisibility.weights);
+    gsplat.setParameter("floorVisibilitySplitY", floorVisibility.splitY);
+    gsplat.setParameter("floorVisibilityFadeWidth", floorVisibility.fadeWidth);
+  }
+
+  setFloorVisibility(config = {}) {
+    this.floorVisibility = {
+      mode: ["lower", "upper"].includes(config.mode) ? config.mode : "both",
+      splitY: Number.isFinite(config.splitY) ? config.splitY : 0,
+      fadeWidth: Math.max(0.001, Number(config.fadeWidth) || 0.06),
+    };
+    if (this.app && this.splatEntity && this.pc) {
+      this.syncCutawayState(this.pc, { immediate: true });
+      this.syncSplatPatchEntities();
+      this.app.renderNextFrame = true;
+    }
+  }
+
   syncSplatPatchEntities() {
     if (!this.pc || !this.app || !this.splatEntity?.gsplat) return;
     const pc = this.pc;
@@ -2690,6 +2795,7 @@ class PlayCanvasSogViewer {
       gsplat.setParameter("splatPatchRotation", [patchRotation.x, patchRotation.y, patchRotation.z, patchRotation.w]);
       gsplat.setParameter("splatPatchScale", patchScale);
       gsplat.setParameter("splatPatchFadeWidth", patch.fadeWidth);
+      this.setFloorVisibilityShaderParameters(gsplat, pc);
     });
     this.app.renderNextFrame = true;
   }
@@ -2740,6 +2846,7 @@ class PlayCanvasSogViewer {
     }
     gsplat.setParameter("splatMoveBoxCount", movePatches.length);
     gsplat.setParameter("splatMoveBoxFadeWidths", moveFadeWidths);
+    this.setFloorVisibilityShaderParameters(gsplat, pc);
 
     const worldCameraPosition = this.camera?.getPosition?.();
     if (worldCameraPosition) {
@@ -4034,6 +4141,7 @@ class PlayCanvasSogViewer {
     for (const label of this._manualBoxLabels || []) label.remove();
     this._manualBoxLabels = [];
     this.manualBoxPreviewVisible = false;
+    this.manualBoxOutlinePreviewLevel = null;
     if (this.collisionPreviewAsset && this.app) {
       this.app.assets.remove(this.collisionPreviewAsset);
       this.collisionPreviewAsset.unload();
@@ -4043,6 +4151,7 @@ class PlayCanvasSogViewer {
     this.cutawayOutlineActivations = [];
     this.cutawayOutlineActivationVelocities = [];
     this.cutawayEnabled = true;
+    this.floorVisibility = { mode: "both", splitY: 0, fadeWidth: 0.06 };
     this.defaultOrbitState = null;
     this.streamingState = null;
     this.fpNavigationMode = "walk";

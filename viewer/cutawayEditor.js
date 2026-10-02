@@ -39,9 +39,9 @@ function getEditableOutlineLevels(outline) {
   return outline ? [outline] : [];
 }
 
-function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatus }) {
+function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatus, onLevelChange }) {
   const root = document.getElementById("calibrationCutawayWorkspace");
-  if (!root) return { refresh() {}, setVisible() {} };
+  if (!root) return { refresh() {}, setVisible() {}, setSelectedLevel() {}, activateSelectedLevel() {} };
 
   for (const panel of root.querySelectorAll("[data-transform-panel]")) {
     const kind = panel.dataset.transformPanel;
@@ -119,6 +119,11 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
     selectedLevel = Math.max(0, Math.min(selectedLevel, levels.length - 1));
     return { root: outline, levels, level: levels[selectedLevel] };
   };
+
+  function notifySelectedLevel() {
+    const state = currentOutline();
+    onLevelChange?.(state ? selectedLevel : 0, state?.levels?.length || 0);
+  }
 
   function commit(mutator, message = "Cutaway updated", { refreshUi = true, announce = true } = {}) {
     const config = getConfig();
@@ -303,7 +308,12 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
   }
 
   controls.modeButtons.forEach((button) => button.addEventListener("click", () => commit((config) => { config.cutawayMode = button.dataset.cutawayMode; }, "Cutaway mode updated")));
-  controls.level.addEventListener("change", () => { selectedLevel = Number(controls.level.value) || 0; selectedEdge = 0; refresh(); });
+  controls.level.addEventListener("change", () => {
+    selectedLevel = Number(controls.level.value) || 0;
+    selectedEdge = 0;
+    refresh();
+    notifySelectedLevel();
+  });
   controls.edge.addEventListener("change", () => { selectedEdge = Number(controls.edge.value) || 0; refresh(); });
   controls.map.addEventListener("pointermove", (event) => {
     if (!drag || !projection) return;
@@ -501,6 +511,15 @@ function createCutawayEditor({ getConfig, applyConfig, getSourceConfig, setStatu
   return {
     refresh,
     setVisible(visible) { root.hidden = !visible; if (visible) refresh(); },
+    setSelectedLevel(levelIndex, { notify = false } = {}) {
+      const state = currentOutline();
+      if (!state) return;
+      selectedLevel = Math.max(0, Math.min(state.levels.length - 1, Number(levelIndex) || 0));
+      selectedEdge = 0;
+      refresh();
+      if (notify) notifySelectedLevel();
+    },
+    activateSelectedLevel() { notifySelectedLevel(); },
   };
 }
 
