@@ -123,6 +123,28 @@ fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
 }
 `,
 };
+
+function createUnrolledGlslMat4Accessor(returnType, functionName, uniformPrefix, component = "") {
+  const lines = [];
+  for (let index = 0; index < MAX_CUTAWAY_OUTLINE_VERTICES; index += 1) {
+    const matrixIndex = Math.floor(index / 4);
+    const columnIndex = index % 4;
+    lines.push(
+      `  if (index == ${index}) return ${uniformPrefix}${matrixIndex}[${columnIndex}]${component};`
+    );
+  }
+  return `${returnType} ${functionName}(int index) {\n${lines.join("\n")}\n  return ${uniformPrefix}5[3]${component};\n}`;
+}
+
+// Avoid dynamic matrix-column indexing in the WebGL shader. Although legal in
+// GLSL ES 3.00, this path is unreliable on iOS/Apple GPU drivers when used in
+// the GSplat work-buffer pass and can collapse every splat to zero scale.
+const GLSL_CUTAWAY_OUTLINE_ACCESSORS = [
+  createUnrolledGlslMat4Accessor("vec4", "getCutawayOutlineVertex", "cutawayOutlineVertices"),
+  createUnrolledGlslMat4Accessor("vec4", "getCutawayOutlineEdgeSettings", "cutawayOutlineEdgeSettings"),
+  createUnrolledGlslMat4Accessor("float", "getCutawayOutlineEdgeSlope", "cutawayOutlineEdgeSlopes", ".x"),
+].join("\n\n");
+
 const SOG_BOX_CULLING_MODIFIER = {
   glsl: `
 uniform mat4 orientedClipBoxWorldToUnit;
@@ -183,32 +205,7 @@ float distanceToSegment2d(vec2 point, vec2 start, vec2 end) {
   return length(point - (start + edge * amount));
 }
 
-vec4 getCutawayOutlineVertex(int index) {
-  if (index < 4) return cutawayOutlineVertices0[index];
-  if (index < 8) return cutawayOutlineVertices1[index - 4];
-  if (index < 12) return cutawayOutlineVertices2[index - 8];
-  if (index < 16) return cutawayOutlineVertices3[index - 12];
-  if (index < 20) return cutawayOutlineVertices4[index - 16];
-  return cutawayOutlineVertices5[index - 20];
-}
-
-vec4 getCutawayOutlineEdgeSettings(int index) {
-  if (index < 4) return cutawayOutlineEdgeSettings0[index];
-  if (index < 8) return cutawayOutlineEdgeSettings1[index - 4];
-  if (index < 12) return cutawayOutlineEdgeSettings2[index - 8];
-  if (index < 16) return cutawayOutlineEdgeSettings3[index - 12];
-  if (index < 20) return cutawayOutlineEdgeSettings4[index - 16];
-  return cutawayOutlineEdgeSettings5[index - 20];
-}
-
-float getCutawayOutlineEdgeSlope(int index) {
-  if (index < 4) return cutawayOutlineEdgeSlopes0[index].x;
-  if (index < 8) return cutawayOutlineEdgeSlopes1[index - 4].x;
-  if (index < 12) return cutawayOutlineEdgeSlopes2[index - 8].x;
-  if (index < 16) return cutawayOutlineEdgeSlopes3[index - 12].x;
-  if (index < 20) return cutawayOutlineEdgeSlopes4[index - 16].x;
-  return cutawayOutlineEdgeSlopes5[index - 20].x;
-}
+${GLSL_CUTAWAY_OUTLINE_ACCESSORS}
 
 float getCutawayOutlineVisibility(vec3 worldPoint) {
   vec3 localPoint3 = (cutawayOutlineWorldToLocal * vec4(worldPoint, 1.0)).xyz;
@@ -3286,7 +3283,7 @@ class PlayCanvasSogViewer {
 
   syncCutawayState(pc, options = {}) {
     const gsplat = this.splatEntity?.gsplat;
-    if (!this.ensureCutawayModifier(gsplat)) {
+    if (!gsplat?.setWorkBufferModifier || !gsplat?.setParameter) {
       return;
     }
 
@@ -3296,6 +3293,7 @@ class PlayCanvasSogViewer {
     if (!this.activeManualBoxConfig) {
       this.currentCutawayBoxConfig = null;
       this.setCutawayParameters(pc, gsplat, null, false, options);
+      this.ensureCutawayModifier(gsplat);
       if (this.app) {
         this.app.renderNextFrame = true;
       }
@@ -3305,6 +3303,7 @@ class PlayCanvasSogViewer {
     if (!this.shouldApplyCutaway()) {
       this.currentCutawayBoxConfig = null;
       this.setCutawayParameters(pc, gsplat, this.activeManualBoxConfig, false, options);
+      this.ensureCutawayModifier(gsplat);
       if (this.app) this.app.renderNextFrame = true;
       return;
     }
@@ -3321,6 +3320,10 @@ class PlayCanvasSogViewer {
     const shouldContinueSmoothing = !this.isSameCutawayBoxConfig(nextBoxConfig, targetBoxConfig);
     this.currentCutawayBoxConfig = nextBoxConfig;
     const outlineSmoothingActive = this.setCutawayParameters(pc, gsplat, nextBoxConfig, true, options) === true;
+    // Set every uniform before installing the work-buffer modifier. On fast
+    // mobile GPUs the modifier can otherwise execute with only a partially
+    // populated outline parameter set during the first frame.
+    this.ensureCutawayModifier(gsplat);
     if (this.app && (shouldContinueSmoothing || outlineSmoothingActive || immediate)) {
       this.app.renderNextFrame = true;
     }
