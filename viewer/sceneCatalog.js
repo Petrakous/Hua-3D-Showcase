@@ -736,7 +736,7 @@ const LOCATION_CATALOG = {
         performanceSources: createManifestSogPerformanceSources('kitchen', 'Kitchen'),
         streamingSource: createManifestSogStreamingSource('kitchen', 'Kitchen'),
         fpCollisionSource: resolveManifestAsset('kitchen', 'collision', './GLBs/Kitchen_collision.glb'),
-        fpCollisionStrategy: 'mesh',
+        fpCollisionStrategy: 'box',
         manualBox: withGeneratedCutaway('kitchen', {
           position: [-0.1, -1.6, -0.1],
           rotationDegrees: [90.3, -0.1, -537.4],
