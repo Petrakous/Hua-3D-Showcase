@@ -324,7 +324,7 @@ function createPcLabDraftManualBox() {
     rotationDegrees: [0, 0, 0],
     scale: [9.4914, 2.625, 12.1602],
     cutRatio: 0.2,
-    cutawayMode: 'outline',
+    cutawayMode: 'box',
     outline: {
       version: 1,
       mode: 'outline',
@@ -399,7 +399,7 @@ function createMainHallDraftManualBox() {
   ];
   return {
     ...manualBox,
-    cutawayMode: 'outline',
+    cutawayMode: 'box',
     outline: {
       ...manualBox.outline,
       vertices,
@@ -620,6 +620,7 @@ const LOCATION_CATALOG = {
           rotationDegrees: [0, 0, 0],
           scale: [24.6617, 6.2596, 26.1637],
           cutRatio: 0.2,
+          cutawayMode: 'box',
         }),
         viewPreset: { distanceMultiplier: 1, yaw: 180, pitch: 12, fov: 70 },
         fpViewPreset: { cameraPosition: [0, 0, 0], target: [0, 0, 1], fov: 72 },
