@@ -1,4 +1,4 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261003iosbox2";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261003outlineprod1";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261003outlinefix1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002camera1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor5";
@@ -151,7 +151,6 @@ const SOG_STREAMED_TRANSFORMS_KEY = "hua:sog-streamed-transforms:v1";
 const SELECTION_PREFERENCES_KEY = "hua3d.selection.preferences:v1";
 const calibrationQueryEnabled =
   new URLSearchParams(window.location.search).get(SOG_CALIBRATION_QUERY_PARAM) === "1";
-const outlineTestEnabled = new URLSearchParams(window.location.search).get("outline-test") === "1";
 const calibrationUiUnlocked = calibrationQueryEnabled;
 const cinematicModeEnabled = new URLSearchParams(window.location.search).get("cinematic") === "1";
 const cinematicAuthorEnabled =
@@ -2233,23 +2232,7 @@ function finalizeSogAsset(asset) {
     ? selectStreamingSogAsset(asset)
     : selectPerformanceSogAsset(asset);
 
-  const calibratedAsset = applyCalibrationOverrideToAsset(nextAsset);
-  if (
-    outlineTestEnabled &&
-    !calibratedAsset.streamingEnabled &&
-    calibratedAsset.manualBox?.outline
-  ) {
-    return {
-      ...calibratedAsset,
-      manualBox: {
-        ...cloneManualBoxConfig(calibratedAsset.manualBox),
-        cutawayMode: "outline",
-      },
-      outlineTestEnabled: true,
-    };
-  }
-
-  return calibratedAsset;
+  return applyCalibrationOverrideToAsset(nextAsset);
 }
 
 function getActiveAssetDescriptor() {
