@@ -22,6 +22,10 @@ const STREAMING_SAFE_READY_FRAMES = 2;
 const STREAMING_MIN_READY_MS = 2500;
 const ASSET_LOAD_TIMEOUT_MS = 45000;
 const VIEWER_INIT_TIMEOUT_MS = 20000;
+const IOS_CONTEXT_RELEASE_EVENT_TIMEOUT_MS = 250;
+const IOS_CONTEXT_RELEASE_SETTLE_MS = 180;
+const IOS_APPLICATION_RETRY_DELAY_MS = 450;
+const INITIAL_RENDER_TIMEOUT_MS = 6000;
 const AUTO_CUTAWAY_FADE_WIDTH = 0.12;
 const SOG_SPLAT_PATCH_MODIFIER = {
   glsl: `
@@ -744,6 +748,31 @@ function releaseWebGlContext(gl) {
   }
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForIosContextRelease(canvas) {
+  if (!canvas || !isIosWebKit()) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      canvas.removeEventListener("webglcontextlost", finish);
+      setTimeout(resolve, IOS_CONTEXT_RELEASE_SETTLE_MS);
+    };
+
+    canvas.addEventListener("webglcontextlost", finish, { once: true });
+    timeoutId = setTimeout(finish, IOS_CONTEXT_RELEASE_EVENT_TIMEOUT_MS);
+  });
+}
+
 function supportsPlayCanvasSogViewer() {
   if (playCanvasSogSupport === true) {
     return true;
@@ -1120,6 +1149,7 @@ class PlayCanvasSogViewer {
     this.targetMaxDpr = null;
     this.loadGeneration = 0;
     this.disposed = true;
+    this.pendingGpuRelease = null;
   }
 
   isLoadCurrent(generation) {
@@ -3764,6 +3794,76 @@ class PlayCanvasSogViewer {
     );
   }
 
+  waitForInitialRender(asset, generation, onState) {
+    if (asset?.streamingEnabled || !this.app || !this.canvas) {
+      return Promise.resolve();
+    }
+
+    const app = this.app;
+    const canvas = this.canvas;
+    const gl = app.graphicsDevice?.gl || null;
+
+    onState?.({
+      status: "loading",
+      title: "Preparing first frame",
+      message: "Waiting for the first rendered frame...",
+      progress: 0.92,
+      details: { source: asset.src },
+    });
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let timeoutId = null;
+
+      const cleanup = () => {
+        app.off("postrender", handlePostRender);
+        canvas.removeEventListener("webglcontextlost", handleContextLost);
+        if (timeoutId) clearTimeout(timeoutId);
+      };
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+      const handleContextLost = (event) => {
+        event.preventDefault?.();
+        const error = new Error("WebGL context was lost before the first SOG frame rendered.");
+        error.details = { source: asset.src, stage: "initial-render" };
+        fail(error);
+      };
+      const handlePostRender = () => {
+        if (!this.isLoadCurrent(generation) || this.app !== app) {
+          finish();
+          return;
+        }
+        if (gl?.isContextLost?.()) {
+          handleContextLost({ preventDefault() {} });
+          return;
+        }
+        if (!this.splatEntity?.gsplat?.asset?.resource) {
+          return;
+        }
+        finish();
+      };
+
+      app.on("postrender", handlePostRender);
+      canvas.addEventListener("webglcontextlost", handleContextLost, { once: true });
+      timeoutId = setTimeout(() => {
+        const error = new Error("Timed out while waiting for the first SOG frame.");
+        error.details = { source: asset.src, stage: "initial-render" };
+        fail(error);
+      }, INITIAL_RENDER_TIMEOUT_MS);
+      app.renderNextFrame = true;
+    });
+  }
+
   async load(asset, profile = { maxDpr: 1.05 }, onState) {
     if (this.app && this.pc && this.splatEntity && this.currentAsset?.key === asset.key) {
       const generation = ++this.loadGeneration;
@@ -3844,6 +3944,15 @@ class PlayCanvasSogViewer {
     const generation = ++this.loadGeneration;
     this.disposed = false;
 
+    const pendingGpuRelease = this.pendingGpuRelease;
+    if (pendingGpuRelease) {
+      await pendingGpuRelease;
+      if (this.pendingGpuRelease === pendingGpuRelease) {
+        this.pendingGpuRelease = null;
+      }
+      if (!this.isLoadCurrent(generation)) return;
+    }
+
     if (!supportsPlayCanvasSogViewer()) {
       throw new Error("This browser or device cannot run the PlayCanvas SOG viewer.");
     }
@@ -3862,18 +3971,69 @@ class PlayCanvasSogViewer {
       { source: PLAYCANVAS_CDN }
     );
     if (!this.isLoadCurrent(generation)) return;
-    const canvas = document.createElement("canvas");
-    canvas.className = "viewer-canvas playcanvas-sog-canvas";
-    this.container.appendChild(canvas);
-    this.canvas = canvas;
+    const createCanvas = () => {
+      const nextCanvas = document.createElement("canvas");
+      nextCanvas.className = "viewer-canvas playcanvas-sog-canvas";
+      nextCanvas.addEventListener("webglcontextlost", (event) => {
+        if (nextCanvas.dataset.huaIntentionalContextLoss === "1") return;
+        event.preventDefault?.();
+        nextCanvas.dataset.huaContextLost = "1";
+      });
+      nextCanvas.addEventListener("webglcontextrestored", () => {
+        delete nextCanvas.dataset.huaContextLost;
+      });
+      this.container.appendChild(nextCanvas);
+      this.canvas = nextCanvas;
+      return nextCanvas;
+    };
+    const createApplication = (targetCanvas) => {
+      let candidate = null;
+      try {
+        candidate = new pc.Application(targetCanvas, {
+          graphicsDeviceOptions: {
+            antialias: false,
+            alpha: true,
+            powerPreference: isIosWebKit() ? "default" : "high-performance",
+          },
+        });
+        if (
+          targetCanvas.dataset.huaContextLost === "1" ||
+          candidate.graphicsDevice?.gl?.isContextLost?.()
+        ) {
+          throw new Error("PlayCanvas created an unusable WebGL context.");
+        }
+        return candidate;
+      } catch (error) {
+        targetCanvas.dataset.huaIntentionalContextLoss = "1";
+        const gl = candidate?.graphicsDevice?.gl || targetCanvas.getContext?.("webgl2") || null;
+        try {
+          candidate?.destroy?.();
+        } catch (_cleanupError) {}
+        releaseWebGlContext(gl);
+        throw error;
+      }
+    };
 
-    const app = new pc.Application(canvas, {
-      graphicsDeviceOptions: {
-        antialias: false,
-        alpha: true,
-        powerPreference: "high-performance",
-      },
-    });
+    let canvas = createCanvas();
+    let app;
+    try {
+      app = createApplication(canvas);
+    } catch (error) {
+      if (!isIosWebKit()) {
+        throw error;
+      }
+
+      logger.warn("webgl", "PlayCanvas initialization failed; retrying after iOS GPU cleanup", {
+        source: asset.src,
+        retry_delay_ms: IOS_APPLICATION_RETRY_DELAY_MS,
+      }, error);
+      canvas.remove();
+      this.canvas = null;
+      await delay(IOS_APPLICATION_RETRY_DELAY_MS);
+      if (!this.isLoadCurrent(generation)) return;
+      canvas = createCanvas();
+      app = createApplication(canvas);
+    }
     app.setCanvasFillMode(pc.FILLMODE_NONE);
     app.setCanvasResolution(pc.RESOLUTION_AUTO);
     app.start();
@@ -4049,6 +4209,8 @@ class PlayCanvasSogViewer {
 
     if (preparedAsset.streamingEnabled) {
       await this.waitForStreamingInitialReady(preparedAsset, generation, onState);
+    } else {
+      await this.waitForInitialRender(preparedAsset, generation, onState);
     }
 
     if (this.isLoadCurrent(generation)) {
@@ -4198,6 +4360,7 @@ class PlayCanvasSogViewer {
       // it as a user-facing renderer crash.
       if (canvas && isIosWebKit()) {
         canvas.dataset.huaIntentionalContextLoss = "1";
+        this.pendingGpuRelease = waitForIosContextRelease(canvas);
       }
 
       try {
