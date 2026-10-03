@@ -1150,7 +1150,6 @@ class PlayCanvasSogViewer {
     this.loadGeneration = 0;
     this.disposed = true;
     this.pendingGpuRelease = null;
-    this.reusableIosCanvas = null;
   }
 
   isLoadCurrent(generation) {
@@ -3973,37 +3972,16 @@ class PlayCanvasSogViewer {
     );
     if (!this.isLoadCurrent(generation)) return;
     const createCanvas = () => {
-      let nextCanvas = null;
-      if (isIosWebKit() && this.reusableIosCanvas) {
-        const reusableCanvas = this.reusableIosCanvas;
-        const reusableGl = reusableCanvas.getContext?.("webgl2") || null;
-        if (
-          reusableCanvas.dataset.huaContextLost !== "1" &&
-          !reusableGl?.isContextLost?.()
-        ) {
-          nextCanvas = reusableCanvas;
-          nextCanvas.dataset.huaContextReuseCount = String(
-            (Number(nextCanvas.dataset.huaContextReuseCount) || 0) + 1
-          );
-        }
-        this.reusableIosCanvas = null;
-      }
-
-      nextCanvas ||= document.createElement("canvas");
-      nextCanvas.dataset.huaContextReuseCount ||= "0";
+      const nextCanvas = document.createElement("canvas");
       nextCanvas.className = "viewer-canvas playcanvas-sog-canvas";
-      delete nextCanvas.dataset.huaIntentionalContextLoss;
-      if (nextCanvas.dataset.huaContextListenersInstalled !== "1") {
-        nextCanvas.dataset.huaContextListenersInstalled = "1";
-        nextCanvas.addEventListener("webglcontextlost", (event) => {
-          if (nextCanvas.dataset.huaIntentionalContextLoss === "1") return;
-          event.preventDefault?.();
-          nextCanvas.dataset.huaContextLost = "1";
-        });
-        nextCanvas.addEventListener("webglcontextrestored", () => {
-          delete nextCanvas.dataset.huaContextLost;
-        });
-      }
+      nextCanvas.addEventListener("webglcontextlost", (event) => {
+        if (nextCanvas.dataset.huaIntentionalContextLoss === "1") return;
+        event.preventDefault?.();
+        nextCanvas.dataset.huaContextLost = "1";
+      });
+      nextCanvas.addEventListener("webglcontextrestored", () => {
+        delete nextCanvas.dataset.huaContextLost;
+      });
       this.container.appendChild(nextCanvas);
       this.canvas = nextCanvas;
       return nextCanvas;
@@ -4027,7 +4005,6 @@ class PlayCanvasSogViewer {
         return candidate;
       } catch (error) {
         targetCanvas.dataset.huaIntentionalContextLoss = "1";
-        this.reusableIosCanvas = null;
         const gl = candidate?.graphicsDevice?.gl || targetCanvas.getContext?.("webgl2") || null;
         try {
           candidate?.destroy?.();
@@ -4311,7 +4288,7 @@ class PlayCanvasSogViewer {
     }
   }
 
-  dispose({ forceContextLoss = false } = {}) {
+  dispose({ forceContextLoss = isIosWebKit() } = {}) {
     this.loadGeneration += 1;
     this.disposed = true;
     this.stopAutoRotate();
@@ -4396,20 +4373,6 @@ class PlayCanvasSogViewer {
         }
       }
 
-      if (
-        canvas &&
-        isIosWebKit() &&
-        !forceContextLoss &&
-        canvas.dataset.huaContextLost !== "1" &&
-        !gl?.isContextLost?.()
-      ) {
-        // Keep the same browser WebGL context between SOG scenes on iOS.
-        // Creating and explicitly losing a new context for every room can
-        // exhaust WebKit's GPU/context budget even after the old app is gone.
-        this.reusableIosCanvas = canvas;
-      } else if (forceContextLoss || canvas?.dataset.huaContextLost === "1") {
-        this.reusableIosCanvas = null;
-      }
     }
 
     this.pc = null;

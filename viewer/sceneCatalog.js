@@ -744,6 +744,7 @@ const LOCATION_CATALOG = {
           cutRatio: 0.25,
           cutDepthByFace: { left: 0.2, right: 0.27, front: 0.27, back: 0.25, top: 0.33, bottom: 0.25 },
           cutDepthLockedByFace: { left: true, right: true, front: true, back: true, top: true, bottom: true },
+          cutawayMode: 'box',
         }),
       }),
       createIndoorScene('main-hall', 'Main Hall', resolveManifestAsset('main-hall', 'glb', './Indoors.glb'), {

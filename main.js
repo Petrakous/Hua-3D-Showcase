@@ -1,5 +1,5 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261002floors1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261003iosgpu3";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261003iossafe1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261003iossafe1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002camera1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor5";
 import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002mapflip1";
@@ -119,6 +119,9 @@ const timeStageAngles = {
 const clayColor = [0.86, 0.89, 0.92, 1];
 const isMobileDevice =
   /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isIosDevice =
+  /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const deviceMemory = Number.isFinite(navigator.deviceMemory) ? navigator.deviceMemory : null;
 const hardwareConcurrency = Number.isFinite(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : null;
@@ -2220,7 +2223,42 @@ function getEffectiveSogMode(asset) {
   // A culling/collision box is useful for indoor walk mode, but it is not a
   // prerequisite for loading a streamed SOG. Outdoor scenes can start in fly
   // mode from the current orbit camera without one.
+  if (shouldUseMobileStreamingFallback(asset)) {
+    return "streamed";
+  }
+
   return activeSogMode === "streamed" && asset.streamingSource ? "streamed" : "classic";
+}
+
+function shouldUseMobileStreamingFallback(asset) {
+  if (!isMobileDevice || !asset?.streamingSource) {
+    return false;
+  }
+
+  return !Object.values(asset.performanceSources || {}).some(Boolean);
+}
+
+function applyIosSafeCutaway(asset) {
+  if (
+    !isIosDevice ||
+    !asset ||
+    asset.type !== "splat" ||
+    asset.streamingEnabled ||
+    asset.manualBox?.cutawayMode !== "outline"
+  ) {
+    return asset;
+  }
+
+  const manualBox = cloneManualBoxConfig(asset.manualBox);
+  return {
+    ...asset,
+    manualBox: {
+      ...manualBox,
+      cutawayMode: "box",
+      outline: null,
+    },
+    iosOutlineFallback: true,
+  };
 }
 
 function finalizeSogAsset(asset) {
@@ -2228,11 +2266,16 @@ function finalizeSogAsset(asset) {
     return asset;
   }
 
+  const mobileStreamingFallback = shouldUseMobileStreamingFallback(asset);
   const nextAsset = getEffectiveSogMode(asset) === "streamed"
     ? selectStreamingSogAsset(asset)
     : selectPerformanceSogAsset(asset);
 
-  return applyCalibrationOverrideToAsset(nextAsset);
+  const calibratedAsset = applyCalibrationOverrideToAsset(nextAsset);
+  return applyIosSafeCutaway({
+    ...calibratedAsset,
+    mobileStreamingFallback,
+  });
 }
 
 function getActiveAssetDescriptor() {
@@ -3111,7 +3154,7 @@ function renderSogModeMarkers() {
     asset?.runtime === "playcanvas" &&
     asset?.fileFormat === "sog";
   const shouldShowModeControl =
-    isSogActive && !!asset?.streamingSource;
+    isSogActive && !!asset?.streamingSource && !asset?.mobileStreamingFallback;
 
   sogModeControl.hidden = !shouldShowModeControl;
 
