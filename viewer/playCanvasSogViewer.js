@@ -4155,10 +4155,13 @@ class PlayCanvasSogViewer {
         this.firstPersonTransitionPending = false;
         this.startFirstPersonNavigation(this.pc);
         await this.waitForStreamingInitialReady(asset, generation, onState);
-      } else {
-        await this.waitForInitialRender(asset, generation, onState);
       }
-      
+
+      // A same-key load is an in-place LOD replacement. The existing camera
+      // and viewer have already produced a visible scene, while the WebGL
+      // framebuffer can legitimately be clear during the resource swap. Do
+      // not apply the first-scene pixel gate here: it can hold a completed LOD
+      // download at 92% even though the next normal frame will display it.
       this.app.renderNextFrame = true;
       return;
     }
