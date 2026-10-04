@@ -4,7 +4,7 @@ import { FirstPersonNavigationController } from "./fpNavigation.js?v=20261002spa
 import { MAX_CUTAWAY_OUTLINE_VERTICES, MAX_SPLAT_EXCLUSION_BOXES, MAX_SPLAT_PATCHES, buildPaddedOutlineVertices, cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./cutawayOutline.js?v=20261002editor5";
 import { logger } from "./logger.js";
 
-const PLAYCANVAS_CDN = "https://cdn.jsdelivr.net/npm/playcanvas@2.20.1/+esm";
+const PLAYCANVAS_CDN = "../vendor/playcanvas-2.20.1.mjs";
 const CANVAS_PIXEL_BUDGET = {
   desktop: 2073600, // Max 1920 * 1080 pixels (Full HD)
   mobile: 1024000,  // Max 1280 * 800 pixels (HD-ish)
