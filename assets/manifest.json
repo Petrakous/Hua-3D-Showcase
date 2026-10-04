@@ -845,6 +845,14 @@
           "r2Key": "assets/indoors/geo-entrance/sog/source.sog"
         },
         {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Geo Entrance/generated_lods",
+          "assetPath": "assets/indoors/geo-entrance/generated_lods",
+          "r2Key": "assets/indoors/geo-entrance/generated_lods"
+        },
+        {
           "id": "streamed",
           "role": "streamed",
           "type": "tree",
@@ -879,6 +887,14 @@
           "localSource": "PLYs/PC Lab/source.sog",
           "assetPath": "assets/dit/pc-lab/sog/source.sog",
           "r2Key": "assets/dit/pc-lab/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/PC Lab/generated_lods",
+          "assetPath": "assets/dit/pc-lab/generated_lods",
+          "r2Key": "assets/dit/pc-lab/generated_lods"
         },
         {
           "id": "streamed",
@@ -917,6 +933,14 @@
           "r2Key": "assets/indoors/library/sog/source.sog"
         },
         {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Library/generated_lods",
+          "assetPath": "assets/indoors/library/generated_lods",
+          "r2Key": "assets/indoors/library/generated_lods"
+        },
+        {
           "id": "streamed",
           "role": "streamed",
           "type": "tree",
@@ -951,6 +975,14 @@
           "localSource": "PLYs/Ceremonial Hall/source.sog",
           "assetPath": "assets/indoors/ceremonial-hall/sog/source.sog",
           "r2Key": "assets/indoors/ceremonial-hall/sog/source.sog"
+        },
+        {
+          "id": "generated-lods",
+          "role": "generated-lods",
+          "type": "tree",
+          "localSource": "PLYs/Ceremonial Hall/generated_lods",
+          "assetPath": "assets/indoors/ceremonial-hall/generated_lods",
+          "r2Key": "assets/indoors/ceremonial-hall/generated_lods"
         },
         {
           "id": "streamed",

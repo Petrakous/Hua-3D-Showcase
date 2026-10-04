@@ -2172,7 +2172,12 @@ function selectPerformanceSogAsset(asset) {
     return asset;
   }
 
-  const tier = selectionPreferences.lodTier || autoPerformanceProfile.tier;
+  // These newer scenes already run well at full quality on desktop. Keep their
+  // existing source SOG as the initial desktop view while mobile devices use
+  // the generated performance ladder. Manual desktop tier changes still work.
+  const tier = asset.preferMaxOnDesktop && !isMobileDevice
+    ? "lod0"
+    : (selectionPreferences.lodTier || autoPerformanceProfile.tier);
   const performanceSources = asset.performanceSources || {};
   let nextSrc = asset.src;
   let performanceTier = "lod0";

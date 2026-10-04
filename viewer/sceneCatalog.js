@@ -202,6 +202,7 @@ function createSplatAsset(src, options = {}) {
     viewPreset: options.viewPreset || null,
     fpViewPreset: options.fpViewPreset || null,
     performanceSources: options.performanceSources || null,
+    preferMaxOnDesktop: options.preferMaxOnDesktop === true,
     streamingSource: options.streamingSource || null,
     fpCollisionSource: options.fpCollisionSource || null,
     fpCollisionStrategy: options.fpCollisionStrategy || null,
@@ -295,6 +296,7 @@ function createIndoorScene(id, label, glbSrc = null, sogOptions = null) {
           sog: createSogAsset(sogOptions.src, {
             manualBox: sogOptions.manualBox || null,
             performanceSources: sogOptions.performanceSources || null,
+            preferMaxOnDesktop: sogOptions.preferMaxOnDesktop === true,
             streamingSource: sogOptions.streamingSource || null,
             streamingRotation: sogOptions.streamingRotation || null,
             rotationDegrees: sogOptions.rotationDegrees,
@@ -611,6 +613,8 @@ const LOCATION_CATALOG = {
       createIndoorScene('geo-entrance', 'GEO Entrance', null, {
         src: resolveManifestAsset('geo-entrance', 'sog-source', './PLYs/Geo Entrance/source.sog'),
         thumbnail: './assets/thumbnails/geo-entrance.webp',
+        performanceSources: createManifestSogPerformanceSources('geo-entrance', 'Geo Entrance'),
+        preferMaxOnDesktop: true,
         streamingSource: createManifestSogStreamingSource('geo-entrance', 'Geo Entrance'),
         fpCollisionSource: resolveManifestAsset('geo-entrance', 'collision', './collision-assets/geo-entrance/collision.glb'),
         fpCollisionStrategy: 'mesh',
@@ -628,6 +632,8 @@ const LOCATION_CATALOG = {
       createIndoorScene('ceremonial-hall', 'Ceremonial Hall', null, {
         src: resolveManifestAsset('ceremonial-hall', 'sog-source', './PLYs/Ceremonial Hall/source.sog'),
         thumbnail: './assets/thumbnails/ceremonial-hall.webp',
+        performanceSources: createManifestSogPerformanceSources('ceremonial-hall', 'Ceremonial Hall'),
+        preferMaxOnDesktop: true,
         streamingSource: createManifestSogStreamingSource('ceremonial-hall', 'Ceremonial Hall'),
         fpCollisionSource: resolveManifestAsset('ceremonial-hall', 'collision', './collision-assets/ceremonial-hall/collision.glb'),
         fpCollisionStrategy: 'mesh',
@@ -652,6 +658,8 @@ const LOCATION_CATALOG = {
       createIndoorScene('library', 'Library', null, {
         src: resolveManifestAsset('library', 'sog-source', './PLYs/Library/source.sog'),
         thumbnail: './assets/thumbnails/library.webp',
+        performanceSources: createManifestSogPerformanceSources('library', 'Library'),
+        preferMaxOnDesktop: true,
         streamingSource: createManifestSogStreamingSource('library', 'Library'),
         fpCollisionSource: resolveManifestAsset('library', 'collision', './collision-assets/library/collision.glb'),
         fpCollisionStrategy: 'mesh',
@@ -782,6 +790,8 @@ const LOCATION_CATALOG = {
       createIndoorScene('pc-lab', 'PC Lab', null, {
         src: resolveManifestAsset('pc-lab', 'sog-source', './PLYs/PC Lab/source.sog'),
         thumbnail: './assets/thumbnails/pc-lab.webp',
+        performanceSources: createManifestSogPerformanceSources('pc-lab', 'PC Lab'),
+        preferMaxOnDesktop: true,
         streamingSource: createManifestSogStreamingSource('pc-lab', 'PC Lab'),
         fpCollisionSource: resolveManifestAsset('pc-lab', 'collision', './collision-assets/pc-lab/collision.glb'),
         fpCollisionStrategy: 'mesh',
