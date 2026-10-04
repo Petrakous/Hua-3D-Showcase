@@ -11,6 +11,7 @@ const CANVAS_PIXEL_BUDGET = {
 };
 const ORBIT_DAMPING_DECAY_MS = 140;
 const CUTAWAY_DAMPING_DECAY_MS = 110;
+const FLOOR_VISIBILITY_DAMPING_DECAY_MS = 85;
 const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const DEFAULT_ORBIT_MIN_DISTANCE = 0.2;
@@ -20,7 +21,10 @@ const STREAMING_STALL_WARNING_MS = 9000;
 const STREAMING_SAFE_REMAINING_LOADS = 16;
 const STREAMING_SAFE_READY_FRAMES = 2;
 const STREAMING_MIN_READY_MS = 2500;
-const ASSET_LOAD_TIMEOUT_MS = 45000;
+// SOG downloads have no fixed total deadline. Only fail when the transfer has
+// made no progress for two full minutes, so slow but active connections can
+// keep loading for as long as they need.
+const ASSET_LOAD_STALL_TIMEOUT_MS = 120000;
 const VIEWER_INIT_TIMEOUT_MS = 20000;
 const IOS_CONTEXT_RELEASE_EVENT_TIMEOUT_MS = 250;
 const IOS_CONTEXT_RELEASE_SETTLE_MS = 180;
@@ -142,8 +146,11 @@ function createUnrolledGlslMat4Accessor(returnType, functionName, uniformPrefix,
       `  if (index == ${index}) return ${uniformPrefix}${matrixIndex}[${columnIndex}]${component};`
     );
   }
-  return `${returnType} ${functionName}(int index) {\n${lines.join("\n")}\n  return ${uniformPrefix}5[3]${component};\n}`;
+  const lastMatrixIndex = Math.ceil(MAX_CUTAWAY_OUTLINE_VERTICES / 4) - 1;
+  return `${returnType} ${functionName}(int index) {\n${lines.join("\n")}\n  return ${uniformPrefix}${lastMatrixIndex}[3]${component};\n}`;
 }
+
+const CUTAWAY_OUTLINE_MATRIX_COUNT = Math.ceil(MAX_CUTAWAY_OUTLINE_VERTICES / 4);
 
 // Avoid dynamic matrix-column indexing in the WebGL shader. Although legal in
 // GLSL ES 3.00, this path is unreliable on iOS/Apple GPU drivers when used in
@@ -187,18 +194,24 @@ uniform mat4 cutawayOutlineVertices2;
 uniform mat4 cutawayOutlineVertices3;
 uniform mat4 cutawayOutlineVertices4;
 uniform mat4 cutawayOutlineVertices5;
+uniform mat4 cutawayOutlineVertices6;
+uniform mat4 cutawayOutlineVertices7;
 uniform mat4 cutawayOutlineEdgeSettings0;
 uniform mat4 cutawayOutlineEdgeSettings1;
 uniform mat4 cutawayOutlineEdgeSettings2;
 uniform mat4 cutawayOutlineEdgeSettings3;
 uniform mat4 cutawayOutlineEdgeSettings4;
 uniform mat4 cutawayOutlineEdgeSettings5;
+uniform mat4 cutawayOutlineEdgeSettings6;
+uniform mat4 cutawayOutlineEdgeSettings7;
 uniform mat4 cutawayOutlineEdgeSlopes0;
 uniform mat4 cutawayOutlineEdgeSlopes1;
 uniform mat4 cutawayOutlineEdgeSlopes2;
 uniform mat4 cutawayOutlineEdgeSlopes3;
 uniform mat4 cutawayOutlineEdgeSlopes4;
 uniform mat4 cutawayOutlineEdgeSlopes5;
+uniform mat4 cutawayOutlineEdgeSlopes6;
+uniform mat4 cutawayOutlineEdgeSlopes7;
 uniform vec3 cutawayOutlineCameraLocal;
 uniform float cutawayOutlineFloorY;
 uniform float cutawayOutlineCeilingY;
@@ -465,18 +478,24 @@ uniform cutawayOutlineVertices2: mat4x4f;
 uniform cutawayOutlineVertices3: mat4x4f;
 uniform cutawayOutlineVertices4: mat4x4f;
 uniform cutawayOutlineVertices5: mat4x4f;
+uniform cutawayOutlineVertices6: mat4x4f;
+uniform cutawayOutlineVertices7: mat4x4f;
 uniform cutawayOutlineEdgeSettings0: mat4x4f;
 uniform cutawayOutlineEdgeSettings1: mat4x4f;
 uniform cutawayOutlineEdgeSettings2: mat4x4f;
 uniform cutawayOutlineEdgeSettings3: mat4x4f;
 uniform cutawayOutlineEdgeSettings4: mat4x4f;
 uniform cutawayOutlineEdgeSettings5: mat4x4f;
+uniform cutawayOutlineEdgeSettings6: mat4x4f;
+uniform cutawayOutlineEdgeSettings7: mat4x4f;
 uniform cutawayOutlineEdgeSlopes0: mat4x4f;
 uniform cutawayOutlineEdgeSlopes1: mat4x4f;
 uniform cutawayOutlineEdgeSlopes2: mat4x4f;
 uniform cutawayOutlineEdgeSlopes3: mat4x4f;
 uniform cutawayOutlineEdgeSlopes4: mat4x4f;
 uniform cutawayOutlineEdgeSlopes5: mat4x4f;
+uniform cutawayOutlineEdgeSlopes6: mat4x4f;
+uniform cutawayOutlineEdgeSlopes7: mat4x4f;
 uniform cutawayOutlineCameraLocal: vec3f;
 uniform cutawayOutlineFloorY: f32;
 uniform cutawayOutlineCeilingY: f32;
@@ -498,7 +517,9 @@ fn getCutawayOutlineVertex(index: i32) -> vec4f {
   if (index < 12) { return uniform.cutawayOutlineVertices2[index - 8]; }
   if (index < 16) { return uniform.cutawayOutlineVertices3[index - 12]; }
   if (index < 20) { return uniform.cutawayOutlineVertices4[index - 16]; }
-  return uniform.cutawayOutlineVertices5[index - 20];
+  if (index < 24) { return uniform.cutawayOutlineVertices5[index - 20]; }
+  if (index < 28) { return uniform.cutawayOutlineVertices6[index - 24]; }
+  return uniform.cutawayOutlineVertices7[index - 28];
 }
 
 fn getCutawayOutlineEdgeSettings(index: i32) -> vec4f {
@@ -507,7 +528,9 @@ fn getCutawayOutlineEdgeSettings(index: i32) -> vec4f {
   if (index < 12) { return uniform.cutawayOutlineEdgeSettings2[index - 8]; }
   if (index < 16) { return uniform.cutawayOutlineEdgeSettings3[index - 12]; }
   if (index < 20) { return uniform.cutawayOutlineEdgeSettings4[index - 16]; }
-  return uniform.cutawayOutlineEdgeSettings5[index - 20];
+  if (index < 24) { return uniform.cutawayOutlineEdgeSettings5[index - 20]; }
+  if (index < 28) { return uniform.cutawayOutlineEdgeSettings6[index - 24]; }
+  return uniform.cutawayOutlineEdgeSettings7[index - 28];
 }
 
 fn getCutawayOutlineEdgeSlope(index: i32) -> f32 {
@@ -516,7 +539,9 @@ fn getCutawayOutlineEdgeSlope(index: i32) -> f32 {
   if (index < 12) { return uniform.cutawayOutlineEdgeSlopes2[index - 8].x; }
   if (index < 16) { return uniform.cutawayOutlineEdgeSlopes3[index - 12].x; }
   if (index < 20) { return uniform.cutawayOutlineEdgeSlopes4[index - 16].x; }
-  return uniform.cutawayOutlineEdgeSlopes5[index - 20].x;
+  if (index < 24) { return uniform.cutawayOutlineEdgeSlopes5[index - 20].x; }
+  if (index < 28) { return uniform.cutawayOutlineEdgeSlopes6[index - 24].x; }
+  return uniform.cutawayOutlineEdgeSlopes7[index - 28].x;
 }
 
 fn getCutawayOutlineVisibility(worldPoint: vec3f) -> f32 {
@@ -532,7 +557,7 @@ fn getCutawayOutlineVisibility(worldPoint: vec3f) -> f32 {
   var nearestCeilingY = uniform.cutawayOutlineCeilingY;
   var levelStartIndex: i32 = 0;
 
-  for (var index: i32 = 0; index < 24; index += 1) {
+  for (var index: i32 = 0; index < ${MAX_CUTAWAY_OUTLINE_VERTICES}; index += 1) {
     if (index >= count) { break; }
     let packedStart = getCutawayOutlineVertex(index);
     let edgeSettings = getCutawayOutlineEdgeSettings(index);
@@ -1206,6 +1231,10 @@ class PlayCanvasSogViewer {
     this.autoRotate = false;
     this.cutawayEnabled = true;
     this.floorVisibility = { mode: "both", splitY: 0, fadeWidth: 0.06 };
+    this.floorVisibilityWeights = { lower: 0, upper: 0 };
+    this.floorVisibilityAnimationFrameId = null;
+    this.floorVisibilityAnimationLastTime = 0;
+    this.floorVisibilityCameraOffset = [0, 0, 0];
     this.activeManualBoxConfig = null;
     this.activeFpCollisionBoxConfig = null;
     this.currentCutawayBoxConfig = null;
@@ -2921,13 +2950,134 @@ class PlayCanvasSogViewer {
         ? this.createOutlineWorldMatrix(pc, outline).invert()
         : this.splatEntity.getWorldTransform().clone().invert();
     }
-    const mode = this.floorVisibility?.mode;
     return {
       worldToLocal,
-      weights: [mode === "lower" ? 1 : 0, mode === "upper" ? 1 : 0],
+      weights: [
+        this.floorVisibilityWeights?.lower || 0,
+        this.floorVisibilityWeights?.upper || 0,
+      ],
       splitY: Number.isFinite(this.floorVisibility?.splitY) ? this.floorVisibility.splitY : 0,
       fadeWidth: Math.max(0.001, Number(this.floorVisibility?.fadeWidth) || 0.06),
     };
+  }
+
+  getFloorVisibilityTargetWeights() {
+    return {
+      lower: this.floorVisibility?.mode === "lower" ? 1 : 0,
+      upper: this.floorVisibility?.mode === "upper" ? 1 : 0,
+    };
+  }
+
+  updateFloorVisibilityAnimation(deltaSeconds = 0) {
+    const target = this.getFloorVisibilityTargetWeights();
+    const current = this.floorVisibilityWeights || { lower: 0, upper: 0 };
+    const deltaMs = Math.max(0, deltaSeconds * 1000);
+    const alpha = deltaMs > 0
+      ? 1 - Math.exp(-deltaMs / FLOOR_VISIBILITY_DAMPING_DECAY_MS)
+      : 0;
+    const next = {
+      lower: Math.abs(target.lower - current.lower) < 0.001
+        ? target.lower
+        : current.lower + (target.lower - current.lower) * alpha,
+      upper: Math.abs(target.upper - current.upper) < 0.001
+        ? target.upper
+        : current.upper + (target.upper - current.upper) * alpha,
+    };
+    this.floorVisibilityWeights = next;
+    return next.lower !== target.lower || next.upper !== target.upper;
+  }
+
+  cancelFloorVisibilityAnimation() {
+    if (this.floorVisibilityAnimationFrameId !== null) {
+      cancelAnimationFrame(this.floorVisibilityAnimationFrameId);
+      this.floorVisibilityAnimationFrameId = null;
+    }
+    this.floorVisibilityAnimationLastTime = 0;
+  }
+
+  startFloorVisibilityAnimation() {
+    this.cancelFloorVisibilityAnimation();
+    if (!this.app || !this.pc || !this.splatEntity) return;
+
+    const app = this.app;
+    const pc = this.pc;
+    const step = (timestamp) => {
+      if (this.app !== app || !this.splatEntity) {
+        this.cancelFloorVisibilityAnimation();
+        return;
+      }
+      const previous = this.floorVisibilityAnimationLastTime || timestamp - 16.67;
+      this.floorVisibilityAnimationLastTime = timestamp;
+      const deltaSeconds = Math.min(0.05, Math.max(0.001, (timestamp - previous) / 1000));
+      this.syncCutawayState(pc, { deltaSeconds });
+      app.renderNextFrame = true;
+
+      const target = this.getFloorVisibilityTargetWeights();
+      const current = this.floorVisibilityWeights;
+      const settled = Math.abs(target.lower - current.lower) < 0.001
+        && Math.abs(target.upper - current.upper) < 0.001;
+      if (settled) {
+        this.floorVisibilityWeights = target;
+        this.syncCutawayState(pc, { immediate: true });
+        this.floorVisibilityAnimationFrameId = null;
+        this.floorVisibilityAnimationLastTime = 0;
+        return;
+      }
+      this.floorVisibilityAnimationFrameId = requestAnimationFrame(step);
+    };
+
+    this.floorVisibilityAnimationFrameId = requestAnimationFrame(step);
+  }
+
+  updateFloorCameraTarget(config = {}) {
+    if (!this.pc || !this.splatEntity || !this.goalOrbitState?.target || this.currentAsset?.streamingEnabled) {
+      return;
+    }
+
+    const levels = Array.isArray(config.levels)
+      ? [...config.levels].sort((left, right) => (left.floorY || 0) - (right.floorY || 0))
+      : [];
+    const previousOffset = this.floorVisibilityCameraOffset || [0, 0, 0];
+    const baseTarget = this.goalOrbitState.target.clone();
+    baseTarget.x -= previousOffset[0];
+    baseTarget.y -= previousOffset[1];
+    baseTarget.z -= previousOffset[2];
+
+    let nextOffset = [0, 0, 0];
+    if (levels.length >= 2 && ["lower", "upper"].includes(this.floorVisibility?.mode)) {
+      const outline = cloneCutawayOutline(this.activeManualBoxConfig?.outline);
+      const worldMatrix = outline
+        ? this.createOutlineWorldMatrix(this.pc, outline)
+        : this.splatEntity.getWorldTransform().clone();
+      const allFloorY = Math.min(...levels.map((level) => Number(level.floorY) || 0));
+      const allCeilingY = Math.max(...levels.map((level) => Number(level.ceilingY) || 0));
+      const selectedLevel = this.floorVisibility.mode === "upper" ? levels[levels.length - 1] : levels[0];
+      const allCenter = worldMatrix.transformPoint(
+        new this.pc.Vec3(0, (allFloorY + allCeilingY) * 0.5, 0),
+        new this.pc.Vec3()
+      );
+      const selectedCenter = worldMatrix.transformPoint(
+        new this.pc.Vec3(
+          0,
+          ((Number(selectedLevel.floorY) || 0) + (Number(selectedLevel.ceilingY) || 0)) * 0.5,
+          0
+        ),
+        new this.pc.Vec3()
+      );
+      nextOffset = [
+        selectedCenter.x - allCenter.x,
+        selectedCenter.y - allCenter.y,
+        selectedCenter.z - allCenter.z,
+      ];
+    }
+
+    this.goalOrbitState.target.set(
+      baseTarget.x + nextOffset[0],
+      baseTarget.y + nextOffset[1],
+      baseTarget.z + nextOffset[2]
+    );
+    this.floorVisibilityCameraOffset = nextOffset;
+    if (this.app) this.app.renderNextFrame = true;
   }
 
   setFloorVisibilityShaderParameters(gsplat, pc, state = null) {
@@ -2945,11 +3095,34 @@ class PlayCanvasSogViewer {
       splitY: Number.isFinite(config.splitY) ? config.splitY : 0,
       fadeWidth: Math.max(0.001, Number(config.fadeWidth) || 0.06),
     };
+    if (!this.app) {
+      this.floorVisibilityWeights = this.getFloorVisibilityTargetWeights();
+    }
     if (this.app && this.splatEntity && this.pc) {
+      this.updateFloorCameraTarget(config);
       this.syncCutawayState(this.pc, { immediate: true });
       this.syncSplatPatchEntities();
+      this.startFloorVisibilityAnimation();
       this.app.renderNextFrame = true;
     }
+  }
+
+  syncSplatPatchFloorVisibility(pc, state = null) {
+    const floorVisibility = state || this.getFloorVisibilityShaderState(pc);
+    for (const entity of this.splatPatchEntities) {
+      if (entity?.enabled) {
+        this.setFloorVisibilityShaderParameters(entity.gsplat, pc, floorVisibility);
+      }
+    }
+  }
+
+  markCutawayWorkBuffersDirty(pc, gsplat = this.splatEntity?.gsplat) {
+    const updateOnce = pc?.WORKBUFFER_UPDATE_ONCE ?? 1;
+    if (gsplat) gsplat.workBufferUpdate = updateOnce;
+    for (const entity of this.splatPatchEntities) {
+      if (entity?.enabled && entity.gsplat) entity.gsplat.workBufferUpdate = updateOnce;
+    }
+    if (this.app) this.app.renderNextFrame = true;
   }
 
   syncSplatPatchEntities() {
@@ -3198,7 +3371,7 @@ class PlayCanvasSogViewer {
       );
       gsplat.setParameter("cutawayOutlineWorldToLocal", worldToLocal.data);
       gsplat.setParameter("cutawayOutlineVertexCount", packedVertexCount);
-      for (let matrixIndex = 0; matrixIndex < 6; matrixIndex += 1) {
+      for (let matrixIndex = 0; matrixIndex < CUTAWAY_OUTLINE_MATRIX_COUNT; matrixIndex += 1) {
         gsplat.setParameter(
           `cutawayOutlineVertices${matrixIndex}`,
           packedVertices.subarray(matrixIndex * 16, matrixIndex * 16 + 16)
@@ -3424,11 +3597,14 @@ class PlayCanvasSogViewer {
 
     const immediate = !!options.immediate;
     const deltaMs = Math.max((options.deltaSeconds || 0) * 1000, 0);
+    const floorVisibilityAnimating = this.updateFloorVisibilityAnimation(options.deltaSeconds || 0);
+    this.syncSplatPatchFloorVisibility(pc);
 
     if (!this.activeManualBoxConfig) {
       this.currentCutawayBoxConfig = null;
       this.setCutawayParameters(pc, gsplat, null, false, options);
       this.ensureCutawayModifier(gsplat);
+      if (floorVisibilityAnimating || immediate) this.markCutawayWorkBuffersDirty(pc, gsplat);
       if (this.app) {
         this.app.renderNextFrame = true;
       }
@@ -3439,6 +3615,7 @@ class PlayCanvasSogViewer {
       this.currentCutawayBoxConfig = null;
       this.setCutawayParameters(pc, gsplat, this.activeManualBoxConfig, false, options);
       this.ensureCutawayModifier(gsplat);
+      if (floorVisibilityAnimating || immediate) this.markCutawayWorkBuffersDirty(pc, gsplat);
       if (this.app) this.app.renderNextFrame = true;
       return;
     }
@@ -3459,7 +3636,8 @@ class PlayCanvasSogViewer {
     // mobile GPUs the modifier can otherwise execute with only a partially
     // populated outline parameter set during the first frame.
     this.ensureCutawayModifier(gsplat);
-    if (this.app && (shouldContinueSmoothing || outlineSmoothingActive || immediate)) {
+    if (floorVisibilityAnimating || immediate) this.markCutawayWorkBuffersDirty(pc, gsplat);
+    if (this.app && (shouldContinueSmoothing || outlineSmoothingActive || floorVisibilityAnimating || immediate)) {
       this.app.renderNextFrame = true;
     }
   }
@@ -3938,8 +4116,38 @@ class PlayCanvasSogViewer {
       url: asset.src,
     });
 
-    const loadPromise = new Promise((resolve, reject) => {
-      splatAsset.on("progress", (received, total) => {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let stallTimeoutId = null;
+
+      const cleanup = () => {
+        if (stallTimeoutId) clearTimeout(stallTimeoutId);
+        splatAsset.off("progress", handleProgress);
+        splatAsset.off("load", handleLoad);
+        splatAsset.off("error", handleError);
+      };
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback(value);
+      };
+      const resetStallTimeout = () => {
+        if (stallTimeoutId) clearTimeout(stallTimeoutId);
+        stallTimeoutId = setTimeout(() => {
+          const timeoutError = new Error(
+            `SOG download stopped making progress: ${asset.streamingEnabled ? "streamed scene data" : asset.src}`
+          );
+          timeoutError.details = {
+            source: asset.src,
+            streamed: !!asset.streamingEnabled,
+            stalled_ms: ASSET_LOAD_STALL_TIMEOUT_MS,
+          };
+          finish(reject, timeoutError);
+        }, ASSET_LOAD_STALL_TIMEOUT_MS);
+      };
+      const handleProgress = (received, total) => {
+        resetStallTimeout();
         if (!total || !this.isLoadCurrent(generation)) {
           return;
         }
@@ -3957,9 +4165,9 @@ class PlayCanvasSogViewer {
             streamed: !!asset.streamingEnabled,
           },
         });
-      });
-      splatAsset.on("load", () => resolve(splatAsset));
-      splatAsset.on("error", (error) => {
+      };
+      const handleLoad = () => finish(resolve, splatAsset);
+      const handleError = (error) => {
         const detail = getPlayCanvasAssetErrorDetail(error);
         const loadError = new Error(`Failed to load SOG asset: ${asset.streamingEnabled ? "streamed scene data" : asset.src} (${detail})`);
         loadError.details = {
@@ -3967,21 +4175,16 @@ class PlayCanvasSogViewer {
           streamed: !!asset.streamingEnabled,
           detail,
         };
-        reject(loadError);
-      });
+        finish(reject, loadError);
+      };
+
+      splatAsset.on("progress", handleProgress);
+      splatAsset.on("load", handleLoad);
+      splatAsset.on("error", handleError);
       app.assets.add(splatAsset);
+      resetStallTimeout();
       app.assets.load(splatAsset);
     });
-
-    return withTimeout(
-      loadPromise,
-      ASSET_LOAD_TIMEOUT_MS,
-      `Timed out while loading SOG asset: ${asset.streamingEnabled ? "streamed scene data" : asset.src}`,
-      {
-        source: asset.src,
-        streamed: !!asset.streamingEnabled,
-      }
-    );
   }
 
   waitForInitialRender(asset, generation, onState) {
@@ -4516,6 +4719,7 @@ class PlayCanvasSogViewer {
     this.disposed = true;
     this.stopAutoRotate();
     this.stopFirstPersonNavigation();
+    this.cancelFloorVisibilityAnimation();
     this.cinematicCameraActive = false;
     this.cinematicPreviousAutoRotate = false;
     this.setPanIndicatorVisible(false);
@@ -4566,6 +4770,8 @@ class PlayCanvasSogViewer {
     this.cutawayOutlineActivationVelocities = [];
     this.cutawayEnabled = true;
     this.floorVisibility = { mode: "both", splitY: 0, fadeWidth: 0.06 };
+    this.floorVisibilityWeights = { lower: 0, upper: 0 };
+    this.floorVisibilityCameraOffset = [0, 0, 0];
     this.defaultOrbitState = null;
     this.streamingState = null;
     this.fpNavigationMode = "walk";
