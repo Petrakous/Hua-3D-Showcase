@@ -1,7 +1,7 @@
 import { computeAutoCutaway } from "./autoCutaway.js?v=20261002editor5";
 import { buildCollisionAdjustedViewPreset, loadMeshCollisionFromGlb, buildMeshCollisionFromEntity } from "./fpCollision.js?v=20260625fp22";
 import { FirstPersonNavigationController } from "./fpNavigation.js?v=20261002spawn1";
-import { MAX_CUTAWAY_OUTLINE_VERTICES, MAX_SPLAT_EXCLUSION_BOXES, MAX_SPLAT_PATCHES, buildPaddedOutlineVertices, cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./cutawayOutline.js?v=20261002editor5";
+import { MAX_CUTAWAY_OUTLINE_VERTICES, MAX_SPLAT_EXCLUSION_BOXES, MAX_SPLAT_PATCHES, buildPaddedOutlineVertices, cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./cutawayOutline.js?v=20261005calibration1";
 import { logger } from "./logger.js";
 
 const PLAYCANVAS_CDN = "../vendor/playcanvas-2.20.1.mjs";
@@ -2317,22 +2317,9 @@ class PlayCanvasSogViewer {
     // Only treat persisted/calibrated camera data as an explicit spawn. For an
     // outdoor streamed scene without one, preserve the camera pose from which
     // the user entered Streamed mode instead of teleporting to [0, 1.6, 0].
-    const hasExplicitSpawn = !!(
-      this.currentAsset?.spawnOverride?.position ||
-      this.currentAsset?.resolvedFpViewPreset?.cameraPosition ||
-      this.currentAsset?.fpViewPreset?.cameraPosition
-    );
-    if (hasExplicitSpawn && !this.spawnEditConfig) {
-      this.initSpawnConfig();
-    }
-    if (hasExplicitSpawn && this.spawnEditConfig) {
+    const spawnOrbitState = this.getFirstPersonSpawnOrbitState(pc);
+    if (spawnOrbitState) {
       const c = this.spawnEditConfig;
-      const spawnOrbitState = {
-        target: new pc.Vec3(c.cameraPosition[0], c.cameraPosition[1], c.cameraPosition[2]),
-        distance: 0.001,
-        yaw: c.yaw,
-        pitch: c.pitch,
-      };
       if (this.camera?.camera && Number.isFinite(c.fov)) {
         this.camera.camera.fov = c.fov;
       }
@@ -2345,6 +2332,52 @@ class PlayCanvasSogViewer {
     this.firstPersonTransitionPending = false;
     this.fpInteractionCommitted = false;
     this.setPanIndicatorVisible(false);
+    if (this.app) {
+      this.app.renderNextFrame = true;
+    }
+  }
+
+  getFirstPersonSpawnOrbitState(pc) {
+    const hasExplicitSpawn = !!(
+      this.currentAsset?.spawnOverride?.position ||
+      this.currentAsset?.resolvedFpViewPreset?.cameraPosition ||
+      this.currentAsset?.fpViewPreset?.cameraPosition
+    );
+    if (!hasExplicitSpawn) {
+      return null;
+    }
+    if (!this.spawnEditConfig) {
+      this.initSpawnConfig();
+    }
+    const c = this.spawnEditConfig;
+    if (!c?.cameraPosition) {
+      return null;
+    }
+    return {
+      target: new pc.Vec3(c.cameraPosition[0], c.cameraPosition[1], c.cameraPosition[2]),
+      distance: 0.001,
+      yaw: c.yaw,
+      pitch: c.pitch,
+    };
+  }
+
+  beginFirstPersonTransition(pc, transitionOrbitState = null) {
+    const startState = this.cloneOrbitState(transitionOrbitState);
+    const targetState = this.getFirstPersonSpawnOrbitState(pc) || this.cloneOrbitState(this.goalOrbitState);
+    if (!startState || !targetState) {
+      this.startFirstPersonNavigation(pc);
+      return;
+    }
+
+    this.firstPersonActive = false;
+    this.orbitState = startState;
+    this.goalOrbitState = targetState;
+    this.firstPersonTransitionPending = true;
+    this.updateCameraOrbit(pc);
+    if (this.isOrbitSettled()) {
+      this.startFirstPersonNavigation(pc);
+      return;
+    }
     if (this.app) {
       this.app.renderNextFrame = true;
     }
@@ -4372,12 +4405,9 @@ class PlayCanvasSogViewer {
 
     const radius = Math.max(halfExtents.length(), 1);
     this.goalOrbitState = this.resolveOrbitState(pc, preparedAsset, splatEntity, center, radius);
-    const transitionOrbitState =
-      preparedAsset.streamingEnabled
-        ? null
-        : preparedAsset.transitionOrbitState
-          ? this.cloneOrbitState(preparedAsset.transitionOrbitState)
-          : null;
+    const transitionOrbitState = preparedAsset.transitionOrbitState
+      ? this.cloneOrbitState(preparedAsset.transitionOrbitState)
+      : null;
     this.orbitState = transitionOrbitState || this.cloneOrbitState(this.goalOrbitState);
     this.defaultOrbitState = this.cloneOrbitState(this.goalOrbitState);
     this.updateCameraOrbit(pc);
@@ -4388,7 +4418,7 @@ class PlayCanvasSogViewer {
     if (preparedAsset.streamingEnabled) {
       this.firstPersonActive = false;
       this.firstPersonTransitionPending = false;
-      this.startFirstPersonNavigation(pc);
+      this.beginFirstPersonTransition(pc, transitionOrbitState);
     } else {
       this.ensureOrbitController(preparedAsset.viewPreset);
     }

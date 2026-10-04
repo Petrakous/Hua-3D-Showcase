@@ -1846,9 +1846,10 @@ body[data-show-time-control="false"] .time-stage-marker:disabled {
   object-position: center;
 }
 
-.intro-branding__cvg {
-  width: 92px;
-  height: 92px;
+.intro-branding__contributor {
+  width: min(280px, 32vw);
+  max-height: 94px;
+  height: auto;
   object-fit: contain;
 }
 
@@ -2440,9 +2441,9 @@ body.is-cinematic-ui-hidden .cinematic-legend {
     max-height: 58px;
   }
 
-  .intro-branding__cvg {
-    width: 72px;
-    height: 72px;
+  .intro-branding__contributor {
+    width: min(220px, 38vw);
+    max-height: 74px;
   }
 
   .intro-branding__divider {
@@ -2841,9 +2842,9 @@ body.is-cinematic-ui-hidden .cinematic-legend {
     width: min(175px, 53vw);
   }
 
-  .intro-branding__cvg {
-    width: 58px;
-    height: 58px;
+  .intro-branding__contributor {
+    width: min(170px, 40vw);
+    max-height: 58px;
   }
 
   .scene-group__heading {
@@ -2910,9 +2911,9 @@ body.is-cinematic-ui-hidden .cinematic-legend {
     max-height: 52px;
   }
 
-  .intro-branding__cvg {
-    width: 64px;
-    height: 64px;
+  .intro-branding__contributor {
+    width: min(170px, 36vw);
+    max-height: 60px;
   }
 
   .intro-branding__divider {
@@ -2968,9 +2969,9 @@ body.is-cinematic-ui-hidden .cinematic-legend {
     max-height: 54px;
   }
 
-  .intro-branding__cvg {
-    width: 62px;
-    height: 62px;
+  .intro-branding__contributor {
+    width: min(185px, 26vw);
+    max-height: 62px;
   }
 
   .intro-branding__divider {

@@ -7,7 +7,7 @@ import {
   getCutawayOutlineLevels,
   normalizeSplatExclusionBoxes,
   normalizeSplatPatches,
-} from "./cutawayOutline.js?v=20261002editor5";
+} from "./cutawayOutline.js?v=20261005calibration1";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 

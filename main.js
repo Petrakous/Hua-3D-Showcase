@@ -1,8 +1,8 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261003outlineprod1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261004visible1";
-import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002camera1";
-import { cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor5";
-import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002mapflip1";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261005calibration1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261005calibration1";
+import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261005calibration1";
+import { cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261005calibration1";
+import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261005calibration1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261001scenes1";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
 import {
@@ -1077,7 +1077,12 @@ function getActiveFloorSceneConfig(asset = currentActiveAsset) {
 
 function updateFloorSelectorUi() {
   const config = getActiveFloorSceneConfig();
-  const shouldShow = !!config && isViewerMode && currentEngineType === "splat";
+  const shouldShow =
+    !!config &&
+    isViewerMode &&
+    currentEngineType === "splat" &&
+    activeSogMode !== "streamed" &&
+    currentActiveAsset?.streamingEnabled !== true;
   floorSelector.hidden = !shouldShow;
   if (!shouldShow) return;
   const sceneId = currentActiveAsset?.sceneId || activeSceneId;
@@ -1247,10 +1252,23 @@ function getCalibrationOverride(asset) {
     return null;
   }
 
-  return (
+  const resolvedOverride = (
     cloneManualBoxConfig(calibrationOverrides[asset.sceneCalibrationKey]) ||
     cloneManualBoxConfig(manualBoxDefaults[asset.sceneCalibrationKey])
   );
+
+  // The PC Lab footprint was re-authored as one coherent outline. Keep any
+  // locally calibrated box/surface settings, but never let an older stored
+  // outline split the newly aligned Edge 3 / Edge 4 boundary again.
+  if (asset.sceneCalibrationKey === "dit:pc-lab" && asset.manualBox?.outline) {
+    return {
+      ...(resolvedOverride || cloneManualBoxConfig(asset.manualBox)),
+      cutawayMode: "outline",
+      outline: cloneCutawayOutline(asset.manualBox.outline),
+    };
+  }
+
+  return resolvedOverride;
 }
 
 function getStreamedTransformOverride(asset) {
@@ -1258,10 +1276,22 @@ function getStreamedTransformOverride(asset) {
     return null;
   }
 
-  return (
-    cloneStreamedTransformConfig(streamedTransformsOverrides[asset.sceneCalibrationKey]) ||
-    cloneStreamedTransformConfig(streamedTransformsDefaults[asset.sceneCalibrationKey])
+  const savedOverride = cloneStreamedTransformConfig(
+    streamedTransformsOverrides[asset.sceneCalibrationKey],
   );
+  const defaultOverride = cloneStreamedTransformConfig(
+    streamedTransformsDefaults[asset.sceneCalibrationKey],
+  );
+
+  if (!defaultOverride) return savedOverride;
+  if (!savedOverride) return defaultOverride;
+
+  // Saved calibration entries are intentionally partial. Merge them by field
+  // so a prior scene adjustment cannot hide a newly supplied spawn/camera.
+  return {
+    ...defaultOverride,
+    ...savedOverride,
+  };
 }
 
 function applyCalibrationOverrideToAsset(asset) {
@@ -4050,6 +4080,7 @@ async function setActiveSogMode(mode) {
       ? sogViewer.getOrbitState?.()
       : null;
   if (mode === "streamed") {
+    setActiveFloorVisibilityMode("both", { syncEditor: false });
     const asset = currentActiveAsset?.type === "splat" ? currentActiveAsset : getActiveAssetDescriptor();
     const { modes } = getFpNavigationModesForAsset(asset);
     if (modes.includes("fly")) {

@@ -1,4 +1,7 @@
-const MAX_CUTAWAY_OUTLINE_VERTICES = 24;
+// Two-floor outlines can already consume 24 vertices (12 per floor). Keep
+// enough headroom for calibration-only edge splits without disabling the
+// editor as soon as both generated floors reach the previous packed limit.
+const MAX_CUTAWAY_OUTLINE_VERTICES = 32;
 const MAX_SPLAT_EXCLUSION_BOXES = 4;
 const MAX_SPLAT_PATCHES = 2;
 

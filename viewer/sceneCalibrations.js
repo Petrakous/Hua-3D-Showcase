@@ -1,10 +1,38 @@
 const SCENE_CALIBRATION_DEFAULTS = {
   streamedTransforms: {
+    "outdoors:day": {
+      spawn: {
+        position: [59.732, 30.427, -0.083],
+        rotationDegrees: [28.82, 89.14, 0],
+      },
+    },
+    "outdoors:dusk": {
+      spawn: {
+        position: [59.732, 30.427, -0.083],
+        rotationDegrees: [28.82, 89.14, 0],
+      },
+    },
+    "outdoors:night": {
+      spawn: {
+        position: [59.732, 30.427, -0.083],
+        rotationDegrees: [28.82, 89.14, 0],
+      },
+    },
+    "dit:dit-main": {
+      spawn: {
+        position: [-33.984, 25.068, 0.201],
+        rotationDegrees: [21.6, -89.36, 0],
+      },
+    },
     "dit:pc-lab": {
       cameraStart: {
         position: [-1.6495630741119385, 6.090278148651123, 10.852523803710938],
         rotationDegrees: [-27.000000505087637, -7.934199929751182, -9.165356183723541e-8],
         scale: [1, 1, 1],
+      },
+      spawn: {
+        position: [-0.085, 0.457, 4.763],
+        rotationDegrees: [9.57, -13.71, 0],
       },
     },
     "indoors:classroom-5": {
@@ -28,8 +56,8 @@ const SCENE_CALIBRATION_DEFAULTS = {
         rotationDegrees: [0, 90, 0],
       },
       cameraStart: {
-        position: [-10.251, 6.432, -10.286],
-        rotationDegrees: [200, -44.8, 0],
+        position: [-11.026, 8.182, -8.498],
+        rotationDegrees: [163.06, -52.84, 180],
         scale: [1, 1, 1],
       },
     },
@@ -48,6 +76,11 @@ const SCENE_CALIBRATION_DEFAULTS = {
         position: [1, 7.5, 17.5],
         rotationDegrees: [0, 0, 0],
       },
+      cameraStart: {
+        position: [-49.084, 42.411, 53.27],
+        rotationDegrees: [-24.805, -41.79, 0],
+        scale: [1, 1, 1],
+      },
     },
     "indoors:amphitheater": {
       scene: {
@@ -63,6 +96,11 @@ const SCENE_CALIBRATION_DEFAULTS = {
       spawn: {
         position: [4.8, 2.8, -8.5],
         rotationDegrees: [3, 180, 0],
+      },
+      cameraStart: {
+        position: [-0.102, 9.845, -20.32],
+        rotationDegrees: [160.78, 0.878, -180],
+        scale: [1, 1, 1],
       },
     },
     "indoors:biology-lab": {
@@ -80,6 +118,11 @@ const SCENE_CALIBRATION_DEFAULTS = {
         position: [7, 3.8, 3],
         rotationDegrees: [0, 50, 0],
       },
+      cameraStart: {
+        position: [16.183, 8.911, 8.041],
+        rotationDegrees: [-18.97, 63.508, 0],
+        scale: [1, 1, 1],
+      },
     },
     "indoors:geo3-3": {
       scene: {
@@ -95,6 +138,11 @@ const SCENE_CALIBRATION_DEFAULTS = {
       spawn: {
         position: [-0.9, 2.2, -3.7],
         rotationDegrees: [0, 170.6, 0],
+      },
+      cameraStart: {
+        position: [-5.953, 6.083, -8.678],
+        rotationDegrees: [160.89, -34.16, 180],
+        scale: [1, 1, 1],
       },
     },
     "indoors:systasis": {
@@ -112,6 +160,11 @@ const SCENE_CALIBRATION_DEFAULTS = {
         position: [1.3, 2, -2.5],
         rotationDegrees: [0, 150, 0],
       },
+      cameraStart: {
+        position: [3.921, 5.56, -5.408],
+        rotationDegrees: [151.41, 35.759, -180],
+        scale: [1, 1, 1],
+      },
     },
     "indoors:fitness": {
       scene: {
@@ -128,11 +181,16 @@ const SCENE_CALIBRATION_DEFAULTS = {
         position: [-2.7, 1.6, 1.7],
         rotationDegrees: [0, -60.7, 0],
       },
+      cameraStart: {
+        position: [-7.26, 5.143, 5.383],
+        rotationDegrees: [-22.41, -55.97, 0],
+        scale: [1, 1, 1],
+      },
     },
     "indoors:metabolism": {
       scene: {
         position: [0, 0, 0],
-        rotationDegrees: [180, 0, 0],
+        rotationDegrees: [0, 0, 0],
         scale: [1, 1, 1],
       },
       collision: {
@@ -145,8 +203,8 @@ const SCENE_CALIBRATION_DEFAULTS = {
         rotationDegrees: [0, 0, 0],
       },
       cameraStart: {
-        position: [-7.152371406555176, 3.3036532402038574, -1.0008203983306885],
-        rotationDegrees: [168.00000126640109, -78.8875566105402, 179.99999991298583],
+        position: [3.94, 4.951, -4.948],
+        rotationDegrees: [154.48, 36.82, -180],
         scale: [1, 1, 1],
       },
     },
@@ -164,6 +222,34 @@ const SCENE_CALIBRATION_DEFAULTS = {
       spawn: {
         position: [0.5, 1.9, -3.2],
         rotationDegrees: [0, 180, 0],
+      },
+    },
+    "indoors:ceremonial-hall": {
+      cameraStart: {
+        position: [-8.088, 2.886, 10.923],
+        rotationDegrees: [-11.544, -36.34, 0],
+        scale: [1, 1, 1],
+      },
+      spawn: {
+        position: [0.071, 0.601, 6.333],
+        rotationDegrees: [6.6, 0.51, 0],
+      },
+    },
+    "indoors:geo-entrance": {
+      spawn: {
+        position: [3.826, -1.806, 0.949],
+        rotationDegrees: [0.55, 46.82, 0],
+      },
+    },
+    "indoors:library": {
+      cameraStart: {
+        position: [4.762, 6.029, -22.91],
+        rotationDegrees: [167.14, 12.924, -180],
+        scale: [1, 1, 1],
+      },
+      spawn: {
+        position: [1.684, -0.417, -8.263],
+        rotationDegrees: [6.05, 142.49, 0],
       },
     },
   },
