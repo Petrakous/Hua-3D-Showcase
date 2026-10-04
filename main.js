@@ -1,5 +1,5 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261003outlineprod1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261003outlinefix1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261004visible1";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261002camera1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261002editor5";
 import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261002mapflip1";
@@ -1587,7 +1587,7 @@ function getFriendlyLoadError(error, asset = currentActiveAsset || getActiveAsse
     return "Explore could not load this space's scene metadata. Check your connection and try again.";
   }
   if (/timeout|timed out|stalled/i.test(message)) {
-    return "This model is taking too long to prepare. You can choose Overview or a lighter quality level without leaving the page.";
+    return "This model is taking too long to prepare. Return to all spaces, then try Overview or a lighter quality level.";
   }
   if (/failed to load|fetch|network|cors|404|403|asset/i.test(message)) {
     return asset?.streamingEnabled

@@ -25,7 +25,16 @@ const VIEWER_INIT_TIMEOUT_MS = 20000;
 const IOS_CONTEXT_RELEASE_EVENT_TIMEOUT_MS = 250;
 const IOS_CONTEXT_RELEASE_SETTLE_MS = 180;
 const IOS_APPLICATION_RETRY_DELAY_MS = 450;
-const INITIAL_RENDER_TIMEOUT_MS = 6000;
+const INITIAL_RENDER_TIMEOUT_MS = 15000;
+const VISIBLE_FRAME_CONFIRMATION_COUNT = 2;
+const VISIBILITY_SAMPLE_BANDS = 9;
+const VISIBILITY_SAMPLE_BAND_HEIGHT = 3;
+const VISIBILITY_ALPHA_THRESHOLD = 4;
+const VISIBILITY_MIN_PIXEL_RATIO = 0.0005;
+const VISIBILITY_MIN_PIXELS = 16;
+const VISIBILITY_MIN_BANDS = 3;
+const VISIBILITY_MIN_BAND_PIXEL_RATIO = 0.005;
+const VISIBILITY_MIN_CENTER_BANDS = 1;
 const AUTO_CUTAWAY_FADE_WIDTH = 0.12;
 const SOG_SPLAT_PATCH_MODIFIER = {
   glsl: `
@@ -1085,6 +1094,99 @@ class SimpleOrbitController {
       } catch {}
     }
   }
+}
+
+function inspectRenderedSogPixels(gl, canvas) {
+  const width = Math.max(0, Math.round(gl?.drawingBufferWidth || canvas?.width || 0));
+  const height = Math.max(0, Math.round(gl?.drawingBufferHeight || canvas?.height || 0));
+  if (!gl?.readPixels || width < 1 || height < 1) {
+    return {
+      supported: false,
+      visible: false,
+      visiblePixels: 0,
+      visibleBands: 0,
+      visibleCenterBands: 0,
+      sampledPixels: 0,
+      requiredPixels: VISIBILITY_MIN_PIXELS,
+      requiredBands: VISIBILITY_MIN_BANDS,
+      requiredCenterBands: VISIBILITY_MIN_CENTER_BANDS,
+    };
+  }
+
+  const bandCount = Math.min(VISIBILITY_SAMPLE_BANDS, height);
+  const bandHeight = Math.min(VISIBILITY_SAMPLE_BAND_HEIGHT, height);
+  const pixels = new Uint8Array(width * bandHeight * 4);
+  const hasAlpha = gl.getContextAttributes?.()?.alpha !== false;
+  let visiblePixels = 0;
+  let visibleBands = 0;
+  let visibleCenterBands = 0;
+  let sampledPixels = 0;
+
+  try {
+    for (let band = 0; band < bandCount; band += 1) {
+      const centerY = Math.floor(((band + 0.5) * height) / bandCount);
+      const y = Math.max(0, Math.min(height - bandHeight, centerY - Math.floor(bandHeight / 2)));
+      gl.readPixels(0, y, width, bandHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+      let bandVisiblePixels = 0;
+      for (let offset = 0; offset < pixels.length; offset += 4) {
+        const alphaVisible = pixels[offset + 3] >= VISIBILITY_ALPHA_THRESHOLD;
+        const colorVisible =
+          Math.abs(pixels[offset] - 8) +
+            Math.abs(pixels[offset + 1] - 13) +
+            Math.abs(pixels[offset + 2] - 18) >=
+          18;
+        if ((hasAlpha && alphaVisible) || (!hasAlpha && colorVisible)) {
+          visiblePixels += 1;
+          bandVisiblePixels += 1;
+        }
+      }
+      const requiredBandPixels = Math.max(
+        8,
+        Math.ceil(width * bandHeight * VISIBILITY_MIN_BAND_PIXEL_RATIO)
+      );
+      if (bandVisiblePixels >= requiredBandPixels) {
+        visibleBands += 1;
+        const centerBandStart = Math.floor(bandCount / 3);
+        const centerBandEnd = Math.ceil((bandCount * 2) / 3);
+        if (band >= centerBandStart && band < centerBandEnd) {
+          visibleCenterBands += 1;
+        }
+      }
+      sampledPixels += width * bandHeight;
+    }
+  } catch (_error) {
+    return {
+      supported: false,
+      visible: false,
+      visiblePixels: 0,
+      visibleBands: 0,
+      visibleCenterBands: 0,
+      sampledPixels,
+      requiredPixels: VISIBILITY_MIN_PIXELS,
+      requiredBands: VISIBILITY_MIN_BANDS,
+      requiredCenterBands: VISIBILITY_MIN_CENTER_BANDS,
+    };
+  }
+
+  const requiredPixels = Math.max(
+    VISIBILITY_MIN_PIXELS,
+    Math.ceil(sampledPixels * VISIBILITY_MIN_PIXEL_RATIO)
+  );
+  return {
+    supported: true,
+    visible:
+      visiblePixels >= requiredPixels &&
+      visibleBands >= VISIBILITY_MIN_BANDS &&
+      visibleCenterBands >= VISIBILITY_MIN_CENTER_BANDS,
+    visiblePixels,
+    visibleBands,
+    visibleCenterBands,
+    sampledPixels,
+    requiredPixels,
+    requiredBands: VISIBILITY_MIN_BANDS,
+    requiredCenterBands: VISIBILITY_MIN_CENTER_BANDS,
+  };
 }
 
 class PlayCanvasSogViewer {
@@ -3526,7 +3628,14 @@ class PlayCanvasSogViewer {
           return;
         }
 
-        this.clearStreamingHandlers();
+        // This handler only owns the temporary coarse-first listener. Calling
+        // clearStreamingHandlers() here also cancelled the independent initial
+        // visibility gate (including its warning and timeout), which could
+        // leave the loading overlay stuck forever on a blank Explore view.
+        if (this.frameReadyHandler && this.app?.systems?.gsplat?.off) {
+          this.app.systems.gsplat.off("frame:ready", this.frameReadyHandler);
+        }
+        this.frameReadyHandler = null;
         this.setStreamingLodRange(
           this.streamingState.targetLodRangeMin,
           this.streamingState.targetLodRangeMax
@@ -3547,12 +3656,13 @@ class PlayCanvasSogViewer {
 
     const app = this.app;
     const state = {
-      assetKey: asset.key || asset.src || "",
       startedAt: (typeof performance !== "undefined" ? performance.now() : Date.now()),
       settled: false,
       sawReadyFrame: false,
       sawPostRender: false,
       readyFrameCount: 0,
+      visibleFrameCount: 0,
+      lastVisibility: null,
       lastLoadingCount: null,
       bestLoadingCount: null,
       cleanupFns: [],
@@ -3604,6 +3714,13 @@ class PlayCanvasSogViewer {
           details: {
             frame_ready: true,
             postrender_seen: true,
+            visible_frames: state.visibleFrameCount,
+            visible_pixels: state.lastVisibility?.visiblePixels ?? null,
+            visible_bands: state.lastVisibility?.visibleBands ?? null,
+            visible_center_bands: state.lastVisibility?.visibleCenterBands ?? null,
+            required_visible_pixels: state.lastVisibility?.requiredPixels ?? null,
+            required_visible_bands: state.lastVisibility?.requiredBands ?? null,
+            required_visible_center_bands: state.lastVisibility?.requiredCenterBands ?? null,
             loading_count: state.lastLoadingCount,
           },
         });
@@ -3621,7 +3738,11 @@ class PlayCanvasSogViewer {
         (typeof performance !== "undefined" ? performance.now() : Date.now()) - state.startedAt;
 
       const isInitialViewSafe = () => {
-        if (!state.sawReadyFrame || !state.sawPostRender) {
+        if (
+          !state.sawReadyFrame ||
+          !state.sawPostRender ||
+          state.visibleFrameCount < VISIBLE_FRAME_CONFIRMATION_COUNT
+        ) {
           return false;
         }
 
@@ -3638,6 +3759,18 @@ class PlayCanvasSogViewer {
 
       const maybeFinish = () => {
         if (isInitialViewSafe()) {
+          logger.info("sog-loader", "Visible streamed SOG render confirmed", {
+            source: asset.src,
+            visible_frames: state.visibleFrameCount,
+            visible_pixels: state.lastVisibility?.visiblePixels ?? null,
+            visible_bands: state.lastVisibility?.visibleBands ?? null,
+            visible_center_bands: state.lastVisibility?.visibleCenterBands ?? null,
+            sampled_pixels: state.lastVisibility?.sampledPixels ?? null,
+            required_visible_pixels: state.lastVisibility?.requiredPixels ?? null,
+            required_visible_bands: state.lastVisibility?.requiredBands ?? null,
+            required_visible_center_bands: state.lastVisibility?.requiredCenterBands ?? null,
+            loading_count: state.lastLoadingCount,
+          });
           finish();
         }
       };
@@ -3680,6 +3813,13 @@ class PlayCanvasSogViewer {
           return;
         }
         state.sawPostRender = true;
+        state.lastVisibility = inspectRenderedSogPixels(app.graphicsDevice?.gl, this.canvas);
+        state.visibleFrameCount = state.lastVisibility.visible
+          ? state.visibleFrameCount + 1
+          : 0;
+        if (state.visibleFrameCount < VISIBLE_FRAME_CONFIRMATION_COUNT) {
+          app.renderNextFrame = true;
+        }
         maybeFinish();
       };
 
@@ -3694,8 +3834,7 @@ class PlayCanvasSogViewer {
           state.settled ||
           this.streamingReadyState !== state ||
           !this.isLoadCurrent(generation) ||
-          this.app !== app ||
-          (this.currentAsset?.key || this.currentAsset?.src || "") !== state.assetKey
+          this.app !== app
         ) {
           return;
         }
@@ -3704,6 +3843,14 @@ class PlayCanvasSogViewer {
           loading_count: state.lastLoadingCount,
           best_loading_count: state.bestLoadingCount,
           ready_frames: state.readyFrameCount,
+          visible_frames: state.visibleFrameCount,
+          visible_pixels: state.lastVisibility?.visiblePixels ?? null,
+          visible_bands: state.lastVisibility?.visibleBands ?? null,
+          visible_center_bands: state.lastVisibility?.visibleCenterBands ?? null,
+          required_visible_pixels: state.lastVisibility?.requiredPixels ?? null,
+          required_visible_bands: state.lastVisibility?.requiredBands ?? null,
+          required_visible_center_bands: state.lastVisibility?.requiredCenterBands ?? null,
+          visibility_probe_supported: state.lastVisibility?.supported ?? null,
           safe_remaining_loads: STREAMING_SAFE_REMAINING_LOADS,
           lod_range_min: this.streamingState?.lodRangeMin ?? null,
           lod_range_max: this.streamingState?.lodRangeMax ?? null,
@@ -3724,8 +3871,7 @@ class PlayCanvasSogViewer {
           state.settled ||
           this.streamingReadyState !== state ||
           !this.isLoadCurrent(generation) ||
-          this.app !== app ||
-          (this.currentAsset?.key || this.currentAsset?.src || "") !== state.assetKey
+          this.app !== app
         ) {
           return;
         }
@@ -3735,6 +3881,14 @@ class PlayCanvasSogViewer {
           loading_count: state.lastLoadingCount,
           best_loading_count: state.bestLoadingCount,
           ready_frames: state.readyFrameCount,
+          visible_frames: state.visibleFrameCount,
+          visible_pixels: state.lastVisibility?.visiblePixels ?? null,
+          visible_bands: state.lastVisibility?.visibleBands ?? null,
+          visible_center_bands: state.lastVisibility?.visibleCenterBands ?? null,
+          required_visible_pixels: state.lastVisibility?.requiredPixels ?? null,
+          required_visible_bands: state.lastVisibility?.requiredBands ?? null,
+          required_visible_center_bands: state.lastVisibility?.requiredCenterBands ?? null,
+          visibility_probe_supported: state.lastVisibility?.supported ?? null,
           safe_remaining_loads: STREAMING_SAFE_REMAINING_LOADS,
           frame_ready: state.sawReadyFrame,
           postrender_seen: state.sawPostRender,
@@ -3808,8 +3962,8 @@ class PlayCanvasSogViewer {
 
     onState?.({
       status: "loading",
-      title: "Preparing first frame",
-      message: "Waiting for the first rendered frame...",
+      title: "Preparing visible model",
+      message: "Waiting for the model to become visible...",
       progress: 0.92,
       details: { source: asset.src },
     });
@@ -3817,6 +3971,8 @@ class PlayCanvasSogViewer {
     return new Promise((resolve, reject) => {
       let settled = false;
       let timeoutId = null;
+      let visibleFrameCount = 0;
+      let lastVisibility = null;
 
       const cleanup = () => {
         app.off("postrender", handlePostRender);
@@ -3851,16 +4007,45 @@ class PlayCanvasSogViewer {
           return;
         }
         if (!this.splatEntity?.gsplat?.resource) {
+          app.renderNextFrame = true;
           return;
         }
-        finish();
+        lastVisibility = inspectRenderedSogPixels(gl, canvas);
+        visibleFrameCount = lastVisibility.visible ? visibleFrameCount + 1 : 0;
+        if (visibleFrameCount >= VISIBLE_FRAME_CONFIRMATION_COUNT) {
+          logger.info("sog-loader", "Visible SOG render confirmed", {
+            source: asset.src,
+            visible_frames: visibleFrameCount,
+            visible_pixels: lastVisibility.visiblePixels,
+            visible_bands: lastVisibility.visibleBands,
+            visible_center_bands: lastVisibility.visibleCenterBands,
+            sampled_pixels: lastVisibility.sampledPixels,
+            required_visible_pixels: lastVisibility.requiredPixels,
+            required_visible_bands: lastVisibility.requiredBands,
+            required_visible_center_bands: lastVisibility.requiredCenterBands,
+          });
+          finish();
+          return;
+        }
+        app.renderNextFrame = true;
       };
 
       app.on("postrender", handlePostRender);
       canvas.addEventListener("webglcontextlost", handleContextLost, { once: true });
       timeoutId = setTimeout(() => {
-        const error = new Error("Timed out while waiting for the first SOG frame.");
-        error.details = { source: asset.src, stage: "initial-render" };
+        const error = new Error("Timed out while waiting for visible SOG pixels.");
+        error.details = {
+          source: asset.src,
+          stage: "visible-render",
+          visible_frames: visibleFrameCount,
+          visible_pixels: lastVisibility?.visiblePixels ?? null,
+          visible_bands: lastVisibility?.visibleBands ?? null,
+          visible_center_bands: lastVisibility?.visibleCenterBands ?? null,
+          required_visible_pixels: lastVisibility?.requiredPixels ?? null,
+          required_visible_bands: lastVisibility?.requiredBands ?? null,
+          required_visible_center_bands: lastVisibility?.requiredCenterBands ?? null,
+          visibility_probe_supported: lastVisibility?.supported ?? null,
+        };
         fail(error);
       }, INITIAL_RENDER_TIMEOUT_MS);
       app.renderNextFrame = true;
@@ -3937,6 +4122,8 @@ class PlayCanvasSogViewer {
         this.firstPersonTransitionPending = false;
         this.startFirstPersonNavigation(this.pc);
         await this.waitForStreamingInitialReady(asset, generation, onState);
+      } else {
+        await this.waitForInitialRender(asset, generation, onState);
       }
       
       this.app.renderNextFrame = true;
