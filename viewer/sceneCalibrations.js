@@ -34,6 +34,11 @@ const SCENE_CALIBRATION_DEFAULTS = {
       },
     },
     "dit:dit-main": {
+      cameraStart: {
+        position: [-37.84, 33.053, -0.016],
+        rotationDegrees: [-29, -89.75, 0],
+        scale: [1, 1, 1],
+      },
       spawn: {
         position: [-33.984, 25.068, 0.201],
         rotationDegrees: [21.6, -89.36, 0],

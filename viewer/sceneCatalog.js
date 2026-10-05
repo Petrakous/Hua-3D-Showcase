@@ -676,6 +676,17 @@ const LOCATION_CATALOG = {
           cutRatio: 0.2,
           cutDepthByFace: { bottom: 0.2, front: 0.27, back: 0.29 },
           cutDepthLockedByFace: { bottom: true, front: true, back: true },
+          exclusionBoxes: [
+            {
+              id: 'exclusion-1791160311887',
+              label: 'Hide box 1',
+              enabled: true,
+              position: [3.35, -1.21, -6.61],
+              rotationDegrees: [0, 19.2, 0],
+              scale: [0.98, 0.79, 0.66],
+              fadeWidth: 0.04,
+            },
+          ],
         },
         viewPreset: { distanceMultiplier: 1, yaw: 180, pitch: 12, fov: 70 },
         fpViewPreset: { cameraPosition: [0, 0, 0], target: [0, 0, 1], fov: 72 },
