@@ -118,8 +118,8 @@ const SCENE_CALIBRATION_DEFAULTS = {
         rotationDegrees: [3, 180, 0],
       },
       cameraStart: {
-        position: [-0.102, 9.845, -20.32],
-        rotationDegrees: [160.78, 0.878, -180],
+        position: [-0.033, 10.317, -16.59],
+        rotationDegrees: [153.4, 0.031, -180],
         scale: [1, 1, 1],
       },
     },
