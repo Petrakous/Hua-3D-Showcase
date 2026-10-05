@@ -1,18 +1,33 @@
 const SCENE_CALIBRATION_DEFAULTS = {
   streamedTransforms: {
     "outdoors:day": {
+      cameraStart: {
+        position: [153.4, 112.26, 0.622],
+        rotationDegrees: [-31.4, 89.668, 0],
+        scale: [1, 1, 1],
+      },
       spawn: {
         position: [59.732, 30.427, -0.083],
         rotationDegrees: [28.82, 89.14, 0],
       },
     },
     "outdoors:dusk": {
+      cameraStart: {
+        position: [153.4, 112.26, 0.622],
+        rotationDegrees: [-31.4, 89.668, 0],
+        scale: [1, 1, 1],
+      },
       spawn: {
         position: [59.732, 30.427, -0.083],
         rotationDegrees: [28.82, 89.14, 0],
       },
     },
     "outdoors:night": {
+      cameraStart: {
+        position: [153.4, 112.26, 0.622],
+        rotationDegrees: [-31.4, 89.668, 0],
+        scale: [1, 1, 1],
+      },
       spawn: {
         position: [59.732, 30.427, -0.083],
         rotationDegrees: [28.82, 89.14, 0],
