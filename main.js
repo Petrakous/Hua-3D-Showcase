@@ -1,9 +1,9 @@
-import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261005streamready1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261005streamready1";
+import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261005streamready2";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261005streamready2";
 import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261005calibration1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261005calibration1";
 import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261005calibration1";
-import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261005streamready1";
+import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261005streamready2";
 import { logger, setLoggerContextProvider } from "./viewer/logger.js";
 import {
   initAnalytics,
@@ -1387,7 +1387,6 @@ const CAMPUS_INDOOR_BUILDINGS = [
     id: "geo",
     label: "Geo",
     spaces: [
-      { id: "entrance", label: "Entrance", sceneId: "geo-entrance" },
       { id: "lab-3-3", label: "Lab 3.3", sceneId: "geo3-3" },
       { id: "systasis", label: "Systasis", sceneId: "systasis" },
       { id: "fitness", label: "Fitness", sceneId: "fitness" },
@@ -1398,6 +1397,7 @@ const CAMPUS_INDOOR_BUILDINGS = [
     id: "library",
     label: "Library",
     spaces: [
+      { id: "entrance", label: "Entrance", sceneId: "geo-entrance" },
       { id: "library", label: "Library", sceneId: "library" },
     ],
   },
@@ -3689,6 +3689,7 @@ async function activateSplatAsset(asset, swapId, options = {}) {
       ...asset,
       src: resolvedSource,
       autoRotate: turntableEnabled,
+      firstPersonNavigationMode: asset.streamingEnabled ? activeFpNavigationMode : undefined,
       // Streamed outdoor scenes without a calibrated spawn use this pose as
       // their safe initial FP entry point.
       transitionOrbitState: pendingSogModeTransitionOrbitState,

@@ -2287,6 +2287,7 @@ class PlayCanvasSogViewer {
           fov: this.camera?.camera?.fov ?? 90,
         },
       });
+      this.fpNavigationController.setFlyCollisionIgnored(this.flyCollisionIgnored);
     } else {
       this.fpNavigationController.setCollision(this.fpCollision);
       this.fpNavigationController.setFlyCollisionIgnored(this.flyCollisionIgnored);
@@ -3869,12 +3870,12 @@ class PlayCanvasSogViewer {
         }
         this.frameReadyHandler = null;
         const streamingState = this.streamingState;
+        this.setStreamingLodRange(
+          streamingState.targetLodRangeMin,
+          streamingState.targetLodRangeMax
+        );
         requestAnimationFrame(() => {
           if (!streamingState || this.streamingState !== streamingState || !this.app) return;
-          this.setStreamingLodRange(
-            streamingState.targetLodRangeMin,
-            streamingState.targetLodRangeMax
-          );
           streamingState.coarseFirstPending = false;
           this.app.renderNextFrame = true;
         });
@@ -3900,6 +3901,7 @@ class PlayCanvasSogViewer {
       sawPostRender: false,
       readyFrameCount: 0,
       visibleFrameCount: 0,
+      visibilityConfirmed: false,
       lastVisibility: null,
       lastLoadingCount: null,
       bestLoadingCount: null,
@@ -3979,7 +3981,7 @@ class PlayCanvasSogViewer {
         if (
           !state.sawReadyFrame ||
           !state.sawPostRender ||
-          state.visibleFrameCount < VISIBLE_FRAME_CONFIRMATION_COUNT
+          !state.visibilityConfirmed
         ) {
           return false;
         }
@@ -4075,6 +4077,9 @@ class PlayCanvasSogViewer {
         state.visibleFrameCount = state.lastVisibility.visible
           ? state.visibleFrameCount + 1
           : 0;
+        if (state.visibleFrameCount >= VISIBLE_FRAME_CONFIRMATION_COUNT) {
+          state.visibilityConfirmed = true;
+        }
         if (state.visibleFrameCount < VISIBLE_FRAME_CONFIRMATION_COUNT) {
           app.renderNextFrame = true;
         }
@@ -4346,6 +4351,7 @@ class PlayCanvasSogViewer {
 
   async load(asset, profile = { maxDpr: 1.05 }, onState) {
     this.flyCollisionIgnored = asset?.flyCollisionIgnored === true;
+    this.fpNavigationMode = asset?.firstPersonNavigationMode === "fly" ? "fly" : "walk";
     if (this.app && this.pc && this.splatEntity && this.currentAsset?.key === asset.key) {
       const generation = ++this.loadGeneration;
       this.disposed = false;
@@ -4428,6 +4434,7 @@ class PlayCanvasSogViewer {
 
     this.dispose();
     this.flyCollisionIgnored = asset?.flyCollisionIgnored === true;
+    this.fpNavigationMode = asset?.firstPersonNavigationMode === "fly" ? "fly" : "walk";
     const generation = ++this.loadGeneration;
     this.disposed = false;
 

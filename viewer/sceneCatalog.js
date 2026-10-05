@@ -612,7 +612,7 @@ const LOCATION_CATALOG = {
           cutDepthLockedByFace: { left: true, right: true, front: true, back: true, top: true, bottom: true },
         },
       }),
-      createIndoorScene('geo-entrance', 'GEO Entrance', null, {
+      createIndoorScene('geo-entrance', 'Library Entrance', null, {
         src: resolveManifestAsset('geo-entrance', 'sog-source', './PLYs/Geo Entrance/source.sog'),
         thumbnail: './assets/thumbnails/geo-entrance.webp',
         performanceSources: createManifestSogPerformanceSources('geo-entrance', 'Geo Entrance'),

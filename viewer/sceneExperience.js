@@ -429,15 +429,15 @@ const SCENE_EXPERIENCES = {
   },
   "geo-entrance": {
     id: "geo-entrance",
-    title: "GEO Entrance",
-    subtitle: "GEO building entrance",
-    description: "The entrance and shared circulation area of the GEO building, which connects spaces including Lab 3.3, Systasis and Fitness.",
+    title: "Library Entrance",
+    subtitle: "Library entrance",
+    description: "The entrance and shared circulation area of the Harokopio University Library.",
     category: "indoor",
     group: "campus",
     defaults: { format: "sog", firstPersonMode: "fly" },
     navigation: { orbit: true, walk: false, fly: true, tapToMove: false, collision: false, flyIgnoresCollision: true, defaultMode: "fly" },
     performance: { weight: "heavy", mobileQuality: "web", desktopQuality: "hd" },
-    loading: { title: "GEO Entrance", message: "Loading the GEO building entrance..." }
+    loading: { title: "Library Entrance", message: "Loading the university library entrance..." }
   },
   "ceremonial-hall": {
     id: "ceremonial-hall",
