@@ -16,11 +16,8 @@ const AUTO_ROTATE_DEGREES_PER_SECOND = 6;
 const MODEL_VIEWER_PAN_SENSITIVITY = 0.018;
 const DEFAULT_ORBIT_MIN_DISTANCE = 0.2;
 const DEFAULT_ORBIT_MAX_DISTANCE = 200;
-const STREAMING_READY_TIMEOUT_MS = 22000;
 const STREAMING_STALL_WARNING_MS = 9000;
-const STREAMING_SAFE_REMAINING_LOADS = 16;
-const STREAMING_SAFE_READY_FRAMES = 2;
-const STREAMING_MIN_READY_MS = 2500;
+const STREAMING_READY_STALL_TIMEOUT_MS = 120000;
 // SOG downloads have no fixed total deadline. Only fail when the transfer has
 // made no progress for two full minutes, so slow but active connections can
 // keep loading for as long as they need.
@@ -1250,6 +1247,7 @@ class PlayCanvasSogViewer {
     this.fpCollision = null;
     this.collisionPreviewEntity = null;
     this.collisionPreviewAsset = null;
+    this.collisionPreviewLoading = false;
     this.collisionPreviewTransform = null;
     this.sceneTransform = null;
     this.collisionPreviewVisible = false;
@@ -1721,6 +1719,26 @@ class PlayCanvasSogViewer {
   setCollisionPreviewVisible(visible) {
     this.collisionPreviewVisible = visible === true;
     if (this.collisionPreviewEntity) this.collisionPreviewEntity.enabled = this.collisionPreviewVisible;
+    if (
+      this.collisionPreviewVisible &&
+      !this.collisionPreviewEntity &&
+      !this.collisionPreviewLoading &&
+      this.currentAsset?.streamingEnabled &&
+      this.currentAsset?.fpCollisionRuntimeDisabled &&
+      this.currentAsset?.fpCollisionSource
+    ) {
+      const generation = this.loadGeneration;
+      this.collisionPreviewLoading = true;
+      this.loadCollisionPreview(this.currentAsset, generation).catch((error) => {
+        if (this.isLoadCurrent(generation)) {
+          logger.warn("sog-loader", "On-demand collision preview failed", {
+            source: this.currentAsset?.fpCollisionSource || null,
+          }, error);
+        }
+      }).finally(() => {
+        this.collisionPreviewLoading = false;
+      });
+    }
     if (this.app) this.app.renderNextFrame = true;
   }
 
@@ -2426,6 +2444,7 @@ class PlayCanvasSogViewer {
     if (
       !asset?.streamingEnabled ||
       !asset?.fpCollisionSource ||
+      asset?.fpCollisionRuntimeDisabled ||
       asset?.fpCollisionStrategy === "box" ||
       !this.app ||
       !this.pc
@@ -3822,6 +3841,7 @@ class PlayCanvasSogViewer {
       lodRangeMax: targetRangeMax,
       targetLodRangeMin: targetRangeMin,
       targetLodRangeMax: targetRangeMax,
+      coarseFirstPending: false,
     };
 
     this.app.scene.gsplat.splatBudget = this.streamingState.splatBudget;
@@ -3832,6 +3852,7 @@ class PlayCanvasSogViewer {
     const coarseFirst = settings.coarseFirst !== false && lodLevels > 1;
     if (coarseFirst) {
       const worstLod = lodLevels - 1;
+      this.streamingState.coarseFirstPending = true;
       this.setStreamingLodRange(worstLod, worstLod);
 
       this.frameReadyHandler = (_camera, _layer, ready, loadingCount) => {
@@ -3847,10 +3868,16 @@ class PlayCanvasSogViewer {
           this.app.systems.gsplat.off("frame:ready", this.frameReadyHandler);
         }
         this.frameReadyHandler = null;
-        this.setStreamingLodRange(
-          this.streamingState.targetLodRangeMin,
-          this.streamingState.targetLodRangeMax
-        );
+        const streamingState = this.streamingState;
+        requestAnimationFrame(() => {
+          if (!streamingState || this.streamingState !== streamingState || !this.app) return;
+          this.setStreamingLodRange(
+            streamingState.targetLodRangeMin,
+            streamingState.targetLodRangeMax
+          );
+          streamingState.coarseFirstPending = false;
+          this.app.renderNextFrame = true;
+        });
       };
 
       this.app.systems?.gsplat?.on?.("frame:ready", this.frameReadyHandler);
@@ -3876,6 +3903,9 @@ class PlayCanvasSogViewer {
       lastVisibility: null,
       lastLoadingCount: null,
       bestLoadingCount: null,
+      maxLoadingCount: null,
+      bestVisiblePixels: 0,
+      lastProgressAt: (typeof performance !== "undefined" ? performance.now() : Date.now()),
       cleanupFns: [],
       timeoutId: null,
       warningId: null,
@@ -3945,9 +3975,6 @@ class PlayCanvasSogViewer {
         reject(error);
       };
 
-      const getElapsedMs = () =>
-        (typeof performance !== "undefined" ? performance.now() : Date.now()) - state.startedAt;
-
       const isInitialViewSafe = () => {
         if (
           !state.sawReadyFrame ||
@@ -3956,16 +3983,10 @@ class PlayCanvasSogViewer {
         ) {
           return false;
         }
-
-        if (!Number.isFinite(state.lastLoadingCount) || state.lastLoadingCount === 0) {
-          return true;
+        if (this.streamingState?.coarseFirstPending) {
+          return false;
         }
-
-        return (
-          state.lastLoadingCount <= STREAMING_SAFE_REMAINING_LOADS &&
-          state.readyFrameCount >= STREAMING_SAFE_READY_FRAMES &&
-          getElapsedMs() >= STREAMING_MIN_READY_MS
-        );
+        return Number.isFinite(state.lastLoadingCount) && state.lastLoadingCount === 0;
       };
 
       const maybeFinish = () => {
@@ -3991,23 +4012,44 @@ class PlayCanvasSogViewer {
           return;
         }
 
+        const previousLoadingCount = state.lastLoadingCount;
         state.lastLoadingCount = Number.isFinite(loadingCount) ? loadingCount : null;
         if (Number.isFinite(loadingCount)) {
           state.bestLoadingCount = Number.isFinite(state.bestLoadingCount)
             ? Math.min(state.bestLoadingCount, loadingCount)
             : loadingCount;
+          state.maxLoadingCount = Number.isFinite(state.maxLoadingCount)
+            ? Math.max(state.maxLoadingCount, loadingCount)
+            : loadingCount;
+          if (!Number.isFinite(previousLoadingCount) || previousLoadingCount !== loadingCount) {
+            state.lastProgressAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+            resetStallTimeout();
+          }
         }
         if (Number.isFinite(loadingCount) && loadingCount > 0) {
+          const initialCount = Math.max(loadingCount, state.maxLoadingCount || loadingCount);
+          const completedRatio = initialCount > 0
+            ? Math.max(0, Math.min(1, (initialCount - loadingCount) / initialCount))
+            : 0;
           onState?.({
             status: "loading",
             title: "Preparing streamed LOD",
             message: `Loading Explore tiles (${loadingCount} remaining)...`,
-            progress: 0.76,
+            progress: 0.74 + completedRatio * 0.16,
             details: {
               loading_count: loadingCount,
+              initial_loading_count: initialCount,
               lod_range_min: this.streamingState?.lodRangeMin ?? null,
               lod_range_max: this.streamingState?.lodRangeMax ?? null,
             },
+          });
+        } else if (loadingCount === 0 && state.visibleFrameCount < VISIBLE_FRAME_CONFIRMATION_COUNT) {
+          onState?.({
+            status: "loading",
+            title: "Rendering Explore view",
+            message: "All Explore tiles are loaded. Rendering the complete first view...",
+            progress: 0.91,
+            details: { loading_count: 0 },
           });
         }
 
@@ -4025,6 +4067,11 @@ class PlayCanvasSogViewer {
         }
         state.sawPostRender = true;
         state.lastVisibility = inspectRenderedSogPixels(app.graphicsDevice?.gl, this.canvas);
+        if ((state.lastVisibility?.visiblePixels || 0) > state.bestVisiblePixels) {
+          state.bestVisiblePixels = state.lastVisibility.visiblePixels;
+          state.lastProgressAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+          resetStallTimeout();
+        }
         state.visibleFrameCount = state.lastVisibility.visible
           ? state.visibleFrameCount + 1
           : 0;
@@ -4062,7 +4109,7 @@ class PlayCanvasSogViewer {
           required_visible_bands: state.lastVisibility?.requiredBands ?? null,
           required_visible_center_bands: state.lastVisibility?.requiredCenterBands ?? null,
           visibility_probe_supported: state.lastVisibility?.supported ?? null,
-          safe_remaining_loads: STREAMING_SAFE_REMAINING_LOADS,
+          required_remaining_loads: 0,
           lod_range_min: this.streamingState?.lodRangeMin ?? null,
           lod_range_max: this.streamingState?.lodRangeMax ?? null,
         };
@@ -4076,7 +4123,9 @@ class PlayCanvasSogViewer {
         });
       }, STREAMING_STALL_WARNING_MS);
 
-      state.timeoutId = setTimeout(() => {
+      const resetStallTimeout = () => {
+        if (state.timeoutId) clearTimeout(state.timeoutId);
+        state.timeoutId = setTimeout(() => {
         if (
           settled ||
           state.settled ||
@@ -4100,13 +4149,20 @@ class PlayCanvasSogViewer {
           required_visible_bands: state.lastVisibility?.requiredBands ?? null,
           required_visible_center_bands: state.lastVisibility?.requiredCenterBands ?? null,
           visibility_probe_supported: state.lastVisibility?.supported ?? null,
-          safe_remaining_loads: STREAMING_SAFE_REMAINING_LOADS,
+          required_remaining_loads: 0,
           frame_ready: state.sawReadyFrame,
           postrender_seen: state.sawPostRender,
+          stalled_ms: STREAMING_READY_STALL_TIMEOUT_MS,
+          last_progress_ms_ago: Math.max(
+            0,
+            (typeof performance !== "undefined" ? performance.now() : Date.now()) - state.lastProgressAt
+          ),
         };
         fail(error);
-      }, STREAMING_READY_TIMEOUT_MS);
+        }, STREAMING_READY_STALL_TIMEOUT_MS);
+      };
 
+      resetStallTimeout();
       app.renderNextFrame = true;
     });
   }
@@ -4289,6 +4345,7 @@ class PlayCanvasSogViewer {
   }
 
   async load(asset, profile = { maxDpr: 1.05 }, onState) {
+    this.flyCollisionIgnored = asset?.flyCollisionIgnored === true;
     if (this.app && this.pc && this.splatEntity && this.currentAsset?.key === asset.key) {
       const generation = ++this.loadGeneration;
       this.disposed = false;
@@ -4348,7 +4405,7 @@ class PlayCanvasSogViewer {
       this.activeManualBoxConfig = this.cloneManualBoxConfig(asset.manualBox) || this.activeManualBoxConfig;
       this.activeFpCollisionBoxConfig = this.cloneManualBoxConfig(asset.fpCollisionBox || asset.manualBox) || this.activeFpCollisionBoxConfig;
       this.currentCutawayBoxConfig = null;
-      this.fpCollision = asset.streamingEnabled
+      this.fpCollision = asset.streamingEnabled && !asset.fpCollisionRuntimeDisabled
         ? (this.fpCollision || this.createFallbackBoxCollision(this.pc, splatEntity, this.activeFpCollisionBoxConfig || this.activeManualBoxConfig))
         : null;
       this.syncCutawayState(this.pc, { immediate: true });
@@ -4370,6 +4427,7 @@ class PlayCanvasSogViewer {
     }
 
     this.dispose();
+    this.flyCollisionIgnored = asset?.flyCollisionIgnored === true;
     const generation = ++this.loadGeneration;
     this.disposed = false;
 
@@ -4595,10 +4653,10 @@ class PlayCanvasSogViewer {
     if (!this.activeFpCollisionBoxConfig) {
       this.activeFpCollisionBoxConfig = this.cloneManualBoxConfig(this.activeManualBoxConfig);
     }
-    this.fpCollision = preparedAsset.streamingEnabled
+    this.fpCollision = preparedAsset.streamingEnabled && !preparedAsset.fpCollisionRuntimeDisabled
       ? (this.fpCollision || this.createFallbackBoxCollision(pc, splatEntity, this.activeFpCollisionBoxConfig || this.activeManualBoxConfig))
       : null;
-    if (preparedAsset.streamingEnabled) {
+    if (preparedAsset.streamingEnabled && !preparedAsset.fpCollisionRuntimeDisabled) {
       this.loadCollisionPreview(preparedAsset, generation).catch((error) => {
         if (this.isLoadCurrent(generation)) {
           logger.warn("sog-loader", "Collision preview failed", {
@@ -4765,6 +4823,7 @@ class PlayCanvasSogViewer {
       this.collisionPreviewAsset.unload();
     }
     this.collisionPreviewAsset = null;
+    this.collisionPreviewLoading = false;
     this.cutawayModifierInstalled = false;
     this.cutawayOutlineActivations = [];
     this.cutawayOutlineActivationVelocities = [];

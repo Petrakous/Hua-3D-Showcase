@@ -752,7 +752,7 @@ body[data-show-time-control="false"] .time-control-group {
 .format-stage-marker:disabled,
 .lod-marker:disabled,
 .nav-marker:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.72;
 }
 

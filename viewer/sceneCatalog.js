@@ -206,6 +206,7 @@ function createSplatAsset(src, options = {}) {
     streamingSource: options.streamingSource || null,
     fpCollisionSource: options.fpCollisionSource || null,
     fpCollisionStrategy: options.fpCollisionStrategy || null,
+    fpCollisionRuntimeDisabled: options.fpCollisionRuntimeDisabled === true,
     maxOrbitDistance: options.maxOrbitDistance || null,
     autoRotate: options.autoRotate !== false,
     cutawayEnabled: options.cutawayEnabled !== false,
@@ -304,6 +305,7 @@ function createIndoorScene(id, label, glbSrc = null, sogOptions = null) {
             fpViewPreset: sogOptions.fpViewPreset || null,
             fpCollisionSource: sogOptions.fpCollisionSource || glbSrc || null,
             fpCollisionStrategy: sogOptions.fpCollisionStrategy || (sogOptions.manualBox ? 'box' : null),
+            fpCollisionRuntimeDisabled: sogOptions.fpCollisionRuntimeDisabled === true,
             cutawayEnabled: sogOptions.cutawayEnabled !== false,
           }),
         } : {}),
@@ -618,6 +620,7 @@ const LOCATION_CATALOG = {
         streamingSource: createManifestSogStreamingSource('geo-entrance', 'Geo Entrance'),
         fpCollisionSource: resolveManifestAsset('geo-entrance', 'collision', './collision-assets/geo-entrance/collision.glb'),
         fpCollisionStrategy: 'mesh',
+        fpCollisionRuntimeDisabled: true,
         rotationDegrees: [0, 0, 0],
         manualBox: withGeneratedCutaway('geo-entrance', {
           position: [0.0076, -0.0242, -0.5343],
@@ -637,6 +640,7 @@ const LOCATION_CATALOG = {
         streamingSource: createManifestSogStreamingSource('ceremonial-hall', 'Ceremonial Hall'),
         fpCollisionSource: resolveManifestAsset('ceremonial-hall', 'collision', './collision-assets/ceremonial-hall/collision.glb'),
         fpCollisionStrategy: 'mesh',
+        fpCollisionRuntimeDisabled: true,
         rotationDegrees: [0, 0, 0],
         manualBox: {
           position: [-0.1, 0.1, 0.011],
@@ -663,6 +667,7 @@ const LOCATION_CATALOG = {
         streamingSource: createManifestSogStreamingSource('library', 'Library'),
         fpCollisionSource: resolveManifestAsset('library', 'collision', './collision-assets/library/collision.glb'),
         fpCollisionStrategy: 'mesh',
+        fpCollisionRuntimeDisabled: true,
         rotationDegrees: [0, 0, 0],
         manualBox: {
           position: [0.1, 0.4, -0.6],
@@ -795,6 +800,7 @@ const LOCATION_CATALOG = {
         streamingSource: createManifestSogStreamingSource('pc-lab', 'PC Lab'),
         fpCollisionSource: resolveManifestAsset('pc-lab', 'collision', './collision-assets/pc-lab/collision.glb'),
         fpCollisionStrategy: 'mesh',
+        fpCollisionRuntimeDisabled: true,
         rotationDegrees: [0, 0, 0],
         manualBox: createPcLabDraftManualBox(),
         viewPreset: { distanceMultiplier: 1, yaw: 180, pitch: 12, fov: 70 },

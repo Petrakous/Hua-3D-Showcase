@@ -56,7 +56,7 @@ const SCENE_EXPERIENCES = {
     },
     navigation: {
       orbit: true,
-      walk: true,
+      walk: false,
       fly: true,
       tapToMove: false,
       collision: true,
@@ -87,7 +87,7 @@ const SCENE_EXPERIENCES = {
     },
     navigation: {
       orbit: true,
-      walk: true,
+      walk: false,
       fly: true,
       tapToMove: false,
       collision: true,
@@ -118,7 +118,7 @@ const SCENE_EXPERIENCES = {
     },
     navigation: {
       orbit: true,
-      walk: true,
+      walk: false,
       fly: true,
       tapToMove: false,
       collision: true,
@@ -434,8 +434,8 @@ const SCENE_EXPERIENCES = {
     description: "The entrance and shared circulation area of the GEO building, which connects spaces including Lab 3.3, Systasis and Fitness.",
     category: "indoor",
     group: "campus",
-    defaults: { format: "sog", firstPersonMode: "walk" },
-    navigation: { orbit: true, walk: true, fly: true, tapToMove: true, collision: true, defaultMode: "walk" },
+    defaults: { format: "sog", firstPersonMode: "fly" },
+    navigation: { orbit: true, walk: false, fly: true, tapToMove: false, collision: false, flyIgnoresCollision: true, defaultMode: "fly" },
     performance: { weight: "heavy", mobileQuality: "web", desktopQuality: "hd" },
     loading: { title: "GEO Entrance", message: "Loading the GEO building entrance..." }
   },
@@ -446,8 +446,8 @@ const SCENE_EXPERIENCES = {
     description: "A dedicated university venue for ceremonies, presentations, events and community gatherings.",
     category: "indoor",
     group: "campus",
-    defaults: { format: "sog", firstPersonMode: "walk" },
-    navigation: { orbit: true, walk: true, fly: true, tapToMove: true, collision: true, defaultMode: "walk" },
+    defaults: { format: "sog", firstPersonMode: "fly" },
+    navigation: { orbit: true, walk: false, fly: true, tapToMove: false, collision: false, flyIgnoresCollision: true, defaultMode: "fly" },
     performance: { weight: "medium", mobileQuality: "web", desktopQuality: "hd" },
     loading: { title: "Ceremonial Hall", message: "Loading the ceremonial hall..." }
   },
@@ -458,8 +458,8 @@ const SCENE_EXPERIENCES = {
     description: "A full interior capture of the university library and its shared study environment.",
     category: "indoor",
     group: "campus",
-    defaults: { format: "sog", firstPersonMode: "walk" },
-    navigation: { orbit: true, walk: true, fly: true, tapToMove: true, collision: true, defaultMode: "walk" },
+    defaults: { format: "sog", firstPersonMode: "fly" },
+    navigation: { orbit: true, walk: false, fly: true, tapToMove: false, collision: false, flyIgnoresCollision: true, defaultMode: "fly" },
     performance: { weight: "heavy", mobileQuality: "web", desktopQuality: "hd" },
     loading: { title: "Library", message: "Loading the university library..." }
   },
@@ -470,8 +470,8 @@ const SCENE_EXPERIENCES = {
     description: "A computer laboratory on the second floor of the DIT building, captured with its workstations and teaching layout in place.",
     category: "lab",
     group: "dit",
-    defaults: { format: "sog", firstPersonMode: "walk" },
-    navigation: { orbit: true, walk: true, fly: true, tapToMove: true, collision: true, defaultMode: "walk" },
+    defaults: { format: "sog", firstPersonMode: "fly" },
+    navigation: { orbit: true, walk: false, fly: true, tapToMove: false, collision: false, flyIgnoresCollision: true, defaultMode: "fly" },
     performance: { weight: "medium", mobileQuality: "web", desktopQuality: "hd" },
     loading: { title: "PC Lab", message: "Loading the DIT computer laboratory..." }
   }
