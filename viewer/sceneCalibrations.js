@@ -208,6 +208,11 @@ const SCENE_CALIBRATION_DEFAULTS = {
       },
     },
     "indoors:metabolism": {
+      overviewScene: {
+        position: [0, 0, 0],
+        rotationDegrees: [180, 0, 0],
+        scale: [1, 1, 1],
+      },
       scene: {
         position: [0, 0, 0],
         rotationDegrees: [0, 0, 0],

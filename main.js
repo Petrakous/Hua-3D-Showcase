@@ -1,6 +1,6 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261005ditlibrary1";
 import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261005streamready2";
-import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261005ditlibrary1";
+import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261005formatgates1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261005calibration1";
 import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261005calibration1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261005streamready2";
@@ -2130,21 +2130,32 @@ function getAvailableFormats() {
   return formats;
 }
 
+function isFormatSelectable(format, availableFormats = getAvailableFormats()) {
+  if (!availableFormats.includes(format)) {
+    return false;
+  }
+
+  return format !== "glb" || calibrationUiUnlocked;
+}
+
 function normalizeActiveFormat() {
   const availableFormats = getAvailableFormats();
-  if (!availableFormats.length) {
+  const selectableFormats = availableFormats.filter((format) =>
+    isFormatSelectable(format, availableFormats)
+  );
+  if (!selectableFormats.length) {
     activeFormat = "glb";
     return;
   }
 
-  if (availableFormats.includes(activeFormat)) {
+  if (selectableFormats.includes(activeFormat)) {
     return;
   }
 
-  if (availableFormats.includes(DEFAULT_FORMAT)) {
+  if (selectableFormats.includes(DEFAULT_FORMAT)) {
     activeFormat = DEFAULT_FORMAT;
   } else {
-    activeFormat = getDefaultFormat() || availableFormats[0] || "glb";
+    activeFormat = selectableFormats[0] || "glb";
   }
 }
 
@@ -2159,7 +2170,7 @@ function normalizeActiveQuality() {
 function getFpNavigationModesForAsset(asset) {
   const sceneId = asset?.sceneId || (asset?.locationId === "outdoors" ? `campus-${activeTimeStage}` : null);
   const exp = sceneId ? resolveSceneExperience(sceneId) : null;
-  const hasWalk = exp ? exp.navigation.walk : !!asset?.streamingEnabled;
+  const hasWalk = calibrationUiUnlocked && !!asset?.streamingEnabled;
   const hasFly = exp ? exp.navigation.fly : !!asset?.streamingEnabled;
   const modes = [];
   if (hasWalk) modes.push("walk");
@@ -3211,12 +3222,15 @@ function renderFpNavMarkers() {
     return;
   }
 
-  fpNavMarkers.innerHTML = modes
+  const displayedModes = ["walk", ...modes.filter((mode) => mode !== "walk")];
+  fpNavMarkers.innerHTML = displayedModes
     .map((mode) => `
       <button
         class="location-stage-marker"
         data-fp-navigation-mode="${mode}"
         data-active="${String(mode === activeFpNavigationMode)}"
+        aria-disabled="${String(!modes.includes(mode))}"
+        ${modes.includes(mode) ? "" : "disabled"}
         type="button"
       >${mode === "walk" ? "Walk" : "Fly"}</button>
     `)
@@ -3225,7 +3239,7 @@ function renderFpNavMarkers() {
   for (const button of fpNavMarkers.querySelectorAll(".location-stage-marker")) {
     button.addEventListener("click", () => {
       const mode = button.dataset.fpNavigationMode;
-      if (!mode || mode === activeFpNavigationMode) {
+      if (!mode || !modes.includes(mode) || mode === activeFpNavigationMode) {
         return;
       }
 
@@ -3301,7 +3315,13 @@ function updateLodToggle() {
 
 function renderFormatMarkers() {
   const availableFormats = getAvailableFormats();
-  const shouldShowFormatControl = availableFormats.length > 1;
+  const displayedFormats = sortFormats([
+    ...new Set([
+      ...availableFormats,
+      ...(availableFormats.includes("sog") ? ["glb"] : []),
+    ]),
+  ]);
+  const shouldShowFormatControl = displayedFormats.length > 1;
   formatControl.hidden = !shouldShowFormatControl;
 
   if (!shouldShowFormatControl) {
@@ -3309,12 +3329,14 @@ function renderFormatMarkers() {
     return;
   }
 
-  formatStageMarkers.innerHTML = availableFormats
+  formatStageMarkers.innerHTML = displayedFormats
     .map((format) => `
       <button
         class="format-stage-marker"
         data-format="${format}"
         data-active="${String(format === activeFormat)}"
+        aria-disabled="${String(!isFormatSelectable(format, availableFormats))}"
+        ${isFormatSelectable(format, availableFormats) ? "" : "disabled"}
         type="button"
       >${FORMAT_LABELS[format] || format.toUpperCase()}</button>
     `)
@@ -3323,7 +3345,7 @@ function renderFormatMarkers() {
   for (const button of formatStageMarkers.querySelectorAll(".format-stage-marker")) {
     button.addEventListener("click", () => {
       const format = button.dataset.format;
-      if (!format || format === activeFormat) {
+      if (!format || !isFormatSelectable(format, availableFormats) || format === activeFormat) {
         return;
       }
 
@@ -4055,7 +4077,7 @@ async function setActiveSpace(spaceId) {
 
 async function setActiveFormat(format) {
   const availableFormats = getAvailableFormats();
-  if (!availableFormats.includes(format) || format === activeFormat) {
+  if (!isFormatSelectable(format, availableFormats) || format === activeFormat) {
     return;
   }
 
@@ -4108,7 +4130,9 @@ async function setActiveSogMode(mode) {
 }
 
 function setActiveFpNavigationMode(mode) {
-  if (!["walk", "fly"].includes(mode) || mode === activeFpNavigationMode) {
+  const asset = currentActiveAsset?.type === "splat" ? currentActiveAsset : getActiveAssetDescriptor();
+  const { modes } = getFpNavigationModesForAsset(asset);
+  if (!modes.includes(mode) || mode === activeFpNavigationMode) {
     return;
   }
 
