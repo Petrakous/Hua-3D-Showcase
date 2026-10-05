@@ -1356,6 +1356,26 @@ class PlayCanvasSogViewer {
     };
   }
 
+  resolveOrbitStateFromCameraTransform(pc, fallbackTarget, transform) {
+    const position = new pc.Vec3(...transform.position);
+    if (transform.useRotation !== true || !transform.rotationDegrees) {
+      return this.resolveOrbitStateFromCamera(pc, fallbackTarget, position);
+    }
+
+    // Preserve this explicitly authored camera direction without recreating
+    // the old one-unit orbit target that made the camera rotate around itself.
+    const targetDistance = Math.max(position.distance(fallbackTarget), 0.001);
+    const rotation = new pc.Quat().setFromEulerAngles(...transform.rotationDegrees);
+    const forward = new pc.Vec3(0, 0, -1);
+    rotation.transformVector(forward, forward);
+    if (forward.lengthSq() <= 1e-8) {
+      return this.resolveOrbitStateFromCamera(pc, fallbackTarget, position);
+    }
+
+    const target = position.clone().add(forward.normalize().mulScalar(targetDistance));
+    return this.resolveOrbitStateFromCamera(pc, target, position);
+  }
+
   resolveOrbitState(pc, asset, entity, localBoundsCenter, boundsRadius) {
     const viewPreset = asset.viewPreset || {};
     const manualBox = asset.streamingEnabled ? asset.manualBox : null;
@@ -1372,13 +1392,12 @@ class PlayCanvasSogViewer {
 
     if (asset.cameraStartOverride?.position) {
       const transform = asset.cameraStartOverride;
-      const position = new pc.Vec3(...transform.position);
       this.cameraStartTransform = {
         position: [...transform.position],
         rotationDegrees: [...(transform.rotationDegrees || [0, 0, 0])],
         scale: [1, 1, 1],
       };
-      return this.resolveOrbitStateFromCamera(pc, target, position);
+      return this.resolveOrbitStateFromCameraTransform(pc, target, transform);
     }
 
     if (viewPreset.cameraPosition) {

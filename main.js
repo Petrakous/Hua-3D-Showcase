@@ -1,6 +1,6 @@
 import { LOCATION_CATALOG } from "./viewer/sceneCatalog.js?v=20261005ditlibrary1";
-import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261005streamready2";
-import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261005amphcamera1";
+import { PlayCanvasSogViewer } from "./viewer/playCanvasSogViewer.js?v=20261005amphrotation1";
+import { SCENE_CALIBRATION_DEFAULTS, installSceneCalibrationExportHelper } from "./viewer/sceneCalibrations.js?v=20261005amphrotation1";
 import { cloneCutawayOutline, cloneSurfaceCullingConfig, getCutawayOutlineLevels, normalizeSplatExclusionBoxes, normalizeSplatPatches } from "./viewer/cutawayOutline.js?v=20261005calibration1";
 import { createCutawayEditor } from "./viewer/cutawayEditor.js?v=20261005calibration1";
 import { resolveSceneExperience, getCategoryLabel } from "./viewer/sceneExperience.js?v=20261005streamready2";
@@ -1191,6 +1191,7 @@ function cloneManualBoxConfig(config) {
     position: [...(config.position || [0, 0, 0])],
     rotationDegrees: [...(config.rotationDegrees || [0, 0, 0])],
     scale: [...(config.scale || [1, 1, 1])],
+    ...(config.useRotation === true ? { useRotation: true } : {}),
     cutRatio: Number.isFinite(config.cutRatio) ? config.cutRatio : 0.2,
     cutFadeWidth: Number.isFinite(config.cutFadeWidth) ? config.cutFadeWidth : undefined,
     cutDepthByFace: config.cutDepthByFace ? { ...config.cutDepthByFace } : undefined,
@@ -1316,6 +1317,7 @@ function applyCalibrationOverrideToAsset(asset) {
         updatedAsset.cameraStartOverride = {
           position: streamedOverride.cameraStart.position,
           rotationDegrees: streamedOverride.cameraStart.rotationDegrees,
+          useRotation: streamedOverride.cameraStart.useRotation === true,
         };
         updatedAsset.fpViewPreset = {
           ...(updatedAsset.fpViewPreset || {}),
